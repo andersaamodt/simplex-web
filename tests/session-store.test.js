@@ -1,0 +1,76 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const store = require('../src/session-store.js');
+
+function makeStorage() {
+  const values = new Map();
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+    removeItem(key) {
+      values.delete(key);
+    }
+  };
+}
+
+test('session store writes and reads bounded chat state', () => {
+  const storage = makeStorage();
+  const messages = [];
+  for (let i = 1; i <= 60; i += 1) {
+    messages.push({
+      seq: i,
+      direction: i % 2 === 0 ? 'incoming' : 'outgoing',
+      text: `message-${i}`,
+      delivery_status: 'sent',
+      created_at: `local-${String(i).padStart(4, '0')}`
+    });
+  }
+  const uploads = [];
+  for (let i = 1; i <= 25; i += 1) {
+    uploads.push({ upload_id: `upl-${i}`, name: `file-${i}.txt`, status: 'complete', progress: 100 });
+  }
+
+  const written = store.writeSession(storage, 'new.andersaamodt.com/contact', 'npub1example', {
+    draftText: 'draft text',
+    lastSeq: 60,
+    messages,
+    uploads
+  });
+  const roundTrip = store.readSession(storage, 'new.andersaamodt.com/contact', 'npub1example');
+
+  assert.equal(written.messages.length, store.MAX_MESSAGES);
+  assert.equal(written.messages[0].seq, 11);
+  assert.equal(roundTrip.messages.length, store.MAX_MESSAGES);
+  assert.equal(roundTrip.messages[0].seq, 11);
+  assert.equal(roundTrip.messages[roundTrip.messages.length - 1].seq, 60);
+  assert.equal(roundTrip.uploads.length, store.MAX_UPLOADS);
+  assert.equal(roundTrip.uploads[0].upload_id, 'upl-6');
+  assert.equal(roundTrip.draftText, 'draft text');
+  assert.equal(roundTrip.lastSeq, 60);
+  assert.match(roundTrip.savedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('session store tolerates invalid JSON and hostile keys', () => {
+  const storage = makeStorage();
+  const key = store.buildStorageKey('../Local Host', 'NPUB1 Example/../../');
+  storage.setItem(key, '{not valid json');
+
+  const session = store.readSession(storage, '../Local Host', 'NPUB1 Example/../../');
+  assert.equal(session.messages.length, 0);
+  assert.equal(session.uploads.length, 0);
+  assert.equal(session.draftText, '');
+  assert.equal(key, 'simplex-web-session-v1:local-host:npub1-example');
+});
+
+test('session store can clear a saved session', () => {
+  const storage = makeStorage();
+  store.writeSession(storage, 'site', 'account', { draftText: 'hello' });
+  assert.equal(store.readSession(storage, 'site', 'account').draftText, 'hello');
+  assert.equal(store.clearSession(storage, 'site', 'account'), true);
+  assert.equal(store.readSession(storage, 'site', 'account').draftText, '');
+});

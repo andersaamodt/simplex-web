@@ -4,6 +4,7 @@
 
 Current scope:
 - Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
+- Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
 - Includes a minimal Haskell-to-wasm reactor smoke test so browser-targeted Haskell can be validated honestly instead of hand-waved.
 - Includes a Haskell-owned browser chat-state core with JS-string exports and a browser demo mounted on the default Secure Chat UI.
 - Uses the Secure Chat interface from `nostr-blog` as the default/example presentation layer.
@@ -21,8 +22,10 @@ The reason the protocol core is not here yet is architectural, not branding: the
 
 - `src/default-chat.js`: default/example chat renderer and DOM mount helper.
 - `src/default-chat.css`: default/example chat styles extracted from the current `nostr-blog` contact chat.
+- `src/session-store.js`: bounded browser-local persistence helpers for per-user secure-chat session state.
 - `examples/mock-chat.html`: runnable browser example with a mocked chat state.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
+- `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.

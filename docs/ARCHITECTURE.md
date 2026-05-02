@@ -8,6 +8,7 @@
 - message/status presentation
 - upload progress presentation
 - framework-free DOM mounting and event delegation
+- bounded browser-local persistence for per-user chat continuity on the same browser/device
 - UI callback surface for login, send, file-select, and admin actions
 - Haskell-managed local chat state transitions exposed through browser-callable wasm exports
 
@@ -31,6 +32,7 @@ That means a truthful browser-native client needs new work in:
 Until that exists, the safest thing this repo can ship honestly is:
 
 - the browser shell and integration boundary
+- browser-local chat continuity that does not require the server to retain plaintext history
 - Haskell-owned local chat state
 - a host contract that proves Haskell/browser interop is workable before transport is attempted
 
