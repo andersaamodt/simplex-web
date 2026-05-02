@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>simplex-web Haskell core chat</title>
+    <link rel="stylesheet" href="../src/default-chat.css">
+    <style>
+      body {
+        margin: 0;
+        padding: 2.5rem 1.25rem 4rem;
+        font: 16px/1.5 Georgia, serif;
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), rgba(244, 239, 225, 0.7) 40%, rgba(233, 223, 197, 0.65)),
+          linear-gradient(180deg, #efe5ce 0%, #f6f1e5 55%, #f1ead8 100%);
+        color: #1d2433;
+      }
+
+      .demo-shell {
+        max-width: 48rem;
+        margin: 0 auto;
+      }
+
+      .demo-shell h1 {
+        margin: 0 0 0.75rem;
+        font-size: clamp(2rem, 4vw, 3rem);
+      }
+
+      .demo-shell p {
+        margin: 0 0 1rem;
+      }
+
+      .demo-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin: 1rem 0 1.25rem;
+      }
+
+      .demo-controls button {
+        border: 1px solid rgba(187, 141, 74, 0.5);
+        border-radius: 999px;
+        padding: 0.55rem 0.95rem;
+        background: rgba(255, 250, 240, 0.9);
+        color: #21304b;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .demo-controls button:hover {
+        background: rgba(255, 245, 225, 0.98);
+      }
+
+      .demo-status {
+        margin: 0 0 1rem;
+        color: #5a6480;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="demo-shell">
+      <h1>simplex-web Haskell core chat</h1>
+      <p>This example mounts the existing Secure Chat UI against a browser-loaded Haskell state core.</p>
+      <div class="demo-controls">
+        <button id="simulate-reply" type="button">Simulate reply</button>
+        <button id="mark-delivered" type="button">Mark first delivered</button>
+        <button id="queue-upload" type="button">Queue upload</button>
+        <button id="reset-chat" type="button">Reset state</button>
+      </div>
+      <p id="demo-status" class="demo-status">Loading Haskell core…</p>
+      <div id="chat-root"></div>
+    </main>
+    <script src="../src/default-chat.js"></script>
+    <script type="module" src="./haskell-core-chat.mjs"></script>
+  </body>
+</html>

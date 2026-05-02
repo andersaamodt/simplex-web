@@ -2,15 +2,16 @@
 
 ## Current boundary
 
-`simplex-web` currently owns the browser-facing chat shell:
+`simplex-web` currently owns the browser-facing chat shell and the first Haskell-owned chat-state slice:
 
 - HTML rendering for a single-thread secure chat surface
 - message/status presentation
 - upload progress presentation
 - framework-free DOM mounting and event delegation
 - UI callback surface for login, send, file-select, and admin actions
+- Haskell-managed local chat state transitions exposed through browser-callable wasm exports
 
-It does **not** yet own the SimpleX protocol core.
+It does **not** yet own the SimpleX network/protocol transport core.
 
 ## Why
 
@@ -27,7 +28,11 @@ That means a truthful browser-native client needs new work in:
 - browser-safe key handling
 - contact establishment and queue lifecycle in a browser runtime
 
-Until that exists, the safest thing this repo can ship honestly is the browser shell and integration boundary.
+Until that exists, the safest thing this repo can ship honestly is:
+
+- the browser shell and integration boundary
+- Haskell-owned local chat state
+- a host contract that proves Haskell/browser interop is workable before transport is attempted
 
 ## Integration contract
 
@@ -83,7 +88,8 @@ The mount helper emits callbacks instead of owning transport:
 
 ## Next protocol steps
 
-1. Get a Haskell browser-targeting toolchain working for the `Simplex.Web.Smoke` reactor and keep that smoke test green.
-2. Define a browser transport abstraction that does not pretend the current daemon bridge is browser-native.
-3. Move queue/contact/message state transitions into the Haskell core once the toolchain exists.
-4. Keep this JS shell thin and disposable around that core.
+1. Keep the Haskell browser smoke and Haskell chat-core runtime tests green.
+2. Expand the Haskell state core to cover contact/session lifecycle and persistence boundaries.
+3. Define a browser transport abstraction that does not pretend the current daemon bridge is browser-native.
+4. Move actual queue/contact/message transport logic into the Haskell core once the transport boundary exists.
+5. Keep this JS shell thin and disposable around that core.
