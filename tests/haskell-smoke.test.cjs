@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { WASI } = require('node:wasi');
 
-const wasmPath = process.argv[2];
+const wasmPath = process.env.SIMPLEX_WEB_WASM_PATH || process.argv[2];
 
 if (!wasmPath) {
   throw new Error('expected wasm path argument');
@@ -24,7 +24,11 @@ test('smoke reactor exports synchronous functions', async () => {
   });
 
   wasi.initialize(instance);
+  if (typeof instance.exports.hs_init === 'function') {
+    instance.exports.hs_init(0, 0);
+  }
 
+  assert.equal(typeof instance.exports.hs_init, 'function');
   assert.equal(typeof instance.exports.smoke_add, 'function');
   assert.equal(typeof instance.exports.smoke_fib, 'function');
   assert.equal(instance.exports.smoke_add(7, 5), 12);

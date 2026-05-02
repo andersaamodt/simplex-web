@@ -28,6 +28,9 @@ async function main() {
   });
 
   wasi.initialize(instance);
+  if (typeof instance.exports.hs_init === 'function') {
+    instance.exports.hs_init(0, 0);
+  }
 
   const sum = instance.exports.smoke_add(9, 4);
   const fib = instance.exports.smoke_fib(10);

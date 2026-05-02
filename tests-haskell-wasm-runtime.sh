@@ -34,6 +34,7 @@ wasm32-wasi-ghc \
   -i./haskell/src \
   -no-hs-main \
   -optl-mexec-model=reactor \
+  -optl-Wl,--export=hs_init \
   -optl-Wl,--export=smoke_add \
   -optl-Wl,--export=smoke_fib \
   ./haskell/src/Simplex/Web/Smoke.hs \
@@ -42,6 +43,6 @@ wasm32-wasi-ghc \
 assert_file_exists "$wasm_path"
 assert_nonempty_file "$wasm_path"
 
-node --test ./tests/haskell-smoke.test.cjs "$wasm_path"
+SIMPLEX_WEB_WASM_PATH="$wasm_path" node --test ./tests/haskell-smoke.test.cjs
 
 printf 'ok\n'

@@ -37,3 +37,10 @@ node --test tests/default-chat.test.js
 ./tests-simplex-web-runtime.sh
 ./tests-haskell-wasm-runtime.sh
 ```
+
+The current smoke reactor host contract is:
+
+- instantiate the module with `wasi_snapshot_preview1`
+- call `wasi.initialize(instance)`
+- call `instance.exports.hs_init(0, 0)`
+- then call exported functions like `smoke_add` or `smoke_fib`
