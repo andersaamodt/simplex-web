@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>simplex-web Haskell smoke</title>
+    <style>
+      body {
+        margin: 2rem;
+        font: 16px/1.5 Georgia, serif;
+        background: #f4efe1;
+        color: #1d2433;
+      }
+
+      .card {
+        display: inline-block;
+        max-width: 42rem;
+        padding: 1.25rem 1.5rem;
+        border: 1px solid #cfbf95;
+        border-radius: 1rem;
+        background: #fffaf0;
+        box-shadow: 0 0.75rem 2rem rgba(75, 55, 10, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.8rem;
+      }
+
+      code {
+        font-family: "SF Mono", ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="card">
+      <h1>simplex-web Haskell smoke</h1>
+      <p id="status">Build <code>build/haskell-smoke/smoke.wasm</code>, then open this page through a local HTTP server.</p>
+    </section>
+    <script type="module" src="./haskell-smoke.mjs"></script>
+  </body>
+</html>

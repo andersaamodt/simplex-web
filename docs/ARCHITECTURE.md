@@ -83,8 +83,7 @@ The mount helper emits callbacks instead of owning transport:
 
 ## Next protocol steps
 
-1. Get a Haskell browser-targeting toolchain working for a minimal client core.
+1. Get a Haskell browser-targeting toolchain working for the `Simplex.Web.Smoke` reactor and keep that smoke test green.
 2. Define a browser transport abstraction that does not pretend the current daemon bridge is browser-native.
 3. Move queue/contact/message state transitions into the Haskell core once the toolchain exists.
 4. Keep this JS shell thin and disposable around that core.
-

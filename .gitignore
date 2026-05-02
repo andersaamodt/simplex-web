@@ -1,2 +1,7 @@
 node_modules/
 *.log
+build/
+dist-newstyle/
+.ghc.environment.*
+.stack-work/
+cabal.project.local
