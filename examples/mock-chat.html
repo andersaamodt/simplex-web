@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>simplex-web mock chat</title>
+    <link rel="stylesheet" href="../src/default-chat.css">
+    <style>
+      :root {
+        color-scheme: light;
+        --post-card-bg: #f7f4ee;
+        --post-card-bg-single: #fdfaf4;
+        --light-bg: #e7edf9;
+        --admin-text: #1b2430;
+        --admin-muted: #5f6f92;
+        --admin-border: #c7d2fe;
+      }
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: linear-gradient(180deg, #f2efe8, #ece7dd);
+        font: 16px/1.5 Georgia, serif;
+        color: #1b2430;
+      }
+      .page {
+        max-width: 46rem;
+        margin: 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <h1>simplex-web default chat</h1>
+      <div id="chat-root"></div>
+    </main>
+    <script src="../src/default-chat.js"></script>
+    <script>
+      (function () {
+        var state = {
+          loggedIn: true,
+          hasSigner: true,
+          error: '',
+          sending: false,
+          draftText: '',
+          service: { transport_status: 'connected', transport_error: '' },
+          messages: [
+            { direction: 'incoming', text: 'hello from the mocked bridge', delivery_status: 'received', created_at: '2026-05-01T00:00:00Z' },
+            { direction: 'outgoing', text: 'this is the default simplex-web UI shell', delivery_status: 'sent', created_at: '2026-05-01T00:01:00Z' }
+          ],
+          uploads: [],
+          admin: false,
+          adminMappings: []
+        };
+        var chat = window.SimplexWebDefaultChat.mount(document.getElementById('chat-root'), state, {
+          onLogin: function () {
+            window.alert('Login callback');
+          },
+          onDraftChange: function (value) {
+            state.draftText = value;
+          },
+          onFilesSelected: function (files) {
+            state.uploads = files.map(function (file, index) {
+              return {
+                upload_id: 'mock-' + index,
+                name: file.name,
+                status: 'queued',
+                progress: 0
+              };
+            });
+            chat.render(state);
+          },
+          onSend: function (text) {
+            if (!String(text || '').trim()) return;
+            state.messages = state.messages.concat([{
+              direction: 'outgoing',
+              text: String(text),
+              delivery_status: 'sent',
+              created_at: new Date().toISOString()
+            }]);
+            state.draftText = '';
+            chat.render(state);
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
+
