@@ -88,6 +88,17 @@
     };
   }
 
+  function normalizeService(value) {
+    var next = value && typeof value === 'object' ? value : null;
+    if (!next) {
+      return null;
+    }
+    return {
+      transport_status: limitString(next.transport_status || '', MAX_STATUS_LENGTH),
+      transport_error: limitString(next.transport_error || '', MAX_TEXT_LENGTH)
+    };
+  }
+
   function statusLabel(message) {
     var raw = limitString(message && message.delivery_status || '', MAX_STATUS_LENGTH).trim();
     switch (raw) {
@@ -128,7 +139,7 @@
       error: limitString(next.error || '', MAX_TEXT_LENGTH),
       sending: !!next.sending,
       draftText: limitString(next.draftText || '', MAX_TEXT_LENGTH),
-      service: next.service && typeof next.service === 'object' ? next.service : null,
+      service: normalizeService(next.service),
       messages: messages,
       uploads: uploads,
       admin: !!next.admin,
@@ -247,7 +258,7 @@
     function currentDraftValue() {
       var field = root.querySelector('#secure-chat-input');
       if (field && typeof field.value === 'string') {
-        return String(field.value || '');
+        return limitString(field.value || '', MAX_TEXT_LENGTH);
       }
       return state.draftText;
     }
@@ -271,7 +282,7 @@
         actions.onAdminRefresh();
         return;
       }
-      var npub = String(actionNode.getAttribute('data-secure-chat-npub') || '');
+      var npub = limitString(actionNode.getAttribute('data-secure-chat-npub') || '', MAX_LABEL_LENGTH);
       if (action === 'deactivate' && typeof actions.onAdminDeactivate === 'function') {
         actions.onAdminDeactivate(npub);
         return;
@@ -284,7 +295,7 @@
     function onInput(event) {
       var target = event.target;
       if (!target || target.id !== 'secure-chat-input') return;
-      state.draftText = String(target.value || '');
+      state.draftText = limitString(target.value || '', MAX_TEXT_LENGTH);
       if (typeof actions.onDraftChange === 'function') {
         actions.onDraftChange(state.draftText);
       }
@@ -331,6 +342,9 @@
   var api = {
     MAX_RENDER_MESSAGES: MAX_RENDER_MESSAGES,
     MAX_RENDER_UPLOADS: MAX_RENDER_UPLOADS,
+    MAX_TEXT_LENGTH: MAX_TEXT_LENGTH,
+    MAX_LABEL_LENGTH: MAX_LABEL_LENGTH,
+    MAX_STATUS_LENGTH: MAX_STATUS_LENGTH,
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
     clampProgress: clampProgress,

@@ -67,6 +67,18 @@ test('session store tolerates invalid JSON and hostile keys', () => {
   assert.equal(key, 'simplex-web-session-v1:local-host:npub1-example');
 });
 
+test('session store truncates hostile key parts and oversized stored blobs', () => {
+  const storage = makeStorage();
+  const longPart = 'A'.repeat(400) + '/../' + 'B'.repeat(400);
+  const key = store.buildStorageKey(longPart, longPart);
+  storage.setItem(key, 'x'.repeat(store.MAX_STORED_JSON_LENGTH + 1));
+
+  const session = store.readSession(storage, longPart, longPart);
+  assert.equal(session.messages.length, 0);
+  assert.equal(session.uploads.length, 0);
+  assert.equal(key.length <= ('simplex-web-session-v1::'.length + store.MAX_KEY_PART_LENGTH * 2), true);
+});
+
 test('session store can clear a saved session', () => {
   const storage = makeStorage();
   store.writeSession(storage, 'site', 'account', { draftText: 'hello' });
@@ -121,4 +133,26 @@ test('session store clamps hostile progress and truncates oversized strings', ()
   assert.equal(session.uploads[0].name.length, 256);
   assert.equal(session.uploads[0].status.length, 64);
   assert.equal(session.uploads[0].error.length, 4000);
+});
+
+test('session store tolerates storage write and remove failures', () => {
+  const storage = {
+    getItem() {
+      return null;
+    },
+    setItem() {
+      throw new Error('quota exceeded');
+    },
+    removeItem() {
+      throw new Error('blocked');
+    }
+  };
+
+  const written = store.writeSession(storage, 'site', 'account', {
+    draftText: 'hello',
+    uploads: [{ progress: -50 }]
+  });
+  assert.equal(written.draftText, 'hello');
+  assert.equal(written.uploads[0].progress, 0);
+  assert.equal(store.clearSession(storage, 'site', 'account'), false);
 });

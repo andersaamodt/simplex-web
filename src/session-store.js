@@ -7,6 +7,8 @@
   var MAX_TEXT_LENGTH = 4000;
   var MAX_LABEL_LENGTH = 256;
   var MAX_STATUS_LENGTH = 64;
+  var MAX_KEY_PART_LENGTH = 96;
+  var MAX_STORED_JSON_LENGTH = 262144;
 
   function clampCount(value, fallback) {
     var count = Number(value);
@@ -41,6 +43,7 @@
     raw = raw.replace(/[^a-z0-9._:-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     raw = raw.replace(/(^|[-:.])\.+(?=$|[-:.])/g, '$1');
     raw = raw.replace(/-+/g, '-').replace(/(^[-:.]+|[-:.]+$)/g, '');
+    raw = raw.slice(0, MAX_KEY_PART_LENGTH);
     return raw || fallback;
   }
 
@@ -125,11 +128,16 @@
 
   function readSession(storage, siteKey, accountKey) {
     var target = storageOrGlobal(storage);
+    var rawValue;
     if (!target) {
       return emptySession();
     }
     try {
-      return normalizeSession(JSON.parse(String(target.getItem(buildStorageKey(siteKey, accountKey)) || 'null')));
+      rawValue = String(target.getItem(buildStorageKey(siteKey, accountKey)) || 'null');
+      if (rawValue.length > MAX_STORED_JSON_LENGTH) {
+        return emptySession();
+      }
+      return normalizeSession(JSON.parse(rawValue));
     } catch (_err) {
       return emptySession();
     }
@@ -167,6 +175,8 @@
     STORAGE_PREFIX: STORAGE_PREFIX,
     MAX_MESSAGES: MAX_MESSAGES,
     MAX_UPLOADS: MAX_UPLOADS,
+    MAX_KEY_PART_LENGTH: MAX_KEY_PART_LENGTH,
+    MAX_STORED_JSON_LENGTH: MAX_STORED_JSON_LENGTH,
     clampProgress: clampProgress,
     buildStorageKey: buildStorageKey,
     normalizeSession: normalizeSession,

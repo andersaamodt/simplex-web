@@ -3,6 +3,31 @@ const assert = require('node:assert/strict');
 
 const ui = require('../src/default-chat.js');
 
+function makeRoot() {
+  const listeners = new Map();
+  return {
+    innerHTML: '',
+    fields: new Map(),
+    addEventListener(name, handler) {
+      listeners.set(name, handler);
+    },
+    removeEventListener(name, handler) {
+      if (listeners.get(name) === handler) {
+        listeners.delete(name);
+      }
+    },
+    querySelector(selector) {
+      return this.fields.get(selector) || null;
+    },
+    dispatch(name, event) {
+      const handler = listeners.get(name);
+      if (handler) {
+        handler(event);
+      }
+    }
+  };
+}
+
 test('logged out panel only shows login action', () => {
   const html = ui.renderPanel({ loggedIn: false });
   assert.match(html, /Login\.\.\./);
@@ -79,4 +104,95 @@ test('render escapes hostile admin npub attributes', () => {
 
   assert.doesNotMatch(html, /onclick="alert\(1\)/);
   assert.match(html, /&quot; onclick=&quot;alert\(1\)/);
+});
+
+test('render escapes textarea and service banner hostile input', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    draftText: '</textarea><script>alert(1)</script>',
+    service: {
+      transport_status: 'broken"><img src=x onerror=alert(1)>',
+      transport_error: '</div><script>alert(2)</script>'
+    }
+  });
+
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.doesNotMatch(html, /<img src=x onerror=alert\(1\)>/);
+  assert.match(html, /&lt;\/textarea&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(html, /&lt;\/div&gt;&lt;script&gt;alert\(2\)&lt;\/script&gt;/);
+});
+
+test('mount truncates hostile draft values and admin keys before callbacks', () => {
+  const root = makeRoot();
+  const calls = [];
+  root.fields.set('#secure-chat-input', { value: 'x'.repeat(5000) });
+  ui.mount(root, { loggedIn: true, hasSigner: true, admin: true }, {
+    onSend(value) {
+      calls.push(['send', value.length]);
+    },
+    onDraftChange(value) {
+      calls.push(['draft', value.length]);
+    },
+    onAdminDelete(value) {
+      calls.push(['delete', value.length]);
+    }
+  });
+
+  root.dispatch('input', { target: { id: 'secure-chat-input', value: 'y'.repeat(5000) } });
+  root.dispatch('click', {
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            if (name === 'data-secure-chat-action') return 'send';
+            return '';
+          }
+        };
+      }
+    }
+  });
+  root.dispatch('click', {
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            if (name === 'data-secure-chat-action') return 'delete';
+            if (name === 'data-secure-chat-npub') return 'n'.repeat(500);
+            return '';
+          }
+        };
+      }
+    }
+  });
+
+  assert.deepEqual(calls, [
+    ['draft', ui.MAX_TEXT_LENGTH],
+    ['send', ui.MAX_TEXT_LENGTH],
+    ['delete', ui.MAX_LABEL_LENGTH]
+  ]);
+});
+
+test('mount destroy removes event handlers', () => {
+  const root = makeRoot();
+  let sendCount = 0;
+  const mounted = ui.mount(root, { loggedIn: true, hasSigner: true }, {
+    onSend() {
+      sendCount += 1;
+    }
+  });
+  root.fields.set('#secure-chat-input', { value: 'hello' });
+  mounted.destroy();
+  root.dispatch('click', {
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            return name === 'data-secure-chat-action' ? 'send' : '';
+          }
+        };
+      }
+    }
+  });
+  assert.equal(sendCount, 0);
 });

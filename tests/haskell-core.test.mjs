@@ -76,6 +76,23 @@ test('core snapshot escapes hostile strings into valid JSON', async () => {
   assert.equal(parsed.messages[0].text, '\"<script>alert(1)</script>');
 });
 
+test('core rejects missing identifiers and escapes hostile status strings', async () => {
+  const exportsObject = await instantiateCore();
+  exportsObject.core_reset();
+  exportsObject.core_login();
+  assert.equal(exportsObject.core_send_text('hello'), 1);
+  assert.equal(exportsObject.core_set_delivery_status(999, 'missing'), 0);
+  assert.equal(exportsObject.core_add_upload('file.txt'), 1);
+  assert.equal(exportsObject.core_update_upload(999, -20, 'missing'), 0);
+  assert.equal(exportsObject.core_update_upload(1, -20, 'line1"\nline2\r\t'), 1);
+  assert.equal(exportsObject.core_set_delivery_status(1, 'warn"\nnext'), 1);
+
+  const parsed = JSON.parse(exportsObject.core_snapshot_json());
+  assert.equal(parsed.messages[0].delivery_status, 'warn"\nnext');
+  assert.equal(parsed.uploads[0].progress, 0);
+  assert.equal(parsed.uploads[0].status, 'line1"\nline2\r\t');
+});
+
 test('core bounds hostile text, statuses, and retained history', async () => {
   const exportsObject = await instantiateCore();
   exportsObject.core_reset();

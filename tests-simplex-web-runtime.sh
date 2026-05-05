@@ -36,9 +36,11 @@ assert_file_contains "$ROOT_DIR/src/default-chat.js" 'Attach files' 'default cha
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'Cmd/Ctrl+Enter to send' 'default chat exposes send hint'
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'MAX_RENDER_MESSAGES = 200' 'default chat caps rendered message history'
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'function clampProgress' 'default chat clamps hostile progress values'
+assert_file_contains "$ROOT_DIR/src/default-chat.js" 'function normalizeService' 'default chat normalizes transport banner strings'
 assert_file_contains "$ROOT_DIR/src/session-store.js" 'simplex-web-session-v1' 'session store uses stable storage prefix'
 assert_file_contains "$ROOT_DIR/src/session-store.js" 'slice(-MAX_MESSAGES).map(normalizeMessage)' 'session store slices before normalizing message history'
 assert_file_contains "$ROOT_DIR/src/session-store.js" 'function clampProgress' 'session store clamps hostile progress values'
+assert_file_contains "$ROOT_DIR/src/session-store.js" 'MAX_STORED_JSON_LENGTH = 262144' 'session store bounds oversized stored blobs'
 assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" 'no `ghc`' 'repo documents missing Haskell browser toolchain'
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
