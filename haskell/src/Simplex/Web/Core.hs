@@ -8,6 +8,21 @@ import Data.List (intercalate)
 import GHC.Wasm.Prim (JSString (..), fromJSString, isJSFFIUsed, toJSString)
 import System.IO.Unsafe (unsafePerformIO)
 
+maxMessagesStored :: Int
+maxMessagesStored = 200
+
+maxUploadsStored :: Int
+maxUploadsStored = 50
+
+maxTextLength :: Int
+maxTextLength = 4000
+
+maxStatusLength :: Int
+maxStatusLength = 64
+
+maxLabelLength :: Int
+maxLabelLength = 256
+
 data Message = Message
   { messageSequence :: !Int
   , messageDirection :: !String
@@ -71,11 +86,11 @@ coreLogout =
 
 coreSetDraft :: JSString -> IO ()
 coreSetDraft draft =
-  modifyIORef' stateRef (\state -> state {stateDraftText = fromJSString draft})
+  modifyIORef' stateRef (\state -> state {stateDraftText = sanitizeText (fromJSString draft)})
 
 coreSetError :: JSString -> IO ()
 coreSetError message =
-  modifyIORef' stateRef (\state -> state {stateError = fromJSString message})
+  modifyIORef' stateRef (\state -> state {stateError = sanitizeText (fromJSString message)})
 
 coreClearError :: IO ()
 coreClearError = modifyIORef' stateRef (\state -> state {stateError = ""})
@@ -96,7 +111,7 @@ coreReceiveText rawText = do
 
 coreSetDeliveryStatus :: Int -> JSString -> IO Bool
 coreSetDeliveryStatus sequenceId rawStatus = do
-  let nextStatus = fromJSString rawStatus
+  let nextStatus = sanitizeStatus (fromJSString rawStatus)
   modifyIORef' stateRef (\state -> state {stateMessages = map (updateMessage nextStatus) (stateMessages state)})
   state <- readIORef stateRef
   pure (any (\message -> messageSequence message == sequenceId && messageDeliveryStatus message == nextStatus) (stateMessages state))
@@ -116,19 +131,19 @@ coreAddUpload rawName = do
           nextUpload =
             Upload
               { uploadId = nextId
-              , uploadName = sanitizeText (fromJSString rawName)
+              , uploadName = sanitizeLabel (fromJSString rawName)
               , uploadStatus = "queued"
               , uploadProgress = 0
               }
        in state
             { stateNextUploadId = nextId + 1
-            , stateUploads = stateUploads state ++ [nextUpload]
+            , stateUploads = appendBounded maxUploadsStored (stateUploads state) nextUpload
             }
 
 coreUpdateUpload :: Int -> Int -> JSString -> IO Bool
 coreUpdateUpload identifier rawProgress rawStatus = do
   let nextProgress = clampProgress rawProgress
-      nextStatus = fromJSString rawStatus
+      nextStatus = sanitizeStatus (fromJSString rawStatus)
   modifyIORef' stateRef (\state -> state {stateUploads = map (updateUpload nextProgress nextStatus) (stateUploads state)})
   state <- readIORef stateRef
   pure (any (matchesUpload nextProgress nextStatus) (stateUploads state))
@@ -169,7 +184,7 @@ appendOutgoingMessage text state =
    in state
         { stateDraftText = ""
         , stateNextMessageSequence = nextSequence + 1
-        , stateMessages = stateMessages state ++ [nextMessage]
+        , stateMessages = appendBounded maxMessagesStored (stateMessages state) nextMessage
         , stateError = ""
         }
 
@@ -186,9 +201,23 @@ appendIncomingMessage text state =
           }
    in state
         { stateNextMessageSequence = nextSequence + 1
-        , stateMessages = stateMessages state ++ [nextMessage]
+        , stateMessages = appendBounded maxMessagesStored (stateMessages state) nextMessage
         , stateError = ""
         }
+
+appendBounded :: Int -> [a] -> a -> [a]
+appendBounded limit items nextItem
+  | limit <= 1 = [nextItem]
+  | otherwise = takeLast (limit - 1) items ++ [nextItem]
+
+takeLast :: Int -> [a] -> [a]
+takeLast count items
+  | count <= 0 = []
+  | otherwise =
+      let overflow = length items - count
+       in if overflow > 0
+            then drop overflow items
+            else items
 
 sequenceStamp :: Int -> String
 sequenceStamp sequenceId = "local-" ++ pad4 sequenceId
@@ -200,7 +229,13 @@ pad4 value =
    in prefix ++ digits
 
 sanitizeText :: String -> String
-sanitizeText = take 4000
+sanitizeText = take maxTextLength
+
+sanitizeStatus :: String -> String
+sanitizeStatus = take maxStatusLength
+
+sanitizeLabel :: String -> String
+sanitizeLabel = take maxLabelLength
 
 clampProgress :: Int -> Int
 clampProgress progress

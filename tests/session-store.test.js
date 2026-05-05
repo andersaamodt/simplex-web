@@ -74,3 +74,51 @@ test('session store can clear a saved session', () => {
   assert.equal(store.clearSession(storage, 'site', 'account'), true);
   assert.equal(store.readSession(storage, 'site', 'account').draftText, '');
 });
+
+test('session store slices before normalizing hostile oversized history', () => {
+  const sentinel = {};
+  Object.defineProperty(sentinel, 'text', {
+    get() {
+      throw new Error('head entry should not be normalized');
+    }
+  });
+
+  const messages = [sentinel];
+  for (let i = 1; i <= store.MAX_MESSAGES; i += 1) {
+    messages.push({ seq: i, direction: 'incoming', text: `tail-${i}` });
+  }
+
+  const session = store.normalizeSession({ messages });
+  assert.equal(session.messages.length, store.MAX_MESSAGES);
+  assert.equal(session.messages[0].text, 'tail-1');
+});
+
+test('session store clamps hostile progress and truncates oversized strings', () => {
+  const session = store.normalizeSession({
+    draftText: 'x'.repeat(5000),
+    messages: [
+      {
+        seq: 1,
+        direction: 'sideways',
+        message_kind: 'weird',
+        delivery_status: 's'.repeat(200),
+        text: 'm'.repeat(5000),
+        error_detail: 'e'.repeat(5000)
+      }
+    ],
+    uploads: [
+      { progress: 9999, name: 'n'.repeat(400), status: 'u'.repeat(200), error: 'f'.repeat(5000) }
+    ]
+  });
+
+  assert.equal(session.draftText.length, 4000);
+  assert.equal(session.messages[0].direction, 'outgoing');
+  assert.equal(session.messages[0].message_kind, 'text');
+  assert.equal(session.messages[0].delivery_status.length, 64);
+  assert.equal(session.messages[0].text.length, 4000);
+  assert.equal(session.messages[0].error_detail.length, 4000);
+  assert.equal(session.uploads[0].progress, 100);
+  assert.equal(session.uploads[0].name.length, 256);
+  assert.equal(session.uploads[0].status.length, 64);
+  assert.equal(session.uploads[0].error.length, 4000);
+});

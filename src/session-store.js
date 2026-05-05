@@ -4,6 +4,9 @@
   var STORAGE_PREFIX = 'simplex-web-session-v1';
   var MAX_MESSAGES = 50;
   var MAX_UPLOADS = 20;
+  var MAX_TEXT_LENGTH = 4000;
+  var MAX_LABEL_LENGTH = 256;
+  var MAX_STATUS_LENGTH = 64;
 
   function clampCount(value, fallback) {
     var count = Number(value);
@@ -11,6 +14,26 @@
       return fallback;
     }
     return Math.floor(count);
+  }
+
+  function clampProgress(value) {
+    var progress = clampCount(value, 0);
+    if (progress > 100) {
+      return 100;
+    }
+    return progress;
+  }
+
+  function limitString(value, maxLength) {
+    return String(value == null ? '' : value).slice(0, maxLength);
+  }
+
+  function normalizeDirection(value) {
+    return String(value == null ? '' : value).trim().toLowerCase() === 'incoming' ? 'incoming' : 'outgoing';
+  }
+
+  function normalizeMessageKind(value) {
+    return String(value == null ? '' : value).trim().toLowerCase() === 'file' ? 'file' : 'text';
   }
 
   function normalizeKeyPart(value, fallback) {
@@ -35,10 +58,10 @@
       return null;
     }
     return {
-      name: String(next.name || ''),
-      mime: String(next.mime || ''),
+      name: limitString(next.name || '', MAX_LABEL_LENGTH),
+      mime: limitString(next.mime || '', MAX_LABEL_LENGTH),
       size: clampCount(next.size, 0),
-      upload_id: String(next.upload_id || '')
+      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH)
     };
   }
 
@@ -46,48 +69,46 @@
     var next = value && typeof value === 'object' ? value : {};
     return {
       seq: clampCount(next.seq, 0),
-      direction: String(next.direction || 'outgoing'),
-      message_ref: String(next.message_ref || ''),
-      message_kind: String(next.message_kind || 'text'),
-      delivery_status: String(next.delivery_status || 'queued'),
-      created_at: String(next.created_at || ''),
-      updated_at: String(next.updated_at || ''),
-      text: String(next.text || ''),
+      direction: normalizeDirection(next.direction),
+      message_ref: limitString(next.message_ref || '', MAX_LABEL_LENGTH),
+      message_kind: normalizeMessageKind(next.message_kind),
+      delivery_status: limitString(next.delivery_status || 'queued', MAX_STATUS_LENGTH),
+      created_at: limitString(next.created_at || '', MAX_LABEL_LENGTH),
+      updated_at: limitString(next.updated_at || '', MAX_LABEL_LENGTH),
+      text: limitString(next.text || '', MAX_TEXT_LENGTH),
       attachment: normalizeAttachment(next.attachment),
-      error_code: String(next.error_code || ''),
-      error_detail: String(next.error_detail || '')
+      error_code: limitString(next.error_code || '', MAX_LABEL_LENGTH),
+      error_detail: limitString(next.error_detail || '', MAX_TEXT_LENGTH)
     };
   }
 
   function normalizeUpload(value) {
     var next = value && typeof value === 'object' ? value : {};
     return {
-      upload_id: String(next.upload_id || ''),
-      name: String(next.name || ''),
-      status: String(next.status || 'queued'),
-      progress: clampCount(next.progress, 0),
-      created_at: String(next.created_at || ''),
-      error: String(next.error || '')
+      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH),
+      name: limitString(next.name || '', MAX_LABEL_LENGTH),
+      status: limitString(next.status || 'queued', MAX_STATUS_LENGTH),
+      progress: clampProgress(next.progress),
+      created_at: limitString(next.created_at || '', MAX_LABEL_LENGTH),
+      error: limitString(next.error || '', MAX_TEXT_LENGTH)
     };
   }
 
   function normalizeSession(value) {
     var next = value && typeof value === 'object' ? value : {};
-    var messages = Array.isArray(next.messages) ? next.messages.map(normalizeMessage) : [];
-    var uploads = Array.isArray(next.uploads) ? next.uploads.map(normalizeUpload) : [];
-    messages = messages.slice(-MAX_MESSAGES);
-    uploads = uploads.slice(-MAX_UPLOADS);
+    var messages = Array.isArray(next.messages) ? next.messages.slice(-MAX_MESSAGES).map(normalizeMessage) : [];
+    var uploads = Array.isArray(next.uploads) ? next.uploads.slice(-MAX_UPLOADS).map(normalizeUpload) : [];
     var inferredLastSeq = messages.reduce(function (maxSeq, message) {
       var seq = clampCount(message.seq, 0);
       return seq > maxSeq ? seq : maxSeq;
     }, 0);
     return {
       version: 1,
-      draftText: String(next.draftText || ''),
+      draftText: limitString(next.draftText || '', MAX_TEXT_LENGTH),
       lastSeq: clampCount(next.lastSeq, inferredLastSeq),
       messages: messages,
       uploads: uploads,
-      savedAt: String(next.savedAt || '')
+      savedAt: limitString(next.savedAt || '', MAX_LABEL_LENGTH)
     };
   }
 
@@ -146,6 +167,7 @@
     STORAGE_PREFIX: STORAGE_PREFIX,
     MAX_MESSAGES: MAX_MESSAGES,
     MAX_UPLOADS: MAX_UPLOADS,
+    clampProgress: clampProgress,
     buildStorageKey: buildStorageKey,
     normalizeSession: normalizeSession,
     readSession: readSession,

@@ -42,3 +42,41 @@ test('render escapes hostile message HTML', () => {
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
+test('render clamps hostile upload progress and ignores oversized history', () => {
+  const messages = Array.from({ length: ui.MAX_RENDER_MESSAGES + 10 }, (_, index) => ({
+    direction: index === ui.MAX_RENDER_MESSAGES + 9 ? 'incoming' : 'outgoing',
+    text: `message-${index + 1}`,
+    delivery_status: 'received',
+    created_at: '2026-05-01T00:00:00Z'
+  }));
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    messages,
+    uploads: [
+      { name: 'bad.txt', status: 'uploading', progress: '100;background:red' },
+      { name: 'nan.txt', status: 'uploading', progress: Infinity },
+      { name: 'huge.txt', status: 'uploading', progress: 9999 }
+    ]
+  });
+
+  assert.doesNotMatch(html, />message-1</);
+  assert.match(html, />message-210</);
+  assert.equal((html.match(/width:0%/g) || []).length >= 2, true);
+  assert.match(html, /width:100%/);
+  assert.doesNotMatch(html, /background:red/);
+});
+
+test('render escapes hostile admin npub attributes', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    admin: true,
+    adminMappings: [
+      { npub: '" onclick="alert(1)', simplex_contact_id: 'cid', status: 'active' }
+    ]
+  });
+
+  assert.doesNotMatch(html, /onclick="alert\(1\)/);
+  assert.match(html, /&quot; onclick=&quot;alert\(1\)/);
+});

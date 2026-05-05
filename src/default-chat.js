@@ -1,6 +1,12 @@
 (function (global) {
   'use strict';
 
+  var MAX_RENDER_MESSAGES = 200;
+  var MAX_RENDER_UPLOADS = 50;
+  var MAX_TEXT_LENGTH = 4000;
+  var MAX_LABEL_LENGTH = 256;
+  var MAX_STATUS_LENGTH = 64;
+
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -14,8 +20,76 @@
     return escapeHtml(value);
   }
 
+  function limitString(value, maxLength) {
+    return String(value == null ? '' : value).slice(0, maxLength);
+  }
+
+  function clampProgress(value) {
+    var progress = Number(value);
+    if (!isFinite(progress)) {
+      return 0;
+    }
+    progress = Math.floor(progress);
+    if (progress < 0) return 0;
+    if (progress > 100) return 100;
+    return progress;
+  }
+
+  function clampNonNegativeInteger(value) {
+    var count = Number(value);
+    if (!isFinite(count) || count < 0) {
+      return 0;
+    }
+    return Math.floor(count);
+  }
+
+  function normalizeAttachment(value) {
+    var next = value && typeof value === 'object' ? value : null;
+    if (!next) {
+      return null;
+    }
+    return {
+      name: limitString(next.name || 'Attachment', MAX_LABEL_LENGTH),
+      mime: limitString(next.mime || '', MAX_LABEL_LENGTH),
+      size: clampNonNegativeInteger(next.size),
+      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH)
+    };
+  }
+
+  function normalizeMessage(value) {
+    var next = value && typeof value === 'object' ? value : {};
+    var direction = String(next.direction || '').trim().toLowerCase() === 'incoming' ? 'incoming' : 'outgoing';
+    return {
+      direction: direction,
+      message_kind: String(next.message_kind || '').trim().toLowerCase() === 'file' ? 'file' : 'text',
+      delivery_status: limitString(next.delivery_status || '', MAX_STATUS_LENGTH),
+      created_at: limitString(next.created_at || '', MAX_LABEL_LENGTH),
+      text: limitString(next.text || '', MAX_TEXT_LENGTH),
+      attachment: normalizeAttachment(next.attachment)
+    };
+  }
+
+  function normalizeUpload(value) {
+    var next = value && typeof value === 'object' ? value : {};
+    return {
+      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH),
+      name: limitString(next.name || 'Attachment', MAX_LABEL_LENGTH),
+      status: limitString(next.status || 'queued', MAX_STATUS_LENGTH),
+      progress: clampProgress(next.progress)
+    };
+  }
+
+  function normalizeAdminRow(value) {
+    var next = value && typeof value === 'object' ? value : {};
+    return {
+      npub: limitString(next.npub || '', MAX_LABEL_LENGTH),
+      simplex_contact_id: limitString(next.simplex_contact_id || '', MAX_LABEL_LENGTH),
+      status: limitString(next.status || '', MAX_STATUS_LENGTH)
+    };
+  }
+
   function statusLabel(message) {
-    var raw = String(message && message.delivery_status || '').trim();
+    var raw = limitString(message && message.delivery_status || '', MAX_STATUS_LENGTH).trim();
     switch (raw) {
       case 'sndRcvd':
       case 'delivered':
@@ -45,17 +119,20 @@
 
   function normalizeModel(model) {
     var next = model && typeof model === 'object' ? model : {};
+    var messages = Array.isArray(next.messages) ? next.messages.slice(-MAX_RENDER_MESSAGES).map(normalizeMessage) : [];
+    var uploads = Array.isArray(next.uploads) ? next.uploads.slice(-MAX_RENDER_UPLOADS).map(normalizeUpload) : [];
+    var adminMappings = Array.isArray(next.adminMappings) ? next.adminMappings.slice(0, MAX_RENDER_MESSAGES).map(normalizeAdminRow) : [];
     return {
       loggedIn: !!next.loggedIn,
       hasSigner: next.hasSigner !== false,
-      error: String(next.error || ''),
+      error: limitString(next.error || '', MAX_TEXT_LENGTH),
       sending: !!next.sending,
-      draftText: String(next.draftText || ''),
+      draftText: limitString(next.draftText || '', MAX_TEXT_LENGTH),
       service: next.service && typeof next.service === 'object' ? next.service : null,
-      messages: Array.isArray(next.messages) ? next.messages : [],
-      uploads: Array.isArray(next.uploads) ? next.uploads : [],
+      messages: messages,
+      uploads: uploads,
       admin: !!next.admin,
-      adminMappings: Array.isArray(next.adminMappings) ? next.adminMappings : []
+      adminMappings: adminMappings
     };
   }
 
@@ -110,7 +187,7 @@
     if (state.uploads.length) {
       html += '<div class="secure-chat-uploads">';
       state.uploads.forEach(function (upload) {
-        var progress = Number(upload && upload.progress || 0);
+        var progress = clampProgress(upload && upload.progress);
         html += '<div class="secure-chat-upload-row">';
         html += '<div class="secure-chat-upload-name">' + escapeHtml(String(upload && upload.name || 'Attachment')) + '</div>';
         html += '<div class="secure-chat-upload-meta"><span>' + escapeHtml(String(upload && upload.status || 'queued')) + '</span><span>' + String(progress) + '%</span></div>';
@@ -252,8 +329,12 @@
   }
 
   var api = {
+    MAX_RENDER_MESSAGES: MAX_RENDER_MESSAGES,
+    MAX_RENDER_UPLOADS: MAX_RENDER_UPLOADS,
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
+    clampProgress: clampProgress,
+    normalizeModel: normalizeModel,
     statusLabel: statusLabel,
     renderPanel: renderPanel,
     mount: mount
@@ -264,4 +345,3 @@
   }
   global.SimplexWebDefaultChat = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
-
