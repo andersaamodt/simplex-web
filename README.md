@@ -5,6 +5,7 @@
 Current scope:
 - Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
 - Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
+- Ships a closed-by-default browser transport API boundary at `window.SimplexWebTransport`, so host sites can call a stable API without silently falling back to a plaintext server bridge.
 - Includes a minimal Haskell-to-wasm reactor smoke test so browser-targeted Haskell can be validated honestly instead of hand-waved.
 - Includes a Haskell-owned browser chat-state core with JS-string exports and a browser demo mounted on the default Secure Chat UI.
 - Uses the Secure Chat interface from `nostr-blog` as the default/example presentation layer.
@@ -23,9 +24,11 @@ The reason the protocol core is not here yet is architectural, not branding: the
 - `src/default-chat.js`: default/example chat renderer and DOM mount helper.
 - `src/default-chat.css`: default/example chat styles extracted from the current `nostr-blog` contact chat.
 - `src/session-store.js`: bounded browser-local persistence helpers for per-user secure-chat session state.
+- `src/transport.js`: browser transport facade that fails closed until a real browser-native adapter is registered.
 - `examples/mock-chat.html`: runnable browser example with a mocked chat state.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
+- `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.
@@ -62,3 +65,42 @@ The current Haskell chat core host contract is the same, with one extra step:
 - call `wasi.initialize(instance)`
 - call `instance.exports.hs_init(0, 0)`
 - then call exported functions like `core_snapshot_json`, `core_send_text`, or `core_receive_text`
+
+## Browser transport API
+
+Load `src/transport.js` to expose `window.SimplexWebTransport`.
+
+By default it is intentionally unavailable:
+
+```js
+window.SimplexWebTransport.getStatus();
+// {
+//   available: false,
+//   transport_status: "browser-native-unavailable",
+//   transport_error: "browser-native simplex-web transport is not available"
+// }
+
+await window.SimplexWebTransport.sendText({ contact_id: "contact-1", text: "hello" });
+// rejects with code SIMPLEX_WEB_TRANSPORT_UNAVAILABLE
+```
+
+A future direct browser SimpleX implementation should register itself with:
+
+```js
+window.SimplexWebTransport.registerBrowserTransport({
+  getStatus() {
+    return { transport_status: "direct-browser-smp", transport_error: "" };
+  },
+  async connect(params) {
+    // Initialize browser-native durable state, keys, contacts, and queues.
+  },
+  async sendText(message) {
+    // Send without a plaintext server bridge.
+    // message: { contact_id, text, client_message_id }
+    return { message_ref: "browser-message-ref" };
+  },
+  async disconnect() {}
+});
+```
+
+This repo still does not ship the actual SimpleX SMP/XFTP protocol transport. The API exists to keep integration code stable while preserving secure failure when no browser-native transport is present.

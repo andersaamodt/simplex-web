@@ -2,7 +2,7 @@
   "name": "simplex-web",
   "private": true,
   "scripts": {
-    "test:ui": "node --test tests/default-chat.test.js",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js",
     "test:haskell-smoke": "./tests-haskell-wasm-runtime.sh",
     "test": "npm run test:ui && npm run test:haskell-smoke"
   },
