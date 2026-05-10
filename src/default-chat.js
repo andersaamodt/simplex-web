@@ -142,9 +142,21 @@
       service: normalizeService(next.service),
       messages: messages,
       uploads: uploads,
+      sendWithModifier: next.sendWithModifier === true,
+      simplexWebIntroDismissed: next.simplexWebIntroDismissed === true,
       admin: !!next.admin,
       adminMappings: adminMappings
     };
+  }
+
+  function renderSimplexWebIntro() {
+    var html = '<aside class="secure-chat-simplex-info" role="note">';
+    html += '<button type="button" class="secure-chat-simplex-dismiss" data-secure-chat-action="dismiss-simplex-info" aria-label="Dismiss Secure Chat info" title="Dismiss">';
+    html += '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    html += '</button>';
+    html += '<p>Messages are sent over SimpleX Chat using <a href="https://github.com/andersaamodt/simplex-web" rel="noopener noreferrer">simplex-web</a>, so encryption and delivery happen in the browser instead of exposing plaintext to this server. SimpleX uses end-to-end encrypted pairwise queues, so relays do not need public user identities to pass messages.</p>';
+    html += '</aside>';
+    return html;
   }
 
   function renderPanel(model) {
@@ -176,6 +188,9 @@
       html += '</div>';
     }
     html += '<div class="secure-chat-thread" id="secure-chat-thread">';
+    if (!state.simplexWebIntroDismissed) {
+      html += renderSimplexWebIntro();
+    }
     if (state.messages.length) {
       state.messages.forEach(function (message) {
         var incoming = String(message && message.direction || '') === 'incoming';
@@ -210,9 +225,9 @@
     html += '<div class="secure-chat-compose">';
     html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="4" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
     html += '<div class="secure-chat-actions">';
-    html += '<label class="secure-chat-attach-button"><input id="secure-chat-file-input" type="file" multiple hidden>Attach files</label>';
-    html += '<button type="button" class="list-admin-primary-btn" data-secure-chat-action="send"' + (state.sending ? ' disabled' : '') + '>' + (state.sending ? 'Sending...' : 'Send') + '</button>';
-    html += '<span class="secure-chat-compose-hint">Cmd/Ctrl+Enter to send</span>';
+    html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" type="file" multiple hidden><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
+    html += '<button type="button" class="list-admin-primary-btn secure-chat-send-btn" data-secure-chat-action="send"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span><span>Sending...</span>' : 'Send') + '</button>';
+    html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> Cmd/Ctrl+Enter to send</label>';
     html += '</div>';
     html += '</div>';
     if (state.admin) {
@@ -303,7 +318,15 @@
 
     function onChange(event) {
       var target = event.target;
-      if (!target || target.id !== 'secure-chat-file-input' || !target.files) return;
+      if (!target) return;
+      if (target.id === 'secure-chat-send-modifier') {
+        state.sendWithModifier = target.checked === true;
+        if (typeof actions.onSendShortcutChange === 'function') {
+          actions.onSendShortcutChange(state.sendWithModifier);
+        }
+        return;
+      }
+      if (target.id !== 'secure-chat-file-input' || !target.files) return;
       if (typeof actions.onFilesSelected === 'function') {
         actions.onFilesSelected(Array.prototype.slice.call(target.files));
       }
@@ -313,7 +336,13 @@
     function onKeyDown(event) {
       var target = event.target;
       if (!target || target.id !== 'secure-chat-input') return;
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && typeof actions.onSend === 'function') {
+      if (event.key === 'Enter' && typeof actions.onSend === 'function') {
+        if (event.shiftKey) {
+          return;
+        }
+        if (state.sendWithModifier === true && !(event.metaKey || event.ctrlKey)) {
+          return;
+        }
         event.preventDefault();
         actions.onSend(currentDraftValue());
       }

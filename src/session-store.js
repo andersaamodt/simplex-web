@@ -111,6 +111,7 @@
       lastSeq: clampCount(next.lastSeq, inferredLastSeq),
       messages: messages,
       uploads: uploads,
+      simplexWebIntroDismissed: next.simplexWebIntroDismissed === true,
       savedAt: limitString(next.savedAt || '', MAX_LABEL_LENGTH)
     };
   }
