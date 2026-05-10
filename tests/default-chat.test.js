@@ -34,6 +34,14 @@ test('logged out panel only shows login action', () => {
   assert.doesNotMatch(html, /secure-chat-input/);
 });
 
+test('auth-pending panel shows loading instead of login action', () => {
+  const html = ui.renderPanel({ loggedIn: false, loading: true });
+  assert.match(html, /Loading\.\.\./);
+  assert.match(html, /secure-chat-loading-spinner/);
+  assert.doesNotMatch(html, /data-secure-chat-action="login"/);
+  assert.doesNotMatch(html, /secure-chat-input/);
+});
+
 test('signed in panel renders messages and compose area', () => {
   const html = ui.renderPanel({
     loggedIn: true,

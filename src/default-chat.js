@@ -135,6 +135,7 @@
     var adminMappings = Array.isArray(next.adminMappings) ? next.adminMappings.slice(0, MAX_RENDER_MESSAGES).map(normalizeAdminRow) : [];
     return {
       loggedIn: !!next.loggedIn,
+      loading: !!next.loading,
       hasSigner: next.hasSigner !== false,
       error: limitString(next.error || '', MAX_TEXT_LENGTH),
       sending: !!next.sending,
@@ -164,7 +165,9 @@
     var html = '<section class="secure-chat-panel" aria-labelledby="secure-chat-title">';
     html += '<div class="secure-chat-head">';
     html += '<div class="secure-chat-heading"><h2 id="secure-chat-title">Secure Chat</h2></div>';
-    if (!state.loggedIn) {
+    if (!state.loggedIn && state.loading) {
+      html += '<div class="secure-chat-loading" role="status" aria-live="polite"><span>Loading...</span><span class="save-spinner secure-chat-loading-spinner" aria-hidden="true"></span></div>';
+    } else if (!state.loggedIn) {
       html += '<button type="button" class="list-admin-primary-btn secure-chat-login-btn" data-secure-chat-action="login">Login...</button>';
     }
     html += '</div>';
