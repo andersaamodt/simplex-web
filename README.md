@@ -1,6 +1,8 @@
 # simplex-web
 
-`simplex-web` is an experimental browser-hosted chat client shell for SimpleX.
+`simplex-web` is a browser-hosted chat client shell for SimpleX-facing websites.
+
+Version `1.0.0` is a stable browser integration surface for the UI, local session store, Haskell/WASM state-core scaffold, and closed-by-default transport facade. It does not claim to ship the full SimpleX network protocol in the browser.
 
 Current scope:
 - Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
@@ -44,7 +46,12 @@ The reason the protocol core is not here yet is architectural, not branding: the
 ## Run
 
 ```sh
-node --test tests/default-chat.test.js
+npm test
+```
+
+Optional Haskell/WASM checks require `wasm32-wasi-ghc`:
+
+```sh
 ./tests-simplex-web-runtime.sh
 ./tests-haskell-wasm-runtime.sh
 ./tests-haskell-core-runtime.sh

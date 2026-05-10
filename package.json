@@ -1,10 +1,32 @@
 {
   "name": "simplex-web",
+  "version": "1.0.0",
+  "description": "Browser-hosted SimpleX chat UI shell, local session store, and closed transport facade.",
   "private": true,
+  "main": "src/transport.js",
+  "exports": {
+    ".": "./src/transport.js",
+    "./transport": "./src/transport.js",
+    "./default-chat": "./src/default-chat.js",
+    "./session-store": "./src/session-store.js",
+    "./default-chat.css": "./src/default-chat.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "docs",
+    "examples",
+    "haskell",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js",
+    "test:runtime": "./tests-simplex-web-runtime.sh",
     "test:haskell-smoke": "./tests-haskell-wasm-runtime.sh",
-    "test": "npm run test:ui && npm run test:haskell-smoke"
+    "test:haskell-core": "./tests-haskell-core-runtime.sh",
+    "test:haskell": "npm run test:haskell-smoke && npm run test:haskell-core",
+    "test": "npm run test:ui && npm run test:runtime"
   },
   "devDependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2"
