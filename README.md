@@ -2,12 +2,13 @@
 
 `simplex-web` is a browser-hosted chat client shell for SimpleX-facing websites.
 
-Version `1.0.0` is a stable browser integration surface for the UI, local session store, Haskell/WASM state-core scaffold, and closed-by-default transport facade. It does not claim to ship the full SimpleX network protocol in the browser.
+Version `1.0.0` is a stable browser integration surface for the UI, local session store, Haskell/WASM state-core scaffold, closed-by-default transport facade, and browser adapter for a browser-reachable SimpleX Chat API WebSocket. It does not claim to ship a handwritten SMP/XFTP protocol implementation in JavaScript.
 
 Current scope:
 - Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
 - Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
-- Ships a closed-by-default browser transport API boundary at `window.SimplexWebTransport`, so host sites can call a stable API without silently falling back to a plaintext server bridge.
+- Ships a closed-by-default browser transport API boundary at `window.SimplexWebTransport`, so host sites can call a stable API without silently falling back to a plaintext website bridge.
+- Ships `src/simplex-chat-websocket-adapter.js`, an adapter for a browser-reachable official SimpleX Chat WebSocket command API, intended for loopback/local SimpleX first.
 - Includes a minimal Haskell-to-wasm reactor smoke test so browser-targeted Haskell can be validated honestly instead of hand-waved.
 - Includes a Haskell-owned browser chat-state core with JS-string exports and a browser demo mounted on the default Secure Chat UI.
 - Uses the Secure Chat interface from `nostr-blog` as the default/example presentation layer.
@@ -15,9 +16,9 @@ Current scope:
 - Includes Wizardry-style runtime tests for the UI contract and adversarial escaping.
 
 Not shipped yet:
-- A true browser-native SimpleX protocol core.
+- A handwritten browser-native SimpleX protocol core.
 - Haskell/WASM build output.
-- Direct browser transport to SMP/XFTP servers.
+- Direct JavaScript transport to SMP/XFTP servers without a SimpleX Chat API endpoint.
 
 The reason the protocol core is not here yet is architectural, not branding: the existing upstream SimpleX codebase is native Haskell plus daemon/API integrations, and this repo is the shell around the browser-facing surface while that deeper transport/core work remains experimental.
 
@@ -27,10 +28,12 @@ The reason the protocol core is not here yet is architectural, not branding: the
 - `src/default-chat.css`: default/example chat styles extracted from the current `nostr-blog` contact chat.
 - `src/session-store.js`: bounded browser-local persistence helpers for per-user secure-chat session state.
 - `src/transport.js`: browser transport facade that fails closed until a real browser-native adapter is registered.
+- `src/simplex-chat-websocket-adapter.js`: transport adapter that registers with the facade and sends text through a browser-reachable SimpleX Chat WebSocket command API.
 - `examples/mock-chat.html`: runnable browser example with a mocked chat state.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
+- `tests/simplex-chat-websocket-adapter.test.js`: Node unit tests for the SimpleX Chat WebSocket adapter.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.
@@ -91,7 +94,7 @@ await window.SimplexWebTransport.sendText({ contact_id: "contact-1", text: "hell
 // rejects with code SIMPLEX_WEB_TRANSPORT_UNAVAILABLE
 ```
 
-A future direct browser SimpleX implementation should register itself with:
+An adapter registers itself with:
 
 ```js
 window.SimplexWebTransport.registerBrowserTransport({
@@ -111,3 +114,27 @@ window.SimplexWebTransport.registerBrowserTransport({
 ```
 
 This repo still does not ship the actual SimpleX SMP/XFTP protocol transport. The API exists to keep integration code stable while preserving secure failure when no browser-native transport is present.
+
+## SimpleX Chat WebSocket adapter
+
+Load the facade first, then the adapter:
+
+```html
+<script src="/static/simplex-web-transport.js"></script>
+<script>
+window.SimplexWebSocketAdapterConfig = {
+  url: "ws://127.0.0.1:5225",
+  user_id: "1"
+};
+</script>
+<script src="/static/simplex-chat-websocket-adapter.js"></script>
+```
+
+The adapter sends text with the official SimpleX Chat command WebSocket flow:
+
+```text
+/_user <user_id>
+/_send @<contact_id> text <message>
+```
+
+Remote WebSocket endpoints are rejected by default because they can see plaintext. To use one deliberately, pass `allowRemote: true` and only point it at a trusted SimpleX Chat API endpoint, not a website bridge.

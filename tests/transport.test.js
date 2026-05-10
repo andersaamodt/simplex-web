@@ -42,7 +42,7 @@ test('registered browser adapter receives normalized outbound text and returns n
   });
 
   const receipt = await transport.sendText(
-    { contactId: 'c'.repeat(300), text: 'x'.repeat(5000) },
+    { contactId: 'c'.repeat(300), text: 'x'.repeat(5000), bridgeUserId: 'user-1' },
     { clientMessageId: 'client-1' }
   );
 
@@ -50,6 +50,7 @@ test('registered browser adapter receives normalized outbound text and returns n
   assert.equal(calls[0].contact_id.length, transportApi.MAX_LABEL_LENGTH);
   assert.equal(calls[0].text.length, transportApi.MAX_TEXT_LENGTH);
   assert.equal(calls[0].client_message_id, 'client-1');
+  assert.equal(calls[0].user_id, 'user-1');
   assert.deepEqual(receipt, {
     accepted: true,
     transport_status: 'accepted',

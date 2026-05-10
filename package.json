@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/transport.js",
     "./transport": "./src/transport.js",
+    "./simplex-chat-websocket-adapter": "./src/simplex-chat-websocket-adapter.js",
     "./default-chat": "./src/default-chat.js",
     "./session-store": "./src/session-store.js",
     "./default-chat.css": "./src/default-chat.css",
@@ -21,7 +22,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js",
     "test:runtime": "./tests-simplex-web-runtime.sh",
     "test:haskell-smoke": "./tests-haskell-wasm-runtime.sh",
     "test:haskell-core": "./tests-haskell-core-runtime.sh",

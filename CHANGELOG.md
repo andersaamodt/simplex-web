@@ -5,6 +5,7 @@
 - Stabilized the framework-free Secure Chat UI renderer and mount contract.
 - Stabilized bounded browser-local session persistence.
 - Added a closed-by-default `window.SimplexWebTransport` facade with explicit adapter registration.
+- Added `src/simplex-chat-websocket-adapter.js` for browser sends through a browser-reachable SimpleX Chat command WebSocket.
 - Kept plaintext server bridge fallback out of the transport path.
 - Added focused adversarial input coverage for UI rendering, session storage, and transport normalization.
 - Kept Haskell/WASM smoke and chat-core checks as explicit toolchain-dependent validation scripts.

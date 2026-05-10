@@ -12,8 +12,9 @@
 - UI callback surface for login, send, file-select, and admin actions
 - Haskell-managed local chat state transitions exposed through browser-callable wasm exports
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
+- a SimpleX Chat WebSocket adapter that can send through a browser-reachable SimpleX Chat command API
 
-It does **not** yet own the SimpleX network/protocol transport core.
+It does **not** yet own a handwritten SimpleX network/protocol transport core.
 
 ## Why
 
@@ -37,6 +38,7 @@ Until that exists, the safest thing this repo can ship honestly is:
 - Haskell-owned local chat state
 - a host contract that proves Haskell/browser interop is workable before transport is attempted
 - a transport API that refuses sends unless a browser-native adapter is explicitly registered
+- a loopback-first adapter for the official SimpleX Chat command WebSocket, avoiding plaintext website relay when users provide a local/browser-reachable SimpleX endpoint
 
 ## Integration contract
 
@@ -100,10 +102,18 @@ The transport facade exposed by `src/transport.js` is separate from the UI:
 
 Without an adapter, `sendText` rejects with `SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`. This is the expected secure behavior; it keeps host sites from accidentally routing plaintext through a server bridge while still giving them a stable browser API to call.
 
+`src/simplex-chat-websocket-adapter.js` provides the first real adapter. It registers via `registerBrowserTransport` and sends text through a SimpleX Chat command WebSocket:
+
+- activate the configured SimpleX user with `/_user <user_id>`
+- send to the configured contact with `/_send @<contact_id> text <message>`
+- normalize the SimpleX `newChatItems` response back into the facade receipt
+
+The adapter only accepts loopback endpoints by default. Remote endpoints require `allowRemote: true` because they can see plaintext before SimpleX encrypts and sends through its own network transport.
+
 ## Next protocol steps
 
 1. Keep the Haskell browser smoke and Haskell chat-core runtime tests green.
 2. Expand the Haskell state core to cover contact/session lifecycle and persistence boundaries.
-3. Expand the browser transport abstraction without pretending the current daemon bridge is browser-native.
-4. Move actual queue/contact/message transport logic into the Haskell core once the transport boundary exists.
+3. Keep the SimpleX Chat WebSocket adapter compatible with the official command API.
+4. Move actual queue/contact/message transport logic into the Haskell core once the full browser transport boundary exists.
 5. Keep this JS shell thin and disposable around that core.
