@@ -106,6 +106,52 @@ test('websocket adapter can register as SimplexWebTransport adapter', async () =
   assert.equal(receipt.message_ref, 'fallback-ref');
 });
 
+test('websocket adapter can connect a browser-local contact link before sending', async () => {
+  const storage = new Map();
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      assert.equal(outbound.cmd, '/u');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      assert.equal(outbound.cmd, '/connect https://simplex.chat/contact#/?v=1&smp=test');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'sentInvitation' } })
+      }));
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ resp: { type: 'contactConnected', contact: { contactId: 77 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_send @77 text via link');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    storage: {
+      getItem(key) { return storage.get(key) || null; },
+      setItem(key, value) { storage.set(key, value); }
+    },
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({
+    contact_link: 'https://simplex.chat/contact#/?v=1&smp=test',
+    siteKey: 'example',
+    accountKey: 'npub1test',
+    text: 'via link',
+    client_message_id: 'client-link-1'
+  });
+  assert.equal(receipt.message_ref, 'client-link-1');
+  assert.equal(Array.from(storage.values())[0], '77');
+});
+
 test('websocket adapter rejects remote endpoints unless explicitly allowed', () => {
   assert.throws(
     () => adapterApi.createSimplexChatWebSocketAdapter({
@@ -127,14 +173,14 @@ test('websocket adapter rejects remote endpoints unless explicitly allowed', () 
   }));
 });
 
-test('websocket adapter requires active user and contact ids', async () => {
+test('websocket adapter requires a contact id or contact link', async () => {
   const adapter = adapterApi.createSimplexChatWebSocketAdapter({
     url: 'ws://127.0.0.1:5225',
     WebSocketImpl: makeFakeWebSocket(() => {})
   });
 
   await assert.rejects(
-    adapter.sendText({ contact_id: '42', text: 'hello' }),
+    adapter.sendText({ text: 'hello' }),
     error => {
       assert.equal(error.code, adapterApi.ERROR_CONFIG);
       return true;
