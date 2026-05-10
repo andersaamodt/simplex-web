@@ -59,6 +59,7 @@ test('signed in panel renders messages and compose area', () => {
 test('status labels map known delivery states', () => {
   assert.equal(ui.statusLabel({ delivery_status: 'sndRcvd' }), 'Delivered');
   assert.equal(ui.statusLabel({ delivery_status: 'sndSent' }), 'Sent');
+  assert.equal(ui.statusLabel({ delivery_status: 'sndNew' }), 'Sending');
   assert.equal(ui.statusLabel({ delivery_status: 'sndError' }), 'Failed');
   assert.equal(ui.statusLabel({ delivery_status: 'uploading' }), 'Uploading');
 });

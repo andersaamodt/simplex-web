@@ -119,6 +119,7 @@
       case 'rcvNew':
       case 'rcvRead':
         return 'Received';
+      case 'sndNew':
       case 'sending':
         return 'Sending';
       case 'uploading':
