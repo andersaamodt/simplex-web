@@ -96,6 +96,13 @@
 
   function contactFromResponse(resp) {
     if (!resp || typeof resp !== 'object') return null;
+    if (
+      resp.connectionPlan &&
+      resp.connectionPlan.contactAddressPlan &&
+      resp.connectionPlan.contactAddressPlan.contact
+    ) {
+      return resp.connectionPlan.contactAddressPlan.contact;
+    }
     return resp.contact || resp.toContact || resp.contactInfo || null;
   }
 
@@ -197,6 +204,7 @@
       var step = 0;
       var sendAttempts = 0;
       var commandSeq = 0;
+      var pendingCorrId = '';
       var timer = global.setTimeout(function () {
         finish(reject, makeError(ERROR_TIMEOUT, 'SimpleX Chat WebSocket command timed out'));
       }, config.timeout_ms);
@@ -213,6 +221,7 @@
 
       function send(cmd) {
         var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
+        pendingCorrId = corrId;
         ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
       }
 
@@ -229,7 +238,14 @@
         var resp = envelope && envelope.resp;
         var type = responseType(resp);
         if (!resp) return;
+        var corrId = String(envelope.corrId || '');
         if (step === 0) {
+          if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (!corrId && type !== 'activeUser') {
+            return;
+          }
           if (type !== 'activeUser') {
             finish(reject, makeError(ERROR_RESPONSE, 'Could not resolve SimpleX Chat active user: ' + (type || 'unknown')));
             return;
@@ -250,7 +266,7 @@
           return;
         }
         if (step === 1 && !contactId) {
-          if (type === 'contactAlreadyExists' || type === 'contactConnected' || type === 'contactConnecting') {
+          if (type === 'contactAlreadyExists' || type === 'contactConnected' || type === 'contactConnecting' || type === 'connectionPlan') {
             contactId = contactIdFromResponse(resp);
             if (contactId) {
               rememberContactId(config, payload, userId, contactLink, contactId);

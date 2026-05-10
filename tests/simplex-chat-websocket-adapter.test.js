@@ -77,6 +77,31 @@ test('websocket adapter sends via active SimpleX Chat user and contact', async (
   assert.equal(FakeWebSocket.sockets[0].closed, true);
 });
 
+test('websocket adapter ignores unsolicited startup events before active user response', async () => {
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ resp: { type: 'connectionsDiff' } })
+      }));
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 1 } } })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({ contact_id: '42', text: 'hello', client_message_id: 'client-1' });
+  assert.equal(receipt.message_ref, 'client-1');
+});
+
 test('websocket adapter can register as SimplexWebTransport adapter', async () => {
   global.SimplexWebTransport = transportApi;
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
@@ -150,6 +175,50 @@ test('websocket adapter can connect a browser-local contact link before sending'
   });
   assert.equal(receipt.message_ref, 'client-link-1');
   assert.equal(Array.from(storage.values())[0], '77');
+});
+
+test('websocket adapter can reuse a known contact address connection plan', async () => {
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      assert.equal(outbound.cmd, '/connect https://simplex.chat/contact#/?v=1&smp=known');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({
+          corrId: outbound.corrId,
+          resp: {
+            type: 'connectionPlan',
+            connectionPlan: {
+              contactAddressPlan: {
+                contact: { contactId: 88 }
+              }
+            }
+          }
+        })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_send @88 text via known plan');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({
+    contact_link: 'https://simplex.chat/contact#/?v=1&smp=known',
+    text: 'via known plan',
+    client_message_id: 'known-plan-1'
+  });
+  assert.equal(receipt.message_ref, 'known-plan-1');
 });
 
 test('websocket adapter rejects remote endpoints unless explicitly allowed', () => {
