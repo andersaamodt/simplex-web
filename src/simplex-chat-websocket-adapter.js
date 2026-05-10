@@ -120,6 +120,29 @@
     return text ? limitString(text, MAX_LABEL_LENGTH) : '';
   }
 
+  function chatErrorSummary(resp) {
+    var chatError = resp && resp.chatError;
+    if (!chatError || typeof chatError !== 'object') return '';
+    var agentError = chatError.agentError || null;
+    if (agentError && typeof agentError === 'object') {
+      var brokerErr = agentError.brokerErr && agentError.brokerErr.type ? String(agentError.brokerErr.type) : '';
+      var brokerAddress = agentError.brokerAddress ? String(agentError.brokerAddress) : '';
+      if (agentError.type || brokerErr || brokerAddress) {
+        return [
+          agentError.type ? String(agentError.type) : '',
+          brokerErr,
+          brokerAddress
+        ].filter(Boolean).join(' ');
+      }
+    }
+    if (chatError.type) return String(chatError.type);
+    try {
+      return JSON.stringify(chatError).slice(0, 300);
+    } catch (_err) {
+      return '';
+    }
+  }
+
   function storageOrNull(storage) {
     if (storage && typeof storage.getItem === 'function' && typeof storage.setItem === 'function') {
       return storage;
@@ -280,7 +303,8 @@
             return;
           }
           if (type === 'chatCmdError') {
-            finish(reject, makeError(ERROR_RESPONSE, 'Could not connect SimpleX contact link'));
+            var detail = chatErrorSummary(resp);
+            finish(reject, makeError(ERROR_RESPONSE, 'Could not connect SimpleX contact link' + (detail ? ': ' + detail : '')));
           }
           return;
         }

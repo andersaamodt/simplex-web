@@ -221,6 +221,42 @@ test('websocket adapter can reuse a known contact address connection plan', asyn
   assert.equal(receipt.message_ref, 'known-plan-1');
 });
 
+test('websocket adapter reports SimpleX broker connection errors', async () => {
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 1 } } })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'chatCmdError',
+          chatError: {
+            type: 'errorAgent',
+            agentError: {
+              type: 'BROKER',
+              brokerAddress: 'smp://example@smp.example',
+              brokerErr: { type: 'TIMEOUT' }
+            }
+          }
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    WebSocketImpl: FakeWebSocket
+  });
+  await assert.rejects(
+    adapter.sendText({ contact_link: 'simplex:/contact#broken', text: 'hello' }),
+    /BROKER TIMEOUT smp:\/\/example@smp\.example/
+  );
+});
+
 test('websocket adapter rejects remote endpoints unless explicitly allowed', () => {
   assert.throws(
     () => adapterApi.createSimplexChatWebSocketAdapter({
