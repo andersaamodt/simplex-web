@@ -33,13 +33,18 @@
   "scripts": {
     "file-bridge": "node scripts/simplex-web-file-bridge.mjs",
     "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js tests/file-bridge.test.mjs",
-    "test:runtime": "./tests-simplex-web-runtime.sh",
-    "test:haskell-smoke": "./tests-haskell-wasm-runtime.sh",
-    "test:haskell-core": "./tests-haskell-core-runtime.sh",
+    "test:fuzz": "node --test tests/adversarial-fuzz.test.js",
+    "test:browser": "node --test tests/browser-matrix.test.mjs",
+    "test:live": "node --test tests/simplex-live-e2e.test.mjs",
+    "test:runtime": "sh ./tests-simplex-web-runtime.sh",
+    "test:haskell-smoke": "sh ./tests-haskell-wasm-runtime.sh",
+    "test:haskell-core": "sh ./tests-haskell-core-runtime.sh",
     "test:haskell": "npm run test:haskell-smoke && npm run test:haskell-core",
-    "test": "npm run test:ui && npm run test:runtime"
+    "test": "npm run test:ui && npm run test:fuzz && npm run test:runtime"
   },
   "devDependencies": {
-    "@bjorn3/browser_wasi_shim": "0.4.2"
+    "@bjorn3/browser_wasi_shim": "0.4.2",
+    "@playwright/test": "^1.60.0",
+    "fast-check": "^4.8.0"
   }
 }

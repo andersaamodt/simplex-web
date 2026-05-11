@@ -38,6 +38,12 @@ function makeFakeWebSocket(script) {
   return FakeWebSocket;
 }
 
+function textJsonCommand(contactId, text) {
+  return '/_send @' + contactId + ' json ' + JSON.stringify([
+    { msgContent: { type: 'text', text }, mentions: {} }
+  ]);
+}
+
 test('websocket adapter sends via active SimpleX Chat user and contact', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {
@@ -47,7 +53,7 @@ test('websocket adapter sends via active SimpleX Chat user and contact', async (
       }));
       return;
     }
-    assert.equal(outbound.cmd, '/_send @42 text hello');
+    assert.equal(outbound.cmd, textJsonCommand('42', 'hello'));
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({
         corrId: outbound.corrId,
@@ -193,7 +199,7 @@ test('websocket adapter polls SimpleX history when status event is missed', asyn
   });
   assert.equal(receipt.transport_status, 'sending');
   await new Promise((resolve) => setTimeout(resolve, 1600));
-  assert.deepEqual(commands.slice(0, 3), ['/_user 7', '/_send @42 text hello', '/_get chat @42 count=20']);
+  assert.deepEqual(commands.slice(0, 3), ['/_user 7', textJsonCommand('42', 'hello'), '/_get chat @42 count=20']);
   assert.equal(statusUpdates.length, 2);
   assert.equal(statusUpdates[0].transport_status, 'sent');
   assert.equal(statusUpdates[0].raw_status, 'sndSent');
@@ -217,7 +223,7 @@ test('websocket adapter reconnects contact link after stale cached contact id fa
       return;
     }
     if (count === 2) {
-      assert.equal(outbound.cmd, '/_send @12 text via stale cache');
+      assert.equal(outbound.cmd, textJsonCommand('12', 'via stale cache'));
       queueMicrotask(() => socket.emit('message', {
         data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'chatCmdError', chatError: { type: 'contactNotFound' } } })
       }));
@@ -230,7 +236,7 @@ test('websocket adapter reconnects contact link after stale cached contact id fa
       }));
       return;
     }
-    assert.equal(outbound.cmd, '/_send @77 text via stale cache');
+    assert.equal(outbound.cmd, textJsonCommand('77', 'via stale cache'));
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({
         corrId: outbound.corrId,
@@ -263,9 +269,9 @@ test('websocket adapter reconnects contact link after stale cached contact id fa
   });
   assert.deepEqual(commands, [
     '/u',
-    '/_send @12 text via stale cache',
+    textJsonCommand('12', 'via stale cache'),
     '/connect https://simplex.chat/contact#/?v=1&smp=stale',
-    '/_send @77 text via stale cache'
+    textJsonCommand('77', 'via stale cache')
   ]);
   assert.equal(receipt.transport_status, 'sent');
   assert.equal(Array.from(storage.values())[0], '77');
@@ -319,6 +325,60 @@ test('websocket adapter can query a cached message status from SimpleX history',
   assert.deepEqual(commands, ['/u', '/_get chat @77 count=20']);
   assert.equal(receipt.transport_status, 'delivered');
   assert.equal(receipt.raw_status, 'sndRcvd');
+});
+
+test('websocket adapter backs off while a new SimpleX contact is not ready', async () => {
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({
+          corrId: outbound.corrId,
+          resp: {
+            type: 'chatCmdError',
+            chatError: {
+              type: 'error',
+              errorType: { type: 'contactNotReady' }
+            }
+          }
+        })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'newChatItems',
+          chatItems: [
+            { chatItem: { meta: { itemId: 127, itemStatus: { type: 'sndSent' } } } }
+          ]
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '9',
+    retry_delay_ms: 10,
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({ contact_id: '77', text: 'after contact ready' });
+  assert.deepEqual(commands, [
+    '/_user 9',
+    textJsonCommand('77', 'after contact ready'),
+    textJsonCommand('77', 'after contact ready')
+  ]);
+  assert.equal(receipt.message_ref, '127');
 });
 
 test('websocket adapter can query recent incoming SimpleX messages', async () => {
@@ -435,6 +495,36 @@ test('websocket adapter sends attachments with the official SimpleX file JSON co
   assert.equal(receipts[0].attachment.size, 5);
   assert.equal(receipts[0].attachment.file_path, '/tmp/probe-😀.txt');
   assert.equal(receipts[0].attachment.data_url, '');
+});
+
+test('websocket adapter sends command-shaped text as SimpleX JSON content', async () => {
+  const hostileText = 'hello\n/_send @1 text pwn';
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, textJsonCommand('77', hostileText));
+    assert.doesNotMatch(outbound.cmd, / text hello\n\/_send/);
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '9',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({
+    contact_id: '77',
+    text: hostileText,
+    client_message_id: 'json-text-1'
+  });
+  assert.equal(receipt.message_ref, 'json-text-1');
 });
 
 test('websocket adapter stages browser File attachments through a loopback file bridge', async () => {
@@ -688,7 +778,7 @@ test('websocket adapter can connect a browser-local contact link before sending'
       }));
       return;
     }
-    assert.equal(outbound.cmd, '/_send @77 text via link');
+    assert.equal(outbound.cmd, textJsonCommand('77', 'via link'));
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
     }));
@@ -739,7 +829,7 @@ test('websocket adapter can reuse a known contact address connection plan', asyn
       }));
       return;
     }
-    assert.equal(outbound.cmd, '/_send @88 text via known plan');
+    assert.equal(outbound.cmd, textJsonCommand('88', 'via known plan'));
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
     }));
@@ -833,7 +923,7 @@ test('websocket adapter ignores poisoned cached contact ids and reconnects the c
       }));
       return;
     }
-    assert.equal(outbound.cmd, '/_send @88 text recovered');
+    assert.equal(outbound.cmd, textJsonCommand('88', 'recovered'));
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
     }));
@@ -859,7 +949,7 @@ test('websocket adapter ignores poisoned cached contact ids and reconnects the c
   assert.deepEqual(commands, [
     '/u',
     '/connect https://simplex.chat/contact#/?v=1&smp=poison',
-    '/_send @88 text recovered'
+    textJsonCommand('88', 'recovered')
   ]);
   assert.equal(receipt.message_ref, 'poison-cache-1');
   assert.equal(Array.from(storage.values())[0], '88');

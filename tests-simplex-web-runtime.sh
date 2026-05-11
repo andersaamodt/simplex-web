@@ -66,6 +66,8 @@ assert_file_contains "$ROOT_DIR/src/transport.js" 'SIMPLEX_WEB_TRANSPORT_UNAVAIL
 assert_file_contains "$ROOT_DIR/src/transport.js" 'registerBrowserTransport' 'transport exposes browser-native adapter registration'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'registerSimplexChatWebSocketTransport' 'websocket adapter registers with transport facade'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" '/_send @' 'websocket adapter sends through SimpleX Chat command API'
+assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'function textSendCommand' 'websocket adapter sends text through structured SimpleX JSON commands'
+assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'contactNotReady' 'websocket adapter backs off while new SimpleX contacts become ready'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'normalizeCommandAtom' 'websocket adapter validates command atoms'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'finish(reject, error);' 'websocket adapter rejects thrown websocket sends'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'isAbsoluteLocalPath(raw) ? raw : ' 'websocket adapter rejects relative history file paths'

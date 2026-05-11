@@ -4,6 +4,8 @@ npm-debug.log*
 *.tgz
 .DS_Store
 coverage/
+playwright-report/
+test-results/
 build/
 dist-newstyle/
 .ghc.environment.*

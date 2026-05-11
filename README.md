@@ -36,6 +36,7 @@ The reason the protocol core is not here yet is architectural, not branding: the
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
 - `tests/simplex-chat-websocket-adapter.test.js`: Node unit tests for the SimpleX Chat WebSocket adapter.
 - `tests/file-bridge.test.mjs`: Node integration tests for file bridge origin, path, symlink, size, and output-shape boundaries.
+- `tests/simplex-live-e2e.test.mjs`: optional two-daemon live SimpleX E2E test for the WebSocket adapter, using temporary profiles.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.
@@ -132,11 +133,11 @@ window.SimplexWebSocketAdapterConfig = {
 <script src="/static/simplex-chat-websocket-adapter.js"></script>
 ```
 
-The adapter sends text with the official SimpleX Chat command WebSocket flow:
+The adapter sends text with the official SimpleX Chat command WebSocket flow, using JSON composed messages so message bodies cannot be interpreted as follow-up CLI commands:
 
 ```text
 /_user <user_id>
-/_send @<contact_id> text <message>
+/_send @<contact_id> json [{"msgContent":{"type":"text","text":"message"},"mentions":{}}]
 ```
 
 File sends use SimpleX's `ComposedMessage` file-transfer command shape rather than embedding file bytes inside chat text:
@@ -165,9 +166,13 @@ The repository intentionally does not track generated outputs such as `build/`, 
 
 ```sh
 npm test
+npm run test:browser
+npm run test:live
 npm audit --audit-level=moderate
 npm pack --dry-run --json
 ```
+
+`npm run test:live` requires a `simplex-chat` binary. It uses `~/.local/bin/simplex-chat` when present, or `SIMPLEX_CHAT_BIN=/path/to/simplex-chat`.
 
 If `wasm32-wasi-ghc` is installed, also run:
 

@@ -5,7 +5,8 @@
   var MAX_LABEL_LENGTH = 256;
   var DEFAULT_TIMEOUT_MS = 90000;
   var DEFAULT_STATUS_TIMEOUT_MS = 15000;
-  var DEFAULT_RETRIES = 3;
+  var DEFAULT_RETRIES = 10;
+  var DEFAULT_RETRY_DELAY_MS = 1000;
   var ERROR_CONFIG = 'SIMPLEX_CHAT_WS_CONFIG';
   var ERROR_TIMEOUT = 'SIMPLEX_CHAT_WS_TIMEOUT';
   var ERROR_RESPONSE = 'SIMPLEX_CHAT_WS_RESPONSE';
@@ -148,6 +149,7 @@
       timeout_ms: Math.max(1000, Math.floor(Number(opts.timeout_ms || opts.timeoutMs || DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS)),
       status_timeout_ms: Math.max(1000, Math.floor(Number(opts.status_timeout_ms || opts.statusTimeoutMs || DEFAULT_STATUS_TIMEOUT_MS) || DEFAULT_STATUS_TIMEOUT_MS)),
       retries: Math.max(1, Math.floor(Number(opts.retries || DEFAULT_RETRIES) || DEFAULT_RETRIES)),
+      retry_delay_ms: Math.max(100, Math.floor(Number(opts.retry_delay_ms || opts.retryDelayMs || DEFAULT_RETRY_DELAY_MS) || DEFAULT_RETRY_DELAY_MS)),
       storage: opts.storage || null,
       fetchImpl: fetchImpl,
       WebSocketImpl: opts.WebSocketImpl || global.WebSocket
@@ -458,6 +460,17 @@
     }
   }
 
+  function chatErrorType(resp) {
+    var chatError = resp && resp.chatError;
+    if (!chatError || typeof chatError !== 'object') return '';
+    var errorType = chatError.errorType;
+    if (errorType && typeof errorType === 'object' && errorType.type) {
+      return String(errorType.type);
+    }
+    if (chatError.type) return String(chatError.type);
+    return '';
+  }
+
   function storageOrNull(storage) {
     if (storage && typeof storage.getItem === 'function' && typeof storage.setItem === 'function') {
       return storage;
@@ -506,8 +519,14 @@
     }
   }
 
-  function encodeTextCommand(text) {
-    return String(text || '').replace(/\r\n/g, '\n');
+  function textComposedMessage(text) {
+    return {
+      msgContent: {
+        type: 'text',
+        text: limitString(text || '', MAX_TEXT_LENGTH)
+      },
+      mentions: {}
+    };
   }
 
   function fileName(file) {
@@ -609,6 +628,12 @@
   function fileSendCommand(contactId, filePath, caption) {
     return '/_send @' + normalizeCommandAtom(contactId, 'contact id', false) + ' json ' + JSON.stringify([
       fileComposedMessage(filePath, caption)
+    ]);
+  }
+
+  function textSendCommand(contactId, text) {
+    return '/_send @' + normalizeCommandAtom(contactId, 'contact id', false) + ' json ' + JSON.stringify([
+      textComposedMessage(text)
     ]);
   }
 
@@ -849,7 +874,7 @@
           safeContactId = normalizeCommandAtom(resolvedContactId, 'contact id', false);
           command = typeof sendCommandForContact === 'function'
             ? sendCommandForContact(safeContactId)
-            : '/_send @' + safeContactId + ' text ' + encodeTextCommand(text);
+            : textSendCommand(safeContactId, text);
         } catch (error) {
           finish(reject, error);
           return;
@@ -976,12 +1001,15 @@
           return;
         }
         if (type === 'chatCmdError' && sendAttempts < config.retries) {
+          var errorType = chatErrorType(resp);
           sendAttempts += 1;
           global.setTimeout(function () {
             if (!settled) {
               sendMessageToContact(contactId);
             }
-          }, 150);
+          }, errorType === 'contactNotReady'
+            ? Math.min(config.retry_delay_ms * sendAttempts, 5000)
+            : 150);
           return;
         }
         finish(reject, makeError(ERROR_RESPONSE, 'Unexpected SimpleX Chat response: ' + (type || 'unknown')));

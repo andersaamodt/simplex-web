@@ -105,7 +105,7 @@ Without an adapter, `sendText` rejects with `SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`.
 `src/simplex-chat-websocket-adapter.js` provides the first real adapter. It registers via `registerBrowserTransport` and sends text through a SimpleX Chat command WebSocket:
 
 - activate the configured SimpleX user with `/_user <user_id>`
-- send to the configured contact with `/_send @<contact_id> text <message>`
+- send to the configured contact with `/_send @<contact_id> json [...]`, including text sends, so message bodies remain structured content rather than command text
 - normalize the SimpleX `newChatItems` response back into the facade receipt
 
 The adapter only accepts loopback endpoints by default. Remote endpoints require `allowRemote: true` because they can see plaintext before SimpleX encrypts and sends through its own network transport.
