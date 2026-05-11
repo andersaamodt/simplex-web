@@ -46,6 +46,7 @@ test('signed in panel renders messages and compose area', () => {
   const html = ui.renderPanel({
     loggedIn: true,
     hasSigner: true,
+    shortcutModifierLabel: '⌘',
     messages: [
       { direction: 'incoming', text: 'hello', delivery_status: 'received', created_at: '2026-05-01T00:00:00Z' }
     ],
@@ -56,6 +57,17 @@ test('signed in panel renders messages and compose area', () => {
   assert.match(html, /Attach files/);
   assert.match(html, /secure-chat-input-wrap/);
   assert.ok(html.indexOf('secure-chat-input-wrap') < html.indexOf('data-secure-chat-action="send"'));
+  assert.match(html, /⌘ \+ Enter to send/);
+  assert.doesNotMatch(html, /Cmd\/Ctrl\+Enter/);
+});
+
+test('signed in panel supports Ctrl shortcut label override', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    shortcutModifierLabel: 'Ctrl'
+  });
+  assert.match(html, /Ctrl \+ Enter to send/);
 });
 
 test('status labels map known delivery states', () => {

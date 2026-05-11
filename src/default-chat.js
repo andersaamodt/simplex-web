@@ -141,6 +141,28 @@
     return '<span class="secure-chat-status">' + escapeHtml(statusLabel(message)) + '</span>';
   }
 
+  function platformText() {
+    var nav = global && global.navigator ? global.navigator : null;
+    var userAgentData = nav && nav.userAgentData && typeof nav.userAgentData.platform === 'string'
+      ? nav.userAgentData.platform
+      : '';
+    return [
+      userAgentData,
+      nav && typeof nav.platform === 'string' ? nav.platform : '',
+      nav && typeof nav.userAgent === 'string' ? nav.userAgent : ''
+    ].join(' ').toLowerCase();
+  }
+
+  function shortcutModifierLabel(model) {
+    var configured = model && typeof model.shortcutModifierLabel === 'string'
+      ? limitString(model.shortcutModifierLabel.trim(), MAX_LABEL_LENGTH)
+      : '';
+    if (configured) {
+      return configured;
+    }
+    return /\bmac|iphone|ipad|ipod/.test(platformText()) ? '⌘' : 'Ctrl';
+  }
+
   function normalizeModel(model) {
     var next = model && typeof model === 'object' ? model : {};
     var messages = Array.isArray(next.messages) ? next.messages.slice(-MAX_RENDER_MESSAGES).map(normalizeMessage) : [];
@@ -157,6 +179,7 @@
       messages: messages,
       uploads: uploads,
       sendWithModifier: next.sendWithModifier === true,
+      shortcutModifierLabel: shortcutModifierLabel(next),
       simplexWebIntroDismissed: next.simplexWebIntroDismissed === true,
       admin: !!next.admin,
       adminMappings: adminMappings
@@ -246,7 +269,7 @@
     html += '<div class="secure-chat-actions">';
     html += '<button type="button" class="list-admin-primary-btn secure-chat-send-btn" data-secure-chat-action="send"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span><span>Sending...</span>' : 'Send') + '</button>';
     html += '</div>';
-    html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> Cmd/Ctrl+Enter to send</label>';
+    html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> ' + escapeHtml(state.shortcutModifierLabel) + ' + Enter to send</label>';
     html += '</div>';
     html += '</section>';
     return html;
