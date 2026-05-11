@@ -60,6 +60,30 @@ test('registered browser adapter receives normalized outbound text and returns n
   });
 });
 
+test('registered global transport can be replaced by a later browser adapter', async () => {
+  const previousGlobal = global.SimplexWebTransport;
+  try {
+    global.SimplexWebTransport = transportApi;
+    const first = global.SimplexWebTransport.registerBrowserTransport({
+      sendText() {
+        return { message_ref: 'first' };
+      }
+    });
+    assert.equal(first.isAvailable(), true);
+    assert.equal(typeof global.SimplexWebTransport.registerBrowserTransport, 'function');
+
+    const second = global.SimplexWebTransport.registerBrowserTransport({
+      sendText() {
+        return { message_ref: 'second' };
+      }
+    });
+    const receipt = await second.sendText({ contact_id: 'contact-1', text: 'hello' });
+    assert.equal(receipt.message_ref, 'second');
+  } finally {
+    global.SimplexWebTransport = previousGlobal;
+  }
+});
+
 test('empty outbound text is rejected before adapter send', async () => {
   let sent = false;
   const transport = transportApi.createTransport({

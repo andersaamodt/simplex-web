@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { basename, delimiter, extname, join, relative, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -58,12 +58,31 @@ function safeName(value) {
   return name || 'attachment.bin';
 }
 
-function isPathAllowed(filePath) {
-  const resolved = resolve(filePath);
-  return allowedReadRoots.some((root) => {
-    const rel = relative(root, resolved);
-    return rel === '' || (!!rel && !rel.startsWith('..') && !rel.startsWith('/'));
-  });
+async function realPathOrResolved(filePath) {
+  try {
+    return await realpath(filePath);
+  } catch (_err) {
+    return resolve(filePath);
+  }
+}
+
+async function allowedReadPath(filePath) {
+  const resolved = await realPathOrResolved(filePath);
+  for (const root of allowedReadRoots) {
+    const resolvedRoot = await realPathOrResolved(root);
+    const rel = relative(resolvedRoot, resolved);
+    if (rel === '' || (!!rel && !rel.startsWith('..') && !rel.startsWith('/') && !rel.startsWith('\\'))) {
+      return resolved;
+    }
+  }
+  return '';
+}
+
+function noStoreHeaders(req) {
+  return {
+    ...corsHeaders(req),
+    'X-Content-Type-Options': 'nosniff'
+  };
 }
 
 function mimeForName(filePath) {
@@ -125,7 +144,7 @@ function corsHeaders(req) {
 
 function sendJson(req, res, status, payload) {
   res.writeHead(status, {
-    ...corsHeaders(req),
+    ...noStoreHeaders(req),
     'Content-Type': 'application/json; charset=utf-8'
   });
   res.end(`${JSON.stringify(payload)}\n`);
@@ -162,22 +181,23 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && requestUrl.pathname === '/files') {
       const filePath = requestUrl.searchParams.get('path') || '';
-      if (!filePath || !isPathAllowed(filePath)) {
+      const safeFilePath = filePath ? await allowedReadPath(filePath) : '';
+      if (!safeFilePath) {
         sendJson(req, res, 403, { ok: false, error: 'file path is not allowed' });
         return;
       }
-      const info = await stat(filePath);
+      const info = await stat(safeFilePath);
       if (!info.isFile()) {
         sendJson(req, res, 404, { ok: false, error: 'file not found' });
         return;
       }
       res.writeHead(200, {
-        ...corsHeaders(req),
-        'Content-Type': mimeForName(filePath),
+        ...noStoreHeaders(req),
+        'Content-Type': mimeForName(safeFilePath),
         'Content-Length': String(info.size),
-        'Content-Disposition': `inline; filename="${safeName(basename(filePath)).replace(/"/g, '')}"`
+        'Content-Disposition': `inline; filename="${safeName(basename(safeFilePath)).replace(/"/g, '')}"`
       });
-      createReadStream(filePath).pipe(res);
+      createReadStream(safeFilePath).pipe(res);
       return;
     }
     if (req.method !== 'POST' || requestUrl.pathname !== '/files') {

@@ -145,7 +145,9 @@ File sends use SimpleX's `ComposedMessage` file-transfer command shape rather th
 
 Browsers do not expose selected files' absolute local paths to web pages. For ordinary browser `File` objects, configure a loopback-only `fileBridgeUrl` that stages the selected file on the same machine as the SimpleX Chat WebSocket API and returns an absolute local `filePath`. Without a local file path or loopback file bridge, attachment sending fails closed.
 
-The optional file bridge is origin-restricted by default. Set `SIMPLEX_WEB_FILE_BRIDGE_ORIGIN` to the exact site origin that should be allowed to stage and read files, for example:
+The default chat renderer only autoloads attachment URLs from `data:`, `blob:`, or loopback `http(s)` URLs. Remote and relative attachment URLs render as inert download labels so imported metadata cannot force the browser to beacon to arbitrary hosts.
+
+The optional file bridge is origin-restricted by default, resolves symlinks before reads, and sends `X-Content-Type-Options: nosniff`. Set `SIMPLEX_WEB_FILE_BRIDGE_ORIGIN` to the exact site origin that should be allowed to stage and read files, for example:
 
 ```sh
 SIMPLEX_WEB_FILE_BRIDGE_ORIGIN=https://example.com npm run file-bridge

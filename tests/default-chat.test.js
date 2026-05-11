@@ -225,6 +225,35 @@ test('render drops unsafe attachment URLs before placing them in HTML attributes
   assert.equal((html.match(/href="#"/g) || []).length, 2);
 });
 
+test('render refuses remote and relative attachment URL autoloads but keeps loopback bridge URLs', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    messages: [
+      {
+        direction: 'incoming',
+        delivery_status: 'received',
+        attachment: { name: 'remote.png', mime: 'image/png', size: 1, url: 'https://evil.example/pixel.png' }
+      },
+      {
+        direction: 'incoming',
+        delivery_status: 'received',
+        attachment: { name: 'relative.png', mime: 'image/png', size: 1, url: '/files?path=/tmp/secret.png' }
+      },
+      {
+        direction: 'incoming',
+        delivery_status: 'received',
+        attachment: { name: 'local.png', mime: 'image/png', size: 1, url: 'http://127.0.0.1:5226/files?path=%2Ftmp%2Fok.png' }
+      }
+    ]
+  });
+
+  assert.doesNotMatch(html, /evil\.example/);
+  assert.doesNotMatch(html, /\/files\?path=\/tmp\/secret\.png/);
+  assert.match(html, /http:\/\/127\.0\.0\.1:5226\/files\?path=%2Ftmp%2Fok\.png/);
+  assert.equal((html.match(/<img class="secure-chat-attachment-media"/g) || []).length, 1);
+});
+
 test('render clamps hostile upload progress and ignores oversized history', () => {
   const messages = Array.from({ length: ui.MAX_RENDER_MESSAGES + 10 }, (_, index) => ({
     direction: index === ui.MAX_RENDER_MESSAGES + 9 ? 'incoming' : 'outgoing',

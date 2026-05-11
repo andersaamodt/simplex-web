@@ -297,7 +297,8 @@
       status.file_path ||
       status.path
     );
-    return raw ? limitString(raw, MAX_TEXT_LENGTH) : '';
+    raw = raw ? limitString(raw, MAX_TEXT_LENGTH) : '';
+    return isAbsoluteLocalPath(raw) ? raw : '';
   }
 
   function bridgedFileUrl(config, filePath) {

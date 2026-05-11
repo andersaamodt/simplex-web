@@ -89,6 +89,11 @@
       value.indexOf('audio/') === 0;
   }
 
+  function isLoopbackHost(hostname) {
+    var host = String(hostname || '').toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  }
+
   function safeAttachmentUrl(value, kind) {
     var raw = String(value || '').trim();
     var match;
@@ -100,12 +105,13 @@
     }
     if (/^data:/i.test(raw)) return '';
     if (/^blob:/i.test(raw)) return raw;
+    if (!/^https?:\/\//i.test(raw)) return '';
     try {
-      parsed = new URL(raw, global.location && global.location.href || 'http://127.0.0.1/');
+      parsed = new URL(raw);
     } catch (_err) {
       return '';
     }
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopbackHost(parsed.hostname)) {
       return parsed.href;
     }
     return '';

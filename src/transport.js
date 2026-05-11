@@ -256,6 +256,9 @@
       throw makeTransportError(ERROR_BAD_ADAPTER, 'browser-native transport adapter must expose sendText(message)');
     }
     var transport = createTransport(adapter);
+    transport.registerBrowserTransport = registerBrowserTransport;
+    transport.createTransport = createTransport;
+    transport.createUnavailableTransport = createUnavailableTransport;
     global.SimplexWebTransport = transport;
     return transport;
   }

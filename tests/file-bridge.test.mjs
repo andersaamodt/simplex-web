@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -105,6 +105,52 @@ test('file bridge rejects hostile origins, traversal reads, and malformed filena
     assert.equal(staged.json.ok, true);
     assert.match(staged.json.filePath, /^\/.*bad-script-\.txt$/);
     assert.equal(await readFile(staged.json.filePath, 'utf8'), 'hello');
+    assert.equal(staged.resp.headers.get('x-content-type-options'), 'nosniff');
+  } finally {
+    await bridge.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('file bridge rejects symlink escapes and oversized uploads without staging files', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'simplex-web-file-bridge-test-'));
+  const storageRoot = join(tempRoot, 'staging');
+  const allowedRoot = join(tempRoot, 'allowed');
+  const outsideRoot = join(tempRoot, 'outside');
+  await mkdir(storageRoot, { recursive: true });
+  await mkdir(allowedRoot, { recursive: true });
+  await mkdir(outsideRoot, { recursive: true });
+  const outsideFile = join(outsideRoot, 'secret.txt');
+  const symlinkPath = join(allowedRoot, 'secret-link.txt');
+  await writeFile(outsideFile, 'secret');
+  await symlink(outsideFile, symlinkPath);
+
+  const bridge = await startBridge({
+    SIMPLEX_WEB_FILE_BRIDGE_HOST: '127.0.0.1',
+    SIMPLEX_WEB_FILE_BRIDGE_PORT: '0',
+    SIMPLEX_WEB_FILE_BRIDGE_ROOT: storageRoot,
+    SIMPLEX_WEB_FILE_BRIDGE_ALLOWED_ROOTS: allowedRoot,
+    SIMPLEX_WEB_FILE_BRIDGE_MAX_BYTES: '4',
+    SIMPLEX_WEB_FILE_BRIDGE_ORIGIN: 'https://allowed.example'
+  });
+
+  try {
+    const symlinkRead = await requestJson(`${bridge.baseUrl}/files?path=${encodeURIComponent(symlinkPath)}`, {
+      headers: { Origin: 'https://allowed.example' }
+    });
+    assert.equal(symlinkRead.resp.status, 403);
+
+    const oversized = await requestJson(`${bridge.baseUrl}/files`, {
+      method: 'POST',
+      headers: {
+        Origin: 'https://allowed.example',
+        'Content-Type': 'text/plain',
+        'X-File-Name': 'too-large.txt'
+      },
+      body: '12345'
+    });
+    assert.equal(oversized.resp.status, 413);
+    assert.deepEqual(await readdir(storageRoot), []);
   } finally {
     await bridge.stop();
     await rm(tempRoot, { recursive: true, force: true });

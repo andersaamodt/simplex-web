@@ -931,6 +931,67 @@ test('websocket adapter rejects relative paths returned by the file bridge', asy
   );
 });
 
+test('websocket adapter turns synchronous file bridge fetch failures into rejected promises', async () => {
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    fileBridgeUrl: 'http://127.0.0.1:5226',
+    user_id: '9',
+    WebSocketImpl: makeFakeWebSocket(() => {
+      throw new Error('socket should not open after fetch failure');
+    }),
+    fetchImpl() {
+      throw new Error('fetch unavailable');
+    }
+  });
+
+  await assert.rejects(
+    adapter.sendFiles({
+      contact_id: '77',
+      files: [{ name: 'probe.txt', size: 5, type: 'text/plain' }]
+    }),
+    /fetch unavailable/
+  );
+});
+
+test('websocket adapter does not create bridge URLs for relative history file paths', async () => {
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'apiChat',
+          chat: {
+            chatItems: [{
+              chatDir: { type: 'directRcv' },
+              meta: { itemId: 501, itemStatus: { type: 'rcvNew' } },
+              content: { msgContent: { type: 'text', text: 'unsafe path' } },
+              file: { fileName: 'secret.png', fileSize: 12, filePath: '../../secret.png' }
+            }]
+          }
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    fileBridgeUrl: 'http://127.0.0.1:5226',
+    user_id: '9',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const messages = await adapter.getMessages({ contact_id: '77' });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].attachment.file_path, '');
+  assert.equal(messages[0].attachment.url, '');
+});
+
 test('websocket adapter reports SimpleX broker connection errors', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {

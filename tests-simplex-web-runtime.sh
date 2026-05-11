@@ -66,8 +66,13 @@ assert_file_contains "$ROOT_DIR/src/transport.js" 'registerBrowserTransport' 'tr
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'registerSimplexChatWebSocketTransport' 'websocket adapter registers with transport facade'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" '/_send @' 'websocket adapter sends through SimpleX Chat command API'
 assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'normalizeCommandAtom' 'websocket adapter validates command atoms'
+assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'isAbsoluteLocalPath(raw) ? raw : ' 'websocket adapter rejects relative history file paths'
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'safeAttachmentUrl' 'default chat sanitizes rendered attachment URLs'
+assert_file_contains "$ROOT_DIR/src/default-chat.js" 'isLoopbackHost(parsed.hostname)' 'default chat only autoloads loopback attachment URLs'
 assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'origin is not allowed' 'file bridge rejects hostile origins'
+assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'realpath(filePath)' 'file bridge resolves symlinks before reads'
+assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'X-Content-Type-Options' 'file bridge sends nosniff headers'
+assert_file_contains "$ROOT_DIR/src/transport.js" 'transport.registerBrowserTransport = registerBrowserTransport' 'registered transport remains replaceable'
 assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" 'no `ghc`' 'repo documents missing Haskell browser toolchain'
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
