@@ -108,6 +108,14 @@
     return !!(adapter && typeof adapter === 'object' && typeof adapter.sendText === 'function');
   }
 
+  function callAdapterMethod(target, methodName, args) {
+    try {
+      return Promise.resolve(target[methodName].apply(target, args || []));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
   function createTransport(adapter, options) {
     var opts = options && typeof options === 'object' ? options : {};
     var activeAdapter = validateAdapter(adapter) ? adapter : null;
@@ -152,7 +160,7 @@
           return Promise.reject(error);
         }
         if (typeof target.connect === 'function') {
-          return Promise.resolve(target.connect(params && typeof params === 'object' ? params : {}));
+          return callAdapterMethod(target, 'connect', [params && typeof params === 'object' ? params : {}]);
         }
         return Promise.resolve(getStatus());
       },
@@ -167,7 +175,7 @@
         if (!normalized.text.trim()) {
           return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_MESSAGE', 'message text is required'));
         }
-        return Promise.resolve(target.sendText(normalized)).then(function (receipt) {
+        return callAdapterMethod(target, 'sendText', [normalized]).then(function (receipt) {
           return normalizeReceipt(receipt, normalized);
         });
       },
@@ -186,10 +194,10 @@
         if (!files.length) {
           return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_FILES', 'at least one file is required'));
         }
-        return Promise.resolve(target.sendFiles(Object.assign({}, normalized, {
+        return callAdapterMethod(target, 'sendFiles', [Object.assign({}, normalized, {
           files: files,
           max_file_bytes: MAX_FILE_BYTES
-        })));
+        })]);
       },
       getMessageStatus: function (message, options) {
         var target;
@@ -205,7 +213,7 @@
         if (!normalized.message_ref) {
           return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_MESSAGE_REF', 'message ref is required'));
         }
-        return Promise.resolve(target.getMessageStatus(normalized)).then(function (receipt) {
+        return callAdapterMethod(target, 'getMessageStatus', [normalized]).then(function (receipt) {
           return normalizeReceipt(receipt, normalized);
         });
       },
@@ -220,7 +228,7 @@
           return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_RECEIVE_UNAVAILABLE', 'message receive lookup is not available'));
         }
         var normalized = normalizeMessageQuery(message, options);
-        return Promise.resolve(target.getMessages(normalized)).then(function (messages) {
+        return callAdapterMethod(target, 'getMessages', [normalized]).then(function (messages) {
           return (Array.isArray(messages) ? messages : []).map(normalizeIncomingMessage);
         });
       },
@@ -232,7 +240,7 @@
           return Promise.reject(error);
         }
         if (typeof target.disconnect === 'function') {
-          return Promise.resolve(target.disconnect());
+          return callAdapterMethod(target, 'disconnect', []);
         }
         return Promise.resolve();
       }

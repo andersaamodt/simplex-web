@@ -758,6 +758,179 @@ test('websocket adapter can reuse a known contact address connection plan', asyn
   assert.equal(receipt.message_ref, 'known-plan-1');
 });
 
+test('websocket adapter rejects command-shaped identifiers before opening a socket', async () => {
+  let opened = 0;
+  class CountingWebSocket {
+    constructor() {
+      opened += 1;
+    }
+  }
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    WebSocketImpl: CountingWebSocket
+  });
+
+  await assert.rejects(
+    adapter.sendText({ user_id: '7\n/_send @1 text pwn', contact_id: '42', text: 'hello' }),
+    error => {
+      assert.equal(error.code, adapterApi.ERROR_CONFIG);
+      return true;
+    }
+  );
+  await assert.rejects(
+    adapter.sendText({ user_id: '7', contact_id: '42 /_send @1 text pwn', text: 'hello' }),
+    error => {
+      assert.equal(error.code, adapterApi.ERROR_CONFIG);
+      return true;
+    }
+  );
+  assert.equal(opened, 0);
+});
+
+test('websocket adapter rejects command-shaped contact links before opening a socket', async () => {
+  let opened = 0;
+  class CountingWebSocket {
+    constructor() {
+      opened += 1;
+    }
+  }
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    WebSocketImpl: CountingWebSocket
+  });
+
+  await assert.rejects(
+    adapter.sendText({
+      contact_link: 'https://simplex.chat/contact#/?v=1&smp=ok\n/_send @1 text pwn',
+      text: 'hello'
+    }),
+    error => {
+      assert.equal(error.code, adapterApi.ERROR_CONFIG);
+      return true;
+    }
+  );
+  assert.equal(opened, 0);
+});
+
+test('websocket adapter ignores poisoned cached contact ids and reconnects the contact link', async () => {
+  const storage = new Map([[
+    'simplex-chat-websocket-adapter-v1:example:npub1test:9:https://simplex.chat/contact#/?v=1&smp=poison',
+    '77\n/_send @1 text pwn'
+  ]]);
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      assert.equal(outbound.cmd, '/connect https://simplex.chat/contact#/?v=1&smp=poison');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ resp: { type: 'contactConnected', contact: { contactId: 88 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_send @88 text recovered');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'newChatItems', chatItems: [] } })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    storage: {
+      getItem(key) { return storage.get(key) || null; },
+      setItem(key, value) { storage.set(key, value); },
+      removeItem(key) { storage.delete(key); }
+    },
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({
+    contact_link: 'https://simplex.chat/contact#/?v=1&smp=poison',
+    siteKey: 'example',
+    accountKey: 'npub1test',
+    text: 'recovered',
+    client_message_id: 'poison-cache-1'
+  });
+  assert.deepEqual(commands, [
+    '/u',
+    '/connect https://simplex.chat/contact#/?v=1&smp=poison',
+    '/_send @88 text recovered'
+  ]);
+  assert.equal(receipt.message_ref, 'poison-cache-1');
+  assert.equal(Array.from(storage.values())[0], '88');
+});
+
+test('websocket adapter rejects command-shaped contact ids returned by SimpleX before sending', async () => {
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({ resp: { type: 'contactConnected', contact: { contactId: '88\n/_send @1 text pwn' } } })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  await assert.rejects(
+    adapter.sendText({
+      contact_link: 'https://simplex.chat/contact#/?v=1&smp=bad-response',
+      text: 'hello'
+    }),
+    error => {
+      assert.equal(error.code, adapterApi.ERROR_CONFIG);
+      return true;
+    }
+  );
+  assert.deepEqual(commands, [
+    '/u',
+    '/connect https://simplex.chat/contact#/?v=1&smp=bad-response'
+  ]);
+});
+
+test('websocket adapter rejects relative paths returned by the file bridge', async () => {
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    fileBridgeUrl: 'http://127.0.0.1:5226',
+    user_id: '9',
+    WebSocketImpl: makeFakeWebSocket(() => {
+      throw new Error('socket should not open after unsafe bridge path');
+    }),
+    fetchImpl() {
+      return Promise.resolve({
+        ok: true,
+        json() {
+          return Promise.resolve({ filePath: '../../etc/passwd' });
+        }
+      });
+    }
+  });
+
+  await assert.rejects(
+    adapter.sendFiles({
+      contact_id: '77',
+      files: [{ name: 'probe.txt', size: 5, type: 'text/plain' }]
+    }),
+    error => {
+      assert.equal(error.code, adapterApi.ERROR_RESPONSE);
+      return true;
+    }
+  );
+});
+
 test('websocket adapter reports SimpleX broker connection errors', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {

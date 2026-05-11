@@ -191,6 +191,40 @@ test('render escapes hostile attachment metadata', () => {
   assert.match(html, /bad&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
+test('render drops unsafe attachment URLs before placing them in HTML attributes', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    messages: [
+      {
+        direction: 'incoming',
+        delivery_status: 'received',
+        attachment: {
+          name: 'unsafe.png',
+          mime: 'image/png',
+          size: 10,
+          data_url: 'javascript:alert(1)'
+        }
+      },
+      {
+        direction: 'incoming',
+        delivery_status: 'received',
+        attachment: {
+          name: 'html.png',
+          mime: 'image/png',
+          size: 11,
+          data_url: 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='
+        }
+      }
+    ]
+  });
+
+  assert.doesNotMatch(html, /javascript:alert/);
+  assert.doesNotMatch(html, /data:text\/html/);
+  assert.doesNotMatch(html, /<img class="secure-chat-attachment-media"/);
+  assert.equal((html.match(/href="#"/g) || []).length, 2);
+});
+
 test('render clamps hostile upload progress and ignores oversized history', () => {
   const messages = Array.from({ length: ui.MAX_RENDER_MESSAGES + 10 }, (_, index) => ({
     direction: index === ui.MAX_RENDER_MESSAGES + 9 ? 'incoming' : 'outgoing',

@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "file-bridge": "node scripts/simplex-web-file-bridge.mjs",
-    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js tests/file-bridge.test.mjs",
     "test:runtime": "./tests-simplex-web-runtime.sh",
     "test:haskell-smoke": "./tests-haskell-wasm-runtime.sh",
     "test:haskell-core": "./tests-haskell-core-runtime.sh",

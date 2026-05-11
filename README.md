@@ -143,6 +143,14 @@ File sends use SimpleX's `ComposedMessage` file-transfer command shape rather th
 /_send @<contact_id> json [{"fileSource":{"filePath":"/local/path/to/file"},"msgContent":{"type":"file","text":"optional caption"},"mentions":{}}]
 ```
 
-Browsers do not expose selected files' absolute local paths to web pages. For ordinary browser `File` objects, configure a loopback-only `fileBridgeUrl` that stages the selected file on the same machine as the SimpleX Chat WebSocket API and returns a local `filePath`. Without a local file path or loopback file bridge, attachment sending fails closed.
+Browsers do not expose selected files' absolute local paths to web pages. For ordinary browser `File` objects, configure a loopback-only `fileBridgeUrl` that stages the selected file on the same machine as the SimpleX Chat WebSocket API and returns an absolute local `filePath`. Without a local file path or loopback file bridge, attachment sending fails closed.
+
+The optional file bridge is origin-restricted by default. Set `SIMPLEX_WEB_FILE_BRIDGE_ORIGIN` to the exact site origin that should be allowed to stage and read files, for example:
+
+```sh
+SIMPLEX_WEB_FILE_BRIDGE_ORIGIN=https://example.com npm run file-bridge
+```
+
+Use `SIMPLEX_WEB_FILE_BRIDGE_ORIGIN='*'` only for local throwaway testing; it lets any website that can reach loopback read allowed bridge responses.
 
 Remote WebSocket endpoints are rejected by default because they can see plaintext. To use one deliberately, pass `allowRemote: true` and only point it at a trusted SimpleX Chat API endpoint, not a website bridge.

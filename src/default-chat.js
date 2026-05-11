@@ -75,15 +75,51 @@
     return String(value) + ' B';
   }
 
+  function dataMimeMatchesKind(mime, kind) {
+    var value = String(mime || '').toLowerCase();
+    if (!value || value === 'image/svg+xml') return false;
+    if (kind === 'image') return value.indexOf('image/') === 0;
+    if (kind === 'video') return value.indexOf('video/') === 0;
+    if (kind === 'audio') return value.indexOf('audio/') === 0;
+    return value === 'application/octet-stream' ||
+      value === 'application/pdf' ||
+      value === 'text/plain' ||
+      value.indexOf('image/') === 0 ||
+      value.indexOf('video/') === 0 ||
+      value.indexOf('audio/') === 0;
+  }
+
+  function safeAttachmentUrl(value, kind) {
+    var raw = String(value || '').trim();
+    var match;
+    var parsed;
+    if (!raw || /[\x00-\x20\x7f]/.test(raw)) return '';
+    match = raw.match(/^data:([^;,]+);base64,[A-Za-z0-9+/=]+$/i);
+    if (match) {
+      return dataMimeMatchesKind(match[1], kind) ? raw : '';
+    }
+    if (/^data:/i.test(raw)) return '';
+    if (/^blob:/i.test(raw)) return raw;
+    try {
+      parsed = new URL(raw, global.location && global.location.href || 'http://127.0.0.1/');
+    } catch (_err) {
+      return '';
+    }
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+    return '';
+  }
+
   function renderAttachment(message) {
     var attachment = message && message.attachment;
     if (!attachment) return '';
     var name = String(attachment.name || 'Attachment');
     var mime = String(attachment.mime || 'application/octet-stream');
     var dataUrl = String(attachment.data_url || attachment.dataUrl || '');
-    var mediaUrl = dataUrl || String(attachment.url || '');
-    var meta = '<span class="secure-chat-attachment-meta">' + escapeHtml(mime || 'file') + ' · ' + escapeHtml(formatBytes(attachment.size)) + '</span>';
     var kind = attachmentKind(attachment);
+    var mediaUrl = safeAttachmentUrl(dataUrl, kind) || safeAttachmentUrl(attachment.url || '', kind);
+    var meta = '<span class="secure-chat-attachment-meta">' + escapeHtml(mime || 'file') + ' · ' + escapeHtml(formatBytes(attachment.size)) + '</span>';
     var html = '<div class="secure-chat-attachment secure-chat-attachment-' + kind + '">';
     if (mediaUrl && kind === 'image') {
       html += '<img class="secure-chat-attachment-media" src="' + escapeAttr(mediaUrl) + '" alt="' + escapeAttr(name) + '" loading="lazy">';

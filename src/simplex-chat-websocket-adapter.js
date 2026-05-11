@@ -19,6 +19,46 @@
     return String(value == null ? '' : value).slice(0, maxLength);
   }
 
+  function normalizeCommandAtom(value, label, allowEmpty) {
+    var raw = limitString(value, MAX_LABEL_LENGTH).replace(/^@/, '').trim();
+    if (!raw) {
+      if (allowEmpty) return '';
+      throw makeError(ERROR_CONFIG, 'SimpleX Chat ' + label + ' is required');
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(raw)) {
+      throw makeError(ERROR_CONFIG, 'SimpleX Chat ' + label + ' contains unsupported command characters');
+    }
+    return raw;
+  }
+
+  function normalizeContactLink(value, allowEmpty) {
+    var raw = limitString(value, MAX_TEXT_LENGTH).trim();
+    if (!raw) {
+      if (allowEmpty) return '';
+      throw makeError(ERROR_CONFIG, 'SimpleX Chat contact link is required');
+    }
+    if (/[\x00-\x20\x7f]/.test(raw)) {
+      throw makeError(ERROR_CONFIG, 'SimpleX Chat contact link contains unsupported command characters');
+    }
+    if (!/^(simplex:|https:\/\/)/i.test(raw)) {
+      throw makeError(ERROR_CONFIG, 'SimpleX Chat contact link must be a simplex: or https:// link');
+    }
+    return raw;
+  }
+
+  function isAbsoluteLocalPath(path) {
+    var value = String(path || '').trim();
+    return /^[A-Za-z]:[\\/]/.test(value) || value.charAt(0) === '/';
+  }
+
+  function safeMimeHeader(value) {
+    var raw = limitString(value || 'application/octet-stream', MAX_LABEL_LENGTH).trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*(?:;[a-z0-9=.+ -]+)?$/.test(raw)) {
+      return 'application/octet-stream';
+    }
+    return raw;
+  }
+
   function makeError(code, message) {
     var error = new Error(message);
     error.name = 'SimplexChatWebSocketAdapterError';
@@ -385,15 +425,13 @@
   function contactIdFromResponse(resp) {
     var contact = contactFromResponse(resp);
     var id = contact && (contact.contactId || contact.apiId || contact.id);
-    var text = String(id == null ? '' : id).replace(/^@/, '').trim();
-    return text ? limitString(text, MAX_LABEL_LENGTH) : '';
+    return normalizeCommandAtom(id, 'contact id', true);
   }
 
   function activeUserIdFromResponse(resp) {
     var user = resp && (resp.user || resp.currentUser || resp.activeUser || resp);
     var id = user && (user.userId || user.user_id || user.id);
-    var text = String(id == null ? '' : id).trim();
-    return text ? limitString(text, MAX_LABEL_LENGTH) : '';
+    return normalizeCommandAtom(id, 'active user id', true);
   }
 
   function chatErrorSummary(resp) {
@@ -437,7 +475,7 @@
     var storage = storageOrNull(config.storage);
     if (!storage || !contactLink) return '';
     try {
-      return limitString(storage.getItem(cacheKey(payload, userId, contactLink)) || '', MAX_LABEL_LENGTH).replace(/^@/, '').trim();
+      return normalizeCommandAtom(storage.getItem(cacheKey(payload, userId, contactLink)) || '', 'cached contact id', true);
     } catch (_err) {
       return '';
     }
@@ -476,7 +514,7 @@
   }
 
   function fileMime(file) {
-    return limitString(file && file.type || 'application/octet-stream', MAX_LABEL_LENGTH);
+    return safeMimeHeader(file && file.type);
   }
 
   function fileSize(file) {
@@ -494,7 +532,7 @@
     );
     var path = String(raw || '').trim();
     if (!path) return '';
-    if (/^[A-Za-z]:[\\/]/.test(path) || path.charAt(0) === '/') return path;
+    if (isAbsoluteLocalPath(path)) return path;
     return '';
   }
 
@@ -543,6 +581,9 @@
       if (!stagedPath) {
         throw makeError(ERROR_RESPONSE, 'SimpleX file bridge did not return a local file path');
       }
+      if (!isAbsoluteLocalPath(stagedPath)) {
+        throw makeError(ERROR_RESPONSE, 'SimpleX file bridge returned a non-absolute local file path');
+      }
       return stagedPath;
     });
   }
@@ -565,7 +606,7 @@
   }
 
   function fileSendCommand(contactId, filePath, caption) {
-    return '/_send @' + contactId + ' json ' + JSON.stringify([
+    return '/_send @' + normalizeCommandAtom(contactId, 'contact id', false) + ' json ' + JSON.stringify([
       fileComposedMessage(filePath, caption)
     ]);
   }
@@ -578,10 +619,17 @@
 
     function sendText(message) {
       var payload = message && typeof message === 'object' ? message : {};
-      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
-      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
-      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var userId;
+      var contactId;
+      var contactLink;
       var text = limitString(payload.text || '', MAX_TEXT_LENGTH);
+      try {
+        userId = normalizeCommandAtom(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', 'user id', true);
+        contactId = normalizeCommandAtom(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', 'contact id', true);
+        contactLink = normalizeContactLink(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', true);
+      } catch (error) {
+        return Promise.reject(error);
+      }
       if (!contactId && !contactLink) {
         return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
       }
@@ -593,10 +641,17 @@
 
     function getMessageStatus(message) {
       var payload = message && typeof message === 'object' ? message : {};
-      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
-      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
-      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var userId;
+      var contactId;
+      var contactLink;
       var messageRef = limitString(payload.message_ref || payload.messageRef || '', MAX_LABEL_LENGTH).trim();
+      try {
+        userId = normalizeCommandAtom(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', 'user id', true);
+        contactId = normalizeCommandAtom(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', 'contact id', true);
+        contactLink = normalizeContactLink(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', true);
+      } catch (error) {
+        return Promise.reject(error);
+      }
       if (!contactId && !contactLink) {
         return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
       }
@@ -608,10 +663,17 @@
 
     function getMessages(message) {
       var payload = message && typeof message === 'object' ? message : {};
-      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
-      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
-      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var userId;
+      var contactId;
+      var contactLink;
       var count = Math.max(1, Math.min(200, Math.floor(Number(payload.limit || payload.count || 50) || 50)));
+      try {
+        userId = normalizeCommandAtom(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', 'user id', true);
+        contactId = normalizeCommandAtom(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', 'contact id', true);
+        contactLink = normalizeContactLink(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', true);
+      } catch (error) {
+        return Promise.reject(error);
+      }
       if (!contactId && !contactLink) {
         return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
       }
@@ -620,11 +682,18 @@
 
     function sendFiles(message) {
       var payload = message && typeof message === 'object' ? message : {};
-      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
-      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
-      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var userId;
+      var contactId;
+      var contactLink;
       var files = Array.prototype.slice.call(payload.files || []).filter(Boolean);
       var maxBytes = Math.max(1, Number(payload.max_file_bytes || 12000) || 12000);
+      try {
+        userId = normalizeCommandAtom(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', 'user id', true);
+        contactId = normalizeCommandAtom(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', 'contact id', true);
+        contactLink = normalizeContactLink(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', true);
+      } catch (error) {
+        return Promise.reject(error);
+      }
       if (!contactId && !contactLink) {
         return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
       }
@@ -768,9 +837,17 @@
       }
 
       function sendMessageToContact(resolvedContactId) {
-        var command = typeof sendCommandForContact === 'function'
-          ? sendCommandForContact(resolvedContactId)
-          : '/_send @' + resolvedContactId + ' text ' + encodeTextCommand(text);
+        var safeContactId;
+        var command;
+        try {
+          safeContactId = normalizeCommandAtom(resolvedContactId, 'contact id', false);
+          command = typeof sendCommandForContact === 'function'
+            ? sendCommandForContact(safeContactId)
+            : '/_send @' + safeContactId + ' text ' + encodeTextCommand(text);
+        } catch (error) {
+          finish(reject, error);
+          return;
+        }
         send(command);
       }
 
@@ -822,7 +899,12 @@
             finish(reject, makeError(ERROR_RESPONSE, 'Could not resolve SimpleX Chat active user: ' + (type || 'unknown')));
             return;
           }
-          userId = userId || activeUserIdFromResponse(resp);
+          try {
+            userId = userId || activeUserIdFromResponse(resp);
+          } catch (error) {
+            finish(reject, error);
+            return;
+          }
           if (!userId) {
             finish(reject, makeError(ERROR_RESPONSE, 'SimpleX Chat active user response did not include a user id'));
             return;
@@ -840,7 +922,12 @@
         }
         if (step === 1 && !contactId) {
           if (type === 'contactAlreadyExists' || type === 'contactConnected' || type === 'contactConnecting' || type === 'connectionPlan') {
-            contactId = contactIdFromResponse(resp);
+            try {
+              contactId = contactIdFromResponse(resp);
+            } catch (error) {
+              finish(reject, error);
+              return;
+            }
             if (contactId) {
               rememberContactId(config, payload, userId, contactLink, contactId);
               step = 2;
@@ -970,7 +1057,12 @@
             finish(reject, makeError(ERROR_RESPONSE, 'Could not resolve SimpleX Chat active user: ' + (type || 'unknown')));
             return;
           }
-          userId = userId || activeUserIdFromResponse(resp);
+          try {
+            userId = userId || activeUserIdFromResponse(resp);
+          } catch (error) {
+            finish(reject, error);
+            return;
+          }
           if (!userId) {
             finish(reject, makeError(ERROR_RESPONSE, 'SimpleX Chat active user response did not include a user id'));
             return;
@@ -1094,7 +1186,12 @@
             finish(reject, makeError(ERROR_RESPONSE, 'Could not resolve SimpleX Chat active user: ' + (type || 'unknown')));
             return;
           }
-          userId = userId || activeUserIdFromResponse(resp);
+          try {
+            userId = userId || activeUserIdFromResponse(resp);
+          } catch (error) {
+            finish(reject, error);
+            return;
+          }
           if (!userId) {
             finish(reject, makeError(ERROR_RESPONSE, 'SimpleX Chat active user response did not include a user id'));
             return;

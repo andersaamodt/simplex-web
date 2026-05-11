@@ -78,6 +78,21 @@ test('empty outbound text is rejected before adapter send', async () => {
   assert.equal(sent, false);
 });
 
+test('synchronous adapter send failures are returned as rejected promises', async () => {
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('adapter exploded');
+    }
+  });
+
+  let promise;
+  assert.doesNotThrow(() => {
+    promise = transport.sendText({ contact_id: 'contact-1', text: 'hello' });
+  });
+  assert.equal(typeof promise.then, 'function');
+  await assert.rejects(promise, /adapter exploded/);
+});
+
 test('registered browser adapter can query normalized message status', async () => {
   const calls = [];
   const transport = transportApi.createTransport({

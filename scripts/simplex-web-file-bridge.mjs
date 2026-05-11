@@ -7,11 +7,11 @@ import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 
 const host = process.env.SIMPLEX_WEB_FILE_BRIDGE_HOST || '127.0.0.1';
-const port = Number(process.env.SIMPLEX_WEB_FILE_BRIDGE_PORT || 5226);
-const maxBytes = Number(process.env.SIMPLEX_WEB_FILE_BRIDGE_MAX_BYTES || 25 * 1024 * 1024);
+const port = boundedInteger(process.env.SIMPLEX_WEB_FILE_BRIDGE_PORT, 5226, 0, 65535);
+const maxBytes = boundedInteger(process.env.SIMPLEX_WEB_FILE_BRIDGE_MAX_BYTES, 25 * 1024 * 1024, 1, 1024 * 1024 * 1024);
 const stateHome = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
 const storageRoot = process.env.SIMPLEX_WEB_FILE_BRIDGE_ROOT || join(stateHome, 'simplex-web', 'file-bridge');
-const allowedOrigin = process.env.SIMPLEX_WEB_FILE_BRIDGE_ORIGIN || '*';
+const allowedOrigins = parseAllowedOrigins(process.env.SIMPLEX_WEB_FILE_BRIDGE_ORIGIN || 'http://127.0.0.1');
 const defaultReadRoots = [
   storageRoot,
   join(stateHome, 'simplex-web', 'files'),
@@ -23,8 +23,37 @@ const allowedReadRoots = (process.env.SIMPLEX_WEB_FILE_BRIDGE_ALLOWED_ROOTS || d
   .filter(Boolean)
   .map((item) => resolve(item));
 
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const integer = Math.floor(parsed);
+  if (integer < min || integer > max) return fallback;
+  return integer;
+}
+
+function safeHeaderValue(value) {
+  const raw = String(value || '').trim();
+  return raw && !/[\r\n]/.test(raw) ? raw : '';
+}
+
+function parseAllowedOrigins(value) {
+  const origins = String(value || '')
+    .split(',')
+    .map((item) => safeHeaderValue(item))
+    .filter(Boolean);
+  return origins.length ? origins : ['http://127.0.0.1'];
+}
+
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(String(value || ''));
+  } catch (_err) {
+    return String(value || '');
+  }
+}
+
 function safeName(value) {
-  const decoded = decodeURIComponent(String(value || 'attachment.bin'));
+  const decoded = safeDecodeURIComponent(value || 'attachment.bin');
   const name = basename(decoded).replace(/[^\w .@+-]/g, '-').replace(/^-+/, '').slice(0, 180);
   return name || 'attachment.bin';
 }
@@ -72,9 +101,21 @@ function mimeForName(filePath) {
   }
 }
 
-function corsHeaders() {
+function requestOrigin(req) {
+  return safeHeaderValue(req.headers.origin || '');
+}
+
+function isOriginAllowed(req) {
+  const origin = requestOrigin(req);
+  if (!origin) return true;
+  return allowedOrigins.includes('*') || allowedOrigins.includes(origin);
+}
+
+function corsHeaders(req) {
+  const origin = requestOrigin(req);
+  const allowOrigin = allowedOrigins.includes('*') ? '*' : (origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0]);
   return {
-    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-File-Name',
     'Access-Control-Max-Age': '600',
@@ -82,9 +123,9 @@ function corsHeaders() {
   };
 }
 
-function sendJson(res, status, payload) {
+function sendJson(req, res, status, payload) {
   res.writeHead(status, {
-    ...corsHeaders(),
+    ...corsHeaders(req),
     'Content-Type': 'application/json; charset=utf-8'
   });
   res.end(`${JSON.stringify(payload)}\n`);
@@ -105,29 +146,33 @@ async function readLimitedBody(req) {
 
 const server = createServer(async (req, res) => {
   try {
+    if (!isOriginAllowed(req)) {
+      sendJson(req, res, 403, { ok: false, error: 'origin is not allowed' });
+      return;
+    }
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, corsHeaders());
+      res.writeHead(204, corsHeaders(req));
       res.end();
       return;
     }
     const requestUrl = new URL(req.url || '/', `http://${host}:${port}`);
     if (req.method === 'GET' && requestUrl.pathname === '/health') {
-      sendJson(res, 200, { ok: true, storageRoot, maxBytes });
+      sendJson(req, res, 200, { ok: true, storageRoot, maxBytes });
       return;
     }
     if (req.method === 'GET' && requestUrl.pathname === '/files') {
       const filePath = requestUrl.searchParams.get('path') || '';
       if (!filePath || !isPathAllowed(filePath)) {
-        sendJson(res, 403, { ok: false, error: 'file path is not allowed' });
+        sendJson(req, res, 403, { ok: false, error: 'file path is not allowed' });
         return;
       }
       const info = await stat(filePath);
       if (!info.isFile()) {
-        sendJson(res, 404, { ok: false, error: 'file not found' });
+        sendJson(req, res, 404, { ok: false, error: 'file not found' });
         return;
       }
       res.writeHead(200, {
-        ...corsHeaders(),
+        ...corsHeaders(req),
         'Content-Type': mimeForName(filePath),
         'Content-Length': String(info.size),
         'Content-Disposition': `inline; filename="${safeName(basename(filePath)).replace(/"/g, '')}"`
@@ -136,7 +181,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (req.method !== 'POST' || requestUrl.pathname !== '/files') {
-      sendJson(res, 404, { ok: false, error: 'not found' });
+      sendJson(req, res, 404, { ok: false, error: 'not found' });
       return;
     }
     const fileName = safeName(req.headers['x-file-name']);
@@ -145,7 +190,7 @@ const server = createServer(async (req, res) => {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const filePath = join(dir, fileName);
     await writeFile(filePath, body, { mode: 0o600 });
-    sendJson(res, 200, {
+    sendJson(req, res, 200, {
       ok: true,
       filePath,
       name: fileName,
@@ -153,7 +198,7 @@ const server = createServer(async (req, res) => {
       mime: String(req.headers['content-type'] || 'application/octet-stream')
     });
   } catch (err) {
-    sendJson(res, err.statusCode || 500, {
+    sendJson(req, res, err.statusCode || 500, {
       ok: false,
       error: err && err.message ? err.message : 'file bridge error'
     });
@@ -161,7 +206,9 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  process.stdout.write(`simplex-web file bridge listening on http://${host}:${port}\n`);
+  const address = server.address();
+  const actualPort = address && typeof address === 'object' ? address.port : port;
+  process.stdout.write(`simplex-web file bridge listening on http://${host}:${actualPort}\n`);
   process.stdout.write(`staging files under ${storageRoot}\n`);
   process.stdout.write(`serving files under ${allowedReadRoots.join(', ')}\n`);
 });
