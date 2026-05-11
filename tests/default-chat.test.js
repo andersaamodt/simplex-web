@@ -82,6 +82,23 @@ test('status labels map known delivery states', () => {
   assert.doesNotMatch(ui.statusHtml({ delivery_status: 'sent' }), /secure-chat-status-spinner/);
 });
 
+test('rendered spinners inherit the current animation phase', () => {
+  assert.match(ui.spinnerPhaseStyle(), /^ style="animation-delay:-\d+ms"$/);
+  assert.match(ui.statusHtml({ delivery_status: 'sending' }), /secure-chat-status-spinner" style="animation-delay:-\d+ms" aria-hidden="true"/);
+
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    sending: true,
+    messages: [
+      { direction: 'outgoing', text: 'phase test', delivery_status: 'sending', created_at: '2026-05-01T00:00:00Z' }
+    ]
+  });
+
+  assert.match(html, /secure-chat-status-spinner" style="animation-delay:-\d+ms" aria-hidden="true"/);
+  assert.match(html, /secure-chat-send-spinner" style="animation-delay:-\d+ms" aria-hidden="true"/);
+});
+
 test('render escapes hostile message HTML', () => {
   const html = ui.renderPanel({
     loggedIn: true,

@@ -6,6 +6,7 @@
   var MAX_TEXT_LENGTH = 4000;
   var MAX_LABEL_LENGTH = 256;
   var MAX_STATUS_LENGTH = 64;
+  var SPINNER_ANIMATION_MS = 800;
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -134,9 +135,22 @@
     return raw === 'sndNew' || raw === 'sending';
   }
 
+  function spinnerPhaseStyle() {
+    var clock = global && global.performance && typeof global.performance.now === 'function'
+      ? global.performance
+      : null;
+    var now = clock ? clock.now() : Date.now();
+    var phase = Math.floor(Math.abs(Number(now) || 0) % SPINNER_ANIMATION_MS);
+    return ' style="animation-delay:-' + String(phase) + 'ms"';
+  }
+
+  function spinnerHtml(className) {
+    return '<span class="save-spinner ' + className + '"' + spinnerPhaseStyle() + ' aria-hidden="true"></span>';
+  }
+
   function statusHtml(message) {
     if (statusIsSending(message)) {
-      return '<span class="secure-chat-status is-sending"><span>Sending...</span><span class="save-spinner secure-chat-status-spinner" aria-hidden="true"></span></span>';
+      return '<span class="secure-chat-status is-sending"><span>Sending...</span>' + spinnerHtml('secure-chat-status-spinner') + '</span>';
     }
     return '<span class="secure-chat-status">' + escapeHtml(statusLabel(message)) + '</span>';
   }
@@ -206,7 +220,7 @@
     html += '<div class="secure-chat-head">';
     html += '<div class="secure-chat-heading"><h2 id="secure-chat-title">Secure Chat</h2></div>';
     if (!state.loggedIn && state.loading) {
-      html += '<div class="secure-chat-loading" role="status" aria-live="polite"><span>Loading...</span><span class="save-spinner secure-chat-loading-spinner" aria-hidden="true"></span></div>';
+      html += '<div class="secure-chat-loading" role="status" aria-live="polite"><span>Loading...</span>' + spinnerHtml('secure-chat-loading-spinner') + '</div>';
     } else if (!state.loggedIn) {
       html += '<button type="button" class="list-admin-primary-btn secure-chat-login-btn" data-secure-chat-action="login">Login...</button>';
     }
@@ -269,7 +283,7 @@
     html += '<div class="secure-chat-input-wrap">';
     html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="2" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
     html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" type="file" multiple hidden><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
-    html += '<button type="button" class="secure-chat-send-btn" data-secure-chat-action="send" aria-label="' + (state.sending ? 'Sending...' : 'Send secure message') + '" title="' + (state.sending ? 'Sending...' : 'Send secure message') + '"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span>' : renderSendIcon()) + '</button>';
+    html += '<button type="button" class="secure-chat-send-btn" data-secure-chat-action="send" aria-label="' + (state.sending ? 'Sending...' : 'Send secure message') + '" title="' + (state.sending ? 'Sending...' : 'Send secure message') + '"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? spinnerHtml('secure-chat-send-spinner') : renderSendIcon()) + '</button>';
     html += '</div>';
     html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> ' + escapeHtml(state.shortcutModifierLabel) + ' + Enter to send</label>';
     html += '</div>';
@@ -402,6 +416,8 @@
     clampProgress: clampProgress,
     normalizeModel: normalizeModel,
     statusLabel: statusLabel,
+    spinnerPhaseStyle: spinnerPhaseStyle,
+    spinnerHtml: spinnerHtml,
     statusHtml: statusHtml,
     renderPanel: renderPanel,
     mount: mount
