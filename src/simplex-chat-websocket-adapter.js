@@ -202,14 +202,15 @@
     return btoa(binary);
   }
 
-  function attachmentTextForFile(file, encodedBytes) {
+  function attachmentTextForFile(file, encodedBytes, caption) {
     var meta = {
       name: limitString(file && file.name || 'attachment.bin', MAX_LABEL_LENGTH),
       mime: limitString(file && file.type || 'application/octet-stream', MAX_LABEL_LENGTH),
       size: Number(file && file.size || 0) || 0
     };
     var metaEncoded = base64UrlEncode(encodeUtf8Base64(JSON.stringify(meta)));
-    return 'Attachment: ' + meta.name + '\n' + ATTACHMENT_MARKER + metaEncoded + ':' + String(encodedBytes || '');
+    var prefix = limitString(caption || '', MAX_TEXT_LENGTH).trim();
+    return (prefix ? prefix + '\n' : '') + ATTACHMENT_MARKER + metaEncoded + ':' + String(encodedBytes || '');
   }
 
   function chatItemKind(chatItem) {
@@ -490,7 +491,7 @@
             throw makeError(ERROR_CONFIG, 'Browser file data is unavailable');
           }
           return Promise.resolve(file.arrayBuffer()).then(function (buffer) {
-            var text = attachmentTextForFile(file, arrayBufferToBase64(buffer));
+            var text = attachmentTextForFile(file, arrayBufferToBase64(buffer), payload.text || '');
             return sendTextSequential(config, payload, userId, contactId, contactLink, text, payload.client_message_id || payload.clientMessageId || '').then(function (receipt) {
               receipts.push(Object.assign({}, receipt, {
                 attachment: {

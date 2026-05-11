@@ -13,6 +13,13 @@
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
 }
 
+.secure-chat-panel.is-file-drop-over {
+  border-color: color-mix(in srgb, var(--accent, #2f4aa6) 58%, white 42%);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent, #2f4aa6) 18%, transparent),
+    0 14px 32px rgba(15, 23, 42, 0.08);
+}
+
 .secure-chat-head {
   display: flex;
   align-items: flex-start;
@@ -259,6 +266,82 @@
   border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 80%, white 20%);
   background: rgba(255, 255, 255, 0.96);
   color: var(--admin-text, #0b132b);
+}
+
+.secure-chat-input-wrap.has-pending-files .secure-chat-input {
+  min-height: 8.2rem;
+  padding-top: 3.62rem;
+}
+
+.secure-chat-pending-files {
+  position: absolute;
+  top: 0.58rem;
+  left: 0.62rem;
+  right: 0.62rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  max-height: 2.55rem;
+  overflow: auto;
+  z-index: 2;
+}
+
+.secure-chat-pending-file {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  gap: 0.34rem;
+  padding: 0.26rem 0.28rem 0.26rem 0.54rem;
+  border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 78%, white 22%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--light-bg, #e0e7ff) 54%, white 46%);
+  color: var(--admin-text, #0b132b);
+  font-size: 0.82rem;
+  line-height: 1.1;
+}
+
+.secure-chat-pending-file-name {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.secure-chat-pending-file-meta {
+  flex: 0 0 auto;
+  color: var(--admin-muted, #5f6f92);
+}
+
+.secure-chat-pending-file-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.28rem;
+  height: 1.28rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--admin-muted, #5f6f92);
+  cursor: pointer;
+}
+
+.secure-chat-pending-file-remove:hover,
+.secure-chat-pending-file-remove:focus-visible {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.secure-chat-pending-file-remove svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.35;
+  stroke-linecap: round;
 }
 
 .secure-chat-send-btn {

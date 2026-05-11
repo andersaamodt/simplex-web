@@ -72,6 +72,25 @@ test('signed in panel supports Ctrl shortcut label override', () => {
   assert.match(html, /Ctrl \+ Enter to send/);
 });
 
+test('signed in panel renders pending attachment pills above the draft', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    draftText: 'caption',
+    pendingFiles: [
+      { id: 'file-1', name: 'photo.png', mime: 'image/png', size: 2048 }
+    ]
+  });
+
+  assert.match(html, /secure-chat-input-wrap has-pending-files/);
+  assert.match(html, /secure-chat-pending-files/);
+  assert.ok(html.indexOf('secure-chat-pending-files') < html.indexOf('id="secure-chat-input"'));
+  assert.match(html, /photo\.png/);
+  assert.match(html, /2 KB/);
+  assert.match(html, /data-secure-chat-action="remove-pending-file"/);
+  assert.match(html, /data-secure-chat-file-id="file-1"/);
+});
+
 test('signed in panel renders image video and arbitrary attachments in place', () => {
   const html = ui.renderPanel({
     loggedIn: true,
@@ -269,6 +288,46 @@ test('mount truncates hostile draft values and admin keys before callbacks', () 
     ['draft', ui.MAX_TEXT_LENGTH],
     ['send', ui.MAX_TEXT_LENGTH],
     ['delete', ui.MAX_LABEL_LENGTH]
+  ]);
+});
+
+test('mount dispatches pending file removal and dropped files', () => {
+  const root = makeRoot();
+  const calls = [];
+  ui.mount(root, { loggedIn: true, hasSigner: true }, {
+    onRemovePendingFile(id) {
+      calls.push(['remove', id]);
+    },
+    onFilesSelected(files) {
+      calls.push(['files', files.map((file) => file.name)]);
+    }
+  });
+
+  root.dispatch('click', {
+    target: {
+      closest() {
+        return {
+          getAttribute(name) {
+            if (name === 'data-secure-chat-action') return 'remove-pending-file';
+            if (name === 'data-secure-chat-file-id') return 'file-1';
+            return '';
+          }
+        };
+      }
+    }
+  });
+  const dropped = [{ name: 'drop.txt' }];
+  root.dispatch('drop', {
+    preventDefault() {
+      calls.push(['prevented']);
+    },
+    dataTransfer: { files: dropped }
+  });
+
+  assert.deepEqual(calls, [
+    ['remove', 'file-1'],
+    ['prevented'],
+    ['files', ['drop.txt']]
   ]);
 });
 

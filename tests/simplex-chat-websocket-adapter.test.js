@@ -394,7 +394,7 @@ test('websocket adapter sends small attachments as SimpleX text envelope and pre
       }));
       return;
     }
-    assert.match(outbound.cmd, /^\/_send @77 text Attachment: probe-😀\.txt\nsimplex-web-file:v1:/);
+    assert.match(outbound.cmd, /^\/_send @77 text caption with attachment\nsimplex-web-file:v1:/);
     assert.match(outbound.cmd, /aGVsbG8=/);
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({
@@ -417,6 +417,7 @@ test('websocket adapter sends small attachments as SimpleX text envelope and pre
   const bytes = new TextEncoder().encode('hello');
   const receipts = await adapter.sendFiles({
     contact_id: '77',
+    text: 'caption with attachment',
     files: [{
       name: 'probe-😀.txt',
       size: bytes.length,
@@ -427,7 +428,7 @@ test('websocket adapter sends small attachments as SimpleX text envelope and pre
     }]
   });
 
-  assert.deepEqual(commands.map((cmd) => cmd.split('\n')[0]), ['/_user 9', '/_send @77 text Attachment: probe-😀.txt']);
+  assert.deepEqual(commands.map((cmd) => cmd.split('\n')[0]), ['/_user 9', '/_send @77 text caption with attachment']);
   assert.equal(receipts.length, 1);
   assert.equal(receipts[0].transport_status, 'sent');
   assert.equal(receipts[0].attachment.name, 'probe-😀.txt');

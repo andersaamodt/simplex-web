@@ -116,6 +116,16 @@
     };
   }
 
+  function normalizePendingFile(value, index) {
+    var next = value && typeof value === 'object' ? value : {};
+    return {
+      id: limitString(next.id || next.upload_id || next.name || String(index || 0), MAX_LABEL_LENGTH),
+      name: limitString(next.name || 'Attachment', MAX_LABEL_LENGTH),
+      mime: limitString(next.mime || next.type || '', MAX_LABEL_LENGTH),
+      size: clampNonNegativeInteger(next.size)
+    };
+  }
+
   function normalizeAdminRow(value) {
     var next = value && typeof value === 'object' ? value : {};
     return {
@@ -217,6 +227,7 @@
     var next = model && typeof model === 'object' ? model : {};
     var messages = Array.isArray(next.messages) ? next.messages.slice(-MAX_RENDER_MESSAGES).map(normalizeMessage) : [];
     var uploads = Array.isArray(next.uploads) ? next.uploads.slice(-MAX_RENDER_UPLOADS).map(normalizeUpload) : [];
+    var pendingFiles = Array.isArray(next.pendingFiles) ? next.pendingFiles.slice(0, MAX_RENDER_UPLOADS).map(normalizePendingFile) : [];
     var adminMappings = Array.isArray(next.adminMappings) ? next.adminMappings.slice(0, MAX_RENDER_MESSAGES).map(normalizeAdminRow) : [];
     return {
       loggedIn: !!next.loggedIn,
@@ -228,6 +239,7 @@
       service: normalizeService(next.service),
       messages: messages,
       uploads: uploads,
+      pendingFiles: pendingFiles,
       sendWithModifier: next.sendWithModifier === true,
       shortcutModifierLabel: shortcutModifierLabel(next),
       simplexWebIntroDismissed: next.simplexWebIntroDismissed === true,
@@ -248,6 +260,10 @@
 
   function renderSendIcon() {
     return '<svg class="secure-chat-send-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3l18 9-18 9 4-9-4-9Z"/><path d="M7 12h14"/></svg>';
+  }
+
+  function renderRemoveIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   }
 
   function renderPanel(model) {
@@ -314,7 +330,18 @@
       html += '</div>';
     }
     html += '<div class="secure-chat-compose">';
-    html += '<div class="secure-chat-input-wrap">';
+    html += '<div class="secure-chat-input-wrap' + (state.pendingFiles.length ? ' has-pending-files' : '') + '">';
+    if (state.pendingFiles.length) {
+      html += '<div class="secure-chat-pending-files" aria-label="Selected attachments">';
+      state.pendingFiles.forEach(function (file) {
+        html += '<span class="secure-chat-pending-file">';
+        html += '<span class="secure-chat-pending-file-name">' + escapeHtml(file.name) + '</span>';
+        html += '<span class="secure-chat-pending-file-meta">' + escapeHtml(formatBytes(file.size)) + '</span>';
+        html += '<button type="button" class="secure-chat-pending-file-remove" data-secure-chat-action="remove-pending-file" data-secure-chat-file-id="' + escapeAttr(file.id) + '" aria-label="Remove ' + escapeAttr(file.name) + '" title="Remove attachment">' + renderRemoveIcon() + '</button>';
+        html += '</span>';
+      });
+      html += '</div>';
+    }
     html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="2" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
     html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" type="file" multiple hidden><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
     html += '<button type="button" class="secure-chat-send-btn" data-secure-chat-action="send" aria-label="' + (state.sending ? 'Sending...' : 'Send secure message') + '" title="' + (state.sending ? 'Sending...' : 'Send secure message') + '"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? spinnerHtml('secure-chat-send-spinner') : renderSendIcon()) + '</button>';
@@ -369,6 +396,10 @@
       }
       if (action === 'send' && typeof actions.onSend === 'function') {
         actions.onSend(currentDraftValue());
+        return;
+      }
+      if (action === 'remove-pending-file' && typeof actions.onRemovePendingFile === 'function') {
+        actions.onRemovePendingFile(limitString(actionNode.getAttribute('data-secure-chat-file-id') || '', MAX_LABEL_LENGTH));
         return;
       }
       if (action === 'admin-refresh' && typeof actions.onAdminRefresh === 'function') {
@@ -426,10 +457,47 @@
       }
     }
 
+    function setFileDropOver(active) {
+      var panel = root.querySelector && root.querySelector('.secure-chat-panel');
+      if (panel && panel.classList) {
+        panel.classList.toggle('is-file-drop-over', active === true);
+      } else if (root.classList && typeof root.classList.toggle === 'function') {
+        root.classList.toggle('is-file-drop-over', active === true);
+      }
+    }
+
+    function onDragOver(event) {
+      if (!event || !event.dataTransfer) return;
+      var hasFiles = event.dataTransfer.files && event.dataTransfer.files.length;
+      if (!hasFiles && event.dataTransfer.types && typeof event.dataTransfer.types.indexOf === 'function') {
+        hasFiles = event.dataTransfer.types.indexOf('Files') >= 0;
+      }
+      if (!hasFiles) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setFileDropOver(true);
+    }
+
+    function onDrop(event) {
+      if (!event || !event.dataTransfer || !event.dataTransfer.files || !event.dataTransfer.files.length) return;
+      event.preventDefault();
+      setFileDropOver(false);
+      if (typeof actions.onFilesSelected === 'function') {
+        actions.onFilesSelected(Array.prototype.slice.call(event.dataTransfer.files));
+      }
+    }
+
+    function onDragLeave() {
+      setFileDropOver(false);
+    }
+
     root.addEventListener('click', onClick);
     root.addEventListener('input', onInput);
     root.addEventListener('change', onChange);
     root.addEventListener('keydown', onKeyDown);
+    root.addEventListener('dragover', onDragOver);
+    root.addEventListener('drop', onDrop);
+    root.addEventListener('dragleave', onDragLeave);
 
     api.render = render;
     api.getState = function () {
@@ -440,6 +508,9 @@
       root.removeEventListener('input', onInput);
       root.removeEventListener('change', onChange);
       root.removeEventListener('keydown', onKeyDown);
+      root.removeEventListener('dragover', onDragOver);
+      root.removeEventListener('drop', onDrop);
+      root.removeEventListener('dragleave', onDragLeave);
     };
 
     render(state);
