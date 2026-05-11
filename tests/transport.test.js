@@ -165,7 +165,7 @@ test('registered browser adapter receives normalized file sends', async () => {
       return [{
         transport_status: 'sent',
         message_ref: 'file-1',
-        attachment: { name: file.name, mime: file.type, size: file.size }
+        attachment: { name: file.name, mime: file.type, size: file.size, data_url: 'data:text/plain;base64,aGVsbG8=' }
       }];
     }
   });

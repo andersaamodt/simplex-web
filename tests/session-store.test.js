@@ -115,6 +115,7 @@ test('session store clamps hostile progress and truncates oversized strings', ()
         message_kind: 'weird',
         delivery_status: 's'.repeat(200),
         text: 'm'.repeat(5000),
+        attachment: { name: 'image.png', mime: 'image/png', size: 3, data_url: 'data:image/png;base64,aGVsbG8=' },
         error_detail: 'e'.repeat(5000)
       }
     ],
@@ -128,6 +129,7 @@ test('session store clamps hostile progress and truncates oversized strings', ()
   assert.equal(session.messages[0].message_kind, 'text');
   assert.equal(session.messages[0].delivery_status.length, 64);
   assert.equal(session.messages[0].text.length, 4000);
+  assert.equal(session.messages[0].attachment.data_url, 'data:image/png;base64,aGVsbG8=');
   assert.equal(session.messages[0].error_detail.length, 4000);
   assert.equal(session.uploads[0].progress, 100);
   assert.equal(session.uploads[0].name.length, 256);

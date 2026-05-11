@@ -12,6 +12,7 @@
   var ERROR_SECURITY = 'SIMPLEX_CHAT_WS_SECURITY';
   var STORAGE_PREFIX = 'simplex-chat-websocket-adapter-v1';
   var ATTACHMENT_MARKER = 'simplex-web-file:v1:';
+  var MAX_ATTACHMENT_DATA_URL_LENGTH = 1200000;
   var pageLifecycleClosing = false;
 
   function limitString(value, maxLength) {
@@ -172,12 +173,17 @@
       var name = limitString(meta && meta.name || 'Attachment', MAX_LABEL_LENGTH);
       var mime = limitString(meta && meta.mime || '', MAX_LABEL_LENGTH);
       var size = Number(meta && meta.size || 0) || 0;
+      var dataBase64 = String(parts[1] || '').replace(/[^A-Za-z0-9+/=]/g, '');
+      var dataUrl = dataBase64 && dataBase64.length <= MAX_ATTACHMENT_DATA_URL_LENGTH
+        ? 'data:' + (mime || 'application/octet-stream') + ';base64,' + dataBase64
+        : '';
       return {
         text: value.slice(0, idx).replace(/\s+$/g, ''),
         attachment: {
           name: name,
           mime: mime,
-          size: size
+          size: size,
+          data_url: dataUrl
         }
       };
     } catch (_err) {
@@ -250,7 +256,8 @@
       attachment: attachmentName ? {
         name: attachmentName,
         mime: parsedAttachment && parsedAttachment.attachment ? parsedAttachment.attachment.mime : '',
-        size: Number(attachmentSize || 0) || 0
+        size: Number(attachmentSize || 0) || 0,
+        data_url: parsedAttachment && parsedAttachment.attachment ? parsedAttachment.attachment.data_url : ''
       } : null
     };
   }
@@ -489,7 +496,8 @@
                 attachment: {
                   name: limitString(file.name || 'attachment.bin', MAX_LABEL_LENGTH),
                   mime: limitString(file.type || '', MAX_LABEL_LENGTH),
-                  size: Number(file.size || 0) || 0
+                  size: Number(file.size || 0) || 0,
+                  data_url: 'data:' + limitString(file.type || 'application/octet-stream', MAX_LABEL_LENGTH) + ';base64,' + arrayBufferToBase64(buffer)
                 }
               }));
               return receipts;

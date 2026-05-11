@@ -6,6 +6,7 @@
   var MAX_TEXT_LENGTH = 4000;
   var MAX_LABEL_LENGTH = 256;
   var MAX_STATUS_LENGTH = 64;
+  var MAX_ATTACHMENT_DATA_URL_LENGTH = 1200000;
   var SPINNER_ANIMATION_MS = 800;
 
   function escapeHtml(value) {
@@ -53,8 +54,43 @@
       name: limitString(next.name || 'Attachment', MAX_LABEL_LENGTH),
       mime: limitString(next.mime || '', MAX_LABEL_LENGTH),
       size: clampNonNegativeInteger(next.size),
-      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH)
+      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH),
+      data_url: limitString(next.data_url || next.dataUrl || '', MAX_ATTACHMENT_DATA_URL_LENGTH)
     };
+  }
+
+  function attachmentKind(attachment) {
+    var mime = String(attachment && attachment.mime || '').toLowerCase();
+    if (mime.indexOf('image/') === 0) return 'image';
+    if (mime.indexOf('video/') === 0) return 'video';
+    return 'file';
+  }
+
+  function formatBytes(size) {
+    var value = clampNonNegativeInteger(size);
+    if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1).replace(/\.0$/, '') + ' MB';
+    if (value >= 1024) return (value / 1024).toFixed(1).replace(/\.0$/, '') + ' KB';
+    return String(value) + ' B';
+  }
+
+  function renderAttachment(message) {
+    var attachment = message && message.attachment;
+    if (!attachment) return '';
+    var name = String(attachment.name || 'Attachment');
+    var mime = String(attachment.mime || 'application/octet-stream');
+    var dataUrl = String(attachment.data_url || '');
+    var meta = '<span class="secure-chat-attachment-meta">' + escapeHtml(mime || 'file') + ' · ' + escapeHtml(formatBytes(attachment.size)) + '</span>';
+    var html = '<div class="secure-chat-attachment secure-chat-attachment-' + attachmentKind(attachment) + '">';
+    if (dataUrl && attachmentKind(attachment) === 'image') {
+      html += '<img class="secure-chat-attachment-media" src="' + escapeAttr(dataUrl) + '" alt="' + escapeAttr(name) + '" loading="lazy">';
+    } else if (dataUrl && attachmentKind(attachment) === 'video') {
+      html += '<video class="secure-chat-attachment-media" src="' + escapeAttr(dataUrl) + '" controls preload="metadata"></video>';
+    }
+    html += '<a class="secure-chat-attachment-file" href="' + (dataUrl ? escapeAttr(dataUrl) : '#') + '" download="' + escapeAttr(name) + '">';
+    html += '<span class="secure-chat-attachment-name">' + escapeHtml(name) + '</span>' + meta + '</a>';
+    html += statusHtml(message);
+    html += '</div>';
+    return html;
   }
 
   function normalizeMessage(value) {
@@ -256,9 +292,7 @@
         if (message && message.text) {
           html += '<p class="secure-chat-text">' + escapeHtml(String(message.text || '')).replace(/\n/g, '<br>') + '</p>';
         }
-        if (message && message.attachment) {
-          html += '<p class="secure-chat-attachment">' + escapeHtml(String(message.attachment.name || 'Attachment')) + ' ' + statusHtml(message) + '</p>';
-        }
+        html += renderAttachment(message);
         html += '<div class="secure-chat-meta">' + statusHtml(message) + '<time>' + escapeHtml(String(message && message.created_at || '')) + '</time></div>';
         html += '</div>';
         html += '</article>';
@@ -420,6 +454,7 @@
     spinnerHtml: spinnerHtml,
     statusHtml: statusHtml,
     renderPanel: renderPanel,
+    renderAttachment: renderAttachment,
     mount: mount
   };
 

@@ -72,6 +72,37 @@ test('signed in panel supports Ctrl shortcut label override', () => {
   assert.match(html, /Ctrl \+ Enter to send/);
 });
 
+test('signed in panel renders image video and arbitrary attachments in place', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    messages: [
+      {
+        direction: 'incoming',
+        text: 'image',
+        delivery_status: 'received',
+        attachment: { name: 'pixel.png', mime: 'image/png', size: 67, data_url: 'data:image/png;base64,aGVsbG8=' }
+      },
+      {
+        direction: 'incoming',
+        text: 'video',
+        delivery_status: 'received',
+        attachment: { name: 'clip.mp4', mime: 'video/mp4', size: 12, data_url: 'data:video/mp4;base64,aGVsbG8=' }
+      },
+      {
+        direction: 'incoming',
+        text: 'document',
+        delivery_status: 'received',
+        attachment: { name: 'notes.bin', mime: 'application/octet-stream', size: 5, data_url: 'data:application/octet-stream;base64,aGVsbG8=' }
+      }
+    ]
+  });
+  assert.match(html, /<img class="secure-chat-attachment-media" src="data:image\/png;base64,aGVsbG8="/);
+  assert.match(html, /<video class="secure-chat-attachment-media" src="data:video\/mp4;base64,aGVsbG8=" controls/);
+  assert.match(html, /download="notes\.bin"/);
+  assert.match(html, /application\/octet-stream · 5 B/);
+});
+
 test('status labels map known delivery states', () => {
   assert.equal(ui.statusLabel({ delivery_status: 'sndRcvd' }), 'Delivered');
   assert.equal(ui.statusLabel({ delivery_status: 'sndSent' }), 'Sent');
@@ -109,6 +140,27 @@ test('render escapes hostile message HTML', () => {
   });
   assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test('render escapes hostile attachment metadata', () => {
+  const html = ui.renderPanel({
+    loggedIn: true,
+    hasSigner: true,
+    messages: [
+      {
+        direction: 'incoming',
+        delivery_status: 'received',
+        attachment: {
+          name: 'bad"><script>alert(1)</script>.png',
+          mime: 'image/png',
+          size: 10,
+          data_url: 'data:image/png;base64,aGVsbG8='
+        }
+      }
+    ]
+  });
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /bad&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
 test('render clamps hostile upload progress and ignores oversized history', () => {

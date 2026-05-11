@@ -8,7 +8,8 @@
   var MAX_LABEL_LENGTH = 256;
   var MAX_STATUS_LENGTH = 64;
   var MAX_KEY_PART_LENGTH = 96;
-  var MAX_STORED_JSON_LENGTH = 262144;
+  var MAX_STORED_JSON_LENGTH = 2097152;
+  var MAX_ATTACHMENT_DATA_URL_LENGTH = 1200000;
 
   function clampCount(value, fallback) {
     var count = Number(value);
@@ -64,7 +65,8 @@
       name: limitString(next.name || '', MAX_LABEL_LENGTH),
       mime: limitString(next.mime || '', MAX_LABEL_LENGTH),
       size: clampCount(next.size, 0),
-      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH)
+      upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH),
+      data_url: limitString(next.data_url || next.dataUrl || '', MAX_ATTACHMENT_DATA_URL_LENGTH)
     };
   }
 

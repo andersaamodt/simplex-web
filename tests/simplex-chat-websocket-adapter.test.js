@@ -430,7 +430,10 @@ test('websocket adapter sends small attachments as SimpleX text envelope and pre
   assert.deepEqual(commands.map((cmd) => cmd.split('\n')[0]), ['/_user 9', '/_send @77 text Attachment: probe-😀.txt']);
   assert.equal(receipts.length, 1);
   assert.equal(receipts[0].transport_status, 'sent');
-  assert.deepEqual(receipts[0].attachment, { name: 'probe-😀.txt', mime: 'text/plain', size: 5 });
+  assert.equal(receipts[0].attachment.name, 'probe-😀.txt');
+  assert.equal(receipts[0].attachment.mime, 'text/plain');
+  assert.equal(receipts[0].attachment.size, 5);
+  assert.equal(receipts[0].attachment.data_url, 'data:text/plain;base64,aGVsbG8=');
 });
 
 test('websocket adapter parses SimpleX text envelope attachments from history', async () => {
@@ -470,7 +473,10 @@ test('websocket adapter parses SimpleX text envelope attachments from history', 
   const messages = await adapter.getMessages({ contact_id: '77' });
   assert.equal(messages[0].message_kind, 'file');
   assert.equal(messages[0].text, 'Attachment: probe-😀.txt');
-  assert.deepEqual(messages[0].attachment, { name: 'probe-😀.txt', mime: 'text/plain', size: 5 });
+  assert.equal(messages[0].attachment.name, 'probe-😀.txt');
+  assert.equal(messages[0].attachment.mime, 'text/plain');
+  assert.equal(messages[0].attachment.size, 5);
+  assert.equal(messages[0].attachment.data_url, 'data:text/plain;base64,aGVsbG8=');
 });
 
 test('websocket adapter ignores unsolicited startup events before active user response', async () => {
