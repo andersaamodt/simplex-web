@@ -196,6 +196,10 @@
     return html;
   }
 
+  function renderSendIcon() {
+    return '<svg class="secure-chat-send-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 3l18 9-18 9 4-9-4-9Z"/><path d="M7 12h14"/></svg>';
+  }
+
   function renderPanel(model) {
     var state = normalizeModel(model);
     var html = '<section class="secure-chat-panel" aria-labelledby="secure-chat-title">';
@@ -263,11 +267,9 @@
     }
     html += '<div class="secure-chat-compose">';
     html += '<div class="secure-chat-input-wrap">';
-    html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="4" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
+    html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="2" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
     html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" type="file" multiple hidden><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
-    html += '</div>';
-    html += '<div class="secure-chat-actions">';
-    html += '<button type="button" class="list-admin-primary-btn secure-chat-send-btn" data-secure-chat-action="send"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span><span>Sending...</span>' : 'Send') + '</button>';
+    html += '<button type="button" class="secure-chat-send-btn" data-secure-chat-action="send" aria-label="' + (state.sending ? 'Sending...' : 'Send secure message') + '" title="' + (state.sending ? 'Sending...' : 'Send secure message') + '"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span>' : renderSendIcon()) + '</button>';
     html += '</div>';
     html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> ' + escapeHtml(state.shortcutModifierLabel) + ' + Enter to send</label>';
     html += '</div>';

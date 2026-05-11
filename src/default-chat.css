@@ -186,10 +186,10 @@
   padding-top: 1rem;
   border-top: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 68%, white 32%);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto;
   align-items: start;
-  gap: 0.58rem 0.72rem;
+  gap: 0.5rem;
 }
 
 .secure-chat-input-wrap {
@@ -202,37 +202,61 @@
 .secure-chat-input {
   display: block;
   width: 100%;
-  min-height: 8.25rem;
+  min-height: 5.25rem;
   resize: vertical;
-  padding: 0.78rem 0.88rem 2.75rem;
+  padding: 0.72rem 3.35rem 2.62rem 0.82rem;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 80%, white 20%);
   background: rgba(255, 255, 255, 0.96);
   color: var(--admin-text, #0b132b);
 }
 
-.secure-chat-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  flex-wrap: nowrap;
-  gap: 0.7rem;
-  margin-top: 0;
-  grid-column: 2;
-  grid-row: 1;
-}
-
 .secure-chat-send-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.42rem;
-  min-height: 2.38rem;
-  white-space: nowrap;
+  position: absolute;
+  right: 0.58rem;
+  bottom: 0.58rem;
+  width: 2.24rem;
+  height: 2.24rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent, #2f4aa6);
+  color: #fff;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent, #2f4aa6) 24%, transparent);
+  cursor: pointer;
+  z-index: 1;
+  transition: background-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.secure-chat-send-btn:hover:not(:disabled),
+.secure-chat-send-btn:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--accent, #2f4aa6) 86%, white 14%);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent, #2f4aa6) 30%, transparent);
+}
+
+.secure-chat-send-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .secure-chat-send-spinner {
   flex: 0 0 auto;
+  width: 0.9rem;
+  height: 0.9rem;
+  --spinner-track: rgba(255, 255, 255, 0.42);
+  --spinner-head: #fff;
+}
+
+.secure-chat-send-icon {
+  width: 1.08rem;
+  height: 1.08rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .secure-chat-attach-button {

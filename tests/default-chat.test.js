@@ -57,6 +57,8 @@ test('signed in panel renders messages and compose area', () => {
   assert.match(html, /Attach files/);
   assert.match(html, /secure-chat-input-wrap/);
   assert.ok(html.indexOf('secure-chat-input-wrap') < html.indexOf('data-secure-chat-action="send"'));
+  assert.match(html, /secure-chat-send-icon/);
+  assert.doesNotMatch(html, />Send</);
   assert.match(html, /⌘ \+ Enter to send/);
   assert.doesNotMatch(html, /Cmd\/Ctrl\+Enter/);
 });
