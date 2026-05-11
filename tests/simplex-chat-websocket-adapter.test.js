@@ -77,6 +77,38 @@ test('websocket adapter sends via active SimpleX Chat user and contact', async (
   assert.equal(FakeWebSocket.sockets[0].closed, true);
 });
 
+test('websocket adapter treats accepted sndNew command receipts as sent', async () => {
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser' } })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'newChatItems',
+          chatItems: [
+            { chatItem: { meta: { itemId: 124, itemStatus: { type: 'sndNew' } } } }
+          ]
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '7',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({ contact_id: '42', text: 'hello', client_message_id: 'client-2' });
+  assert.equal(receipt.transport_status, 'sent');
+  assert.equal(receipt.message_ref, '124');
+});
+
 test('websocket adapter ignores unsolicited startup events before active user response', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {

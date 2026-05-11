@@ -82,7 +82,7 @@
   function chatItemStatus(chatItem) {
     var itemStatus = chatItem && chatItem.meta && chatItem.meta.itemStatus;
     var type = String(itemStatus && itemStatus.type || '');
-    if (type === 'sndNew') return 'sending';
+    if (type === 'sndNew') return 'sent';
     if (type === 'sndRcvd') return 'delivered';
     if (type === 'sndSent') return 'sent';
     if (type === 'sndWarning') return 'warning';
