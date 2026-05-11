@@ -185,6 +185,18 @@
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 68%, white 32%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: start;
+  gap: 0.58rem 0.72rem;
+}
+
+.secure-chat-input-wrap {
+  position: relative;
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .secure-chat-input {
@@ -192,7 +204,7 @@
   width: 100%;
   min-height: 8.25rem;
   resize: vertical;
-  padding: 0.78rem 0.88rem;
+  padding: 0.78rem 0.88rem 2.75rem;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 80%, white 20%);
   background: rgba(255, 255, 255, 0.96);
@@ -202,27 +214,74 @@
 .secure-chat-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
   gap: 0.7rem;
-  margin-top: 0.72rem;
+  margin-top: 0;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.secure-chat-send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  min-height: 2.38rem;
+  white-space: nowrap;
+}
+
+.secure-chat-send-spinner {
+  flex: 0 0 auto;
 }
 
 .secure-chat-attach-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.38rem 0.74rem;
+  position: absolute;
+  left: 0.58rem;
+  bottom: 0.58rem;
+  width: 2.08rem;
+  height: 2.08rem;
+  padding: 0;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 74%, white 26%);
-  background: rgba(255, 255, 255, 0.92);
+  border: 0;
+  background: transparent;
   color: var(--admin-text, #0b132b);
-  font-size: 0.92rem;
   cursor: pointer;
+  z-index: 1;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.secure-chat-attach-button:hover,
+.secure-chat-attach-button:focus-within {
+  background: color-mix(in srgb, var(--light-bg, #e0e7ff) 72%, white 28%);
+  color: var(--accent, #2f4aa6);
+}
+
+.secure-chat-attach-icon {
+  width: 1.08rem;
+  height: 1.08rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .secure-chat-compose-hint {
   color: var(--admin-muted, #5f6f92);
   font-size: 0.82rem;
+}
+
+.secure-chat-send-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: fit-content;
 }
 
 @media (max-width: 760px) {
