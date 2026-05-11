@@ -146,6 +146,43 @@ test('registered browser adapter can query normalized recent messages', async ()
   }]);
 });
 
+test('registered browser adapter receives normalized file sends', async () => {
+  const calls = [];
+  const file = {
+    name: 'probe-😀.txt',
+    size: 5,
+    type: 'text/plain',
+    arrayBuffer() {
+      throw new Error('adapter owns file reading');
+    }
+  };
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('unused');
+    },
+    sendFiles(message) {
+      calls.push(message);
+      return [{
+        transport_status: 'sent',
+        message_ref: 'file-1',
+        attachment: { name: file.name, mime: file.type, size: file.size }
+      }];
+    }
+  });
+
+  const receipts = await transport.sendFiles(
+    { contactLink: 'simplex:/contact#abc', files: [file], bridgeUserId: 'user-1' },
+    { accountKey: 'ignored' }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].contact_link, 'simplex:/contact#abc');
+  assert.equal(calls[0].user_id, 'user-1');
+  assert.equal(calls[0].files[0], file);
+  assert.equal(calls[0].max_file_bytes, transportApi.MAX_FILE_BYTES);
+  assert.equal(receipts[0].attachment.name, 'probe-😀.txt');
+});
+
 test('invalid adapter registration is rejected', () => {
   assert.throws(
     () => transportApi.registerBrowserTransport({}),

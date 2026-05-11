@@ -384,6 +384,95 @@ test('websocket adapter can query recent incoming SimpleX messages', async () =>
   assert.equal(messages[1].delivery_status, 'delivered');
 });
 
+test('websocket adapter sends small attachments as SimpleX text envelope and preserves emoji metadata', async () => {
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    assert.match(outbound.cmd, /^\/_send @77 text Attachment: probe-😀\.txt\nsimplex-web-file:v1:/);
+    assert.match(outbound.cmd, /aGVsbG8=/);
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'newChatItems',
+          chatItems: [
+            { chatItem: { meta: { itemId: 301, itemStatus: { type: 'sndSent' } } } }
+          ]
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '9',
+    WebSocketImpl: FakeWebSocket
+  });
+  const bytes = new TextEncoder().encode('hello');
+  const receipts = await adapter.sendFiles({
+    contact_id: '77',
+    files: [{
+      name: 'probe-😀.txt',
+      size: bytes.length,
+      type: 'text/plain',
+      arrayBuffer() {
+        return Promise.resolve(bytes.buffer);
+      }
+    }]
+  });
+
+  assert.deepEqual(commands.map((cmd) => cmd.split('\n')[0]), ['/_user 9', '/_send @77 text Attachment: probe-😀.txt']);
+  assert.equal(receipts.length, 1);
+  assert.equal(receipts[0].transport_status, 'sent');
+  assert.deepEqual(receipts[0].attachment, { name: 'probe-😀.txt', mime: 'text/plain', size: 5 });
+});
+
+test('websocket adapter parses SimpleX text envelope attachments from history', async () => {
+  const marker = 'simplex-web-file:v1:eyJuYW1lIjoicHJvYmUt8J-YgC50eHQiLCJtaW1lIjoidGV4dC9wbGFpbiIsInNpemUiOjV9:aGVsbG8=';
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'apiChat',
+          chat: {
+            chatItems: [
+              {
+                chatDir: { type: 'directRcv' },
+                meta: { itemId: 302, itemStatus: { type: 'rcvNew' }, itemTs: '2026-05-11T00:00:00Z' },
+                content: { msgContent: { type: 'text', text: 'Attachment: probe-😀.txt\n' + marker } }
+              }
+            ]
+          }
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '9',
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const messages = await adapter.getMessages({ contact_id: '77' });
+  assert.equal(messages[0].message_kind, 'file');
+  assert.equal(messages[0].text, 'Attachment: probe-😀.txt');
+  assert.deepEqual(messages[0].attachment, { name: 'probe-😀.txt', mime: 'text/plain', size: 5 });
+});
+
 test('websocket adapter ignores unsolicited startup events before active user response', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {

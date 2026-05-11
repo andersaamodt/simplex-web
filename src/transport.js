@@ -8,6 +8,7 @@
   var UNAVAILABLE_MESSAGE = 'browser-native simplex-web transport is not available';
   var ERROR_UNAVAILABLE = 'SIMPLEX_WEB_TRANSPORT_UNAVAILABLE';
   var ERROR_BAD_ADAPTER = 'SIMPLEX_WEB_TRANSPORT_BAD_ADAPTER';
+  var MAX_FILE_BYTES = 12000;
 
   function limitString(value, maxLength) {
     return String(value == null ? '' : value).slice(0, maxLength);
@@ -86,6 +87,12 @@
     };
   }
 
+  function normalizeFileList(files) {
+    return Array.prototype.slice.call(files || []).filter(function (file) {
+      return !!(file && typeof file === 'object' && typeof file.name === 'string');
+    });
+  }
+
   function unavailableSnapshot(reason) {
     return {
       available: false,
@@ -161,6 +168,26 @@
           return normalizeReceipt(receipt, normalized);
         });
       },
+      sendFiles: function (message, options) {
+        var target;
+        try {
+          target = requireAdapter();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        if (typeof target.sendFiles !== 'function') {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_FILES_UNAVAILABLE', 'file sending is not available in this browser SimpleX transport'));
+        }
+        var normalized = normalizeOutboundMessage(message, options);
+        var files = normalizeFileList((message && message.files) || (options && options.files) || []);
+        if (!files.length) {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_FILES', 'at least one file is required'));
+        }
+        return Promise.resolve(target.sendFiles(Object.assign({}, normalized, {
+          files: files,
+          max_file_bytes: MAX_FILE_BYTES
+        })));
+      },
       getMessageStatus: function (message, options) {
         var target;
         try {
@@ -229,6 +256,7 @@
   api.UNAVAILABLE_MESSAGE = UNAVAILABLE_MESSAGE;
   api.ERROR_UNAVAILABLE = ERROR_UNAVAILABLE;
   api.ERROR_BAD_ADAPTER = ERROR_BAD_ADAPTER;
+  api.MAX_FILE_BYTES = MAX_FILE_BYTES;
   api.createTransport = createTransport;
   api.createUnavailableTransport = createUnavailableTransport;
   api.registerBrowserTransport = registerBrowserTransport;

@@ -11,6 +11,7 @@
   var ERROR_RESPONSE = 'SIMPLEX_CHAT_WS_RESPONSE';
   var ERROR_SECURITY = 'SIMPLEX_CHAT_WS_SECURITY';
   var STORAGE_PREFIX = 'simplex-chat-websocket-adapter-v1';
+  var ATTACHMENT_MARKER = 'simplex-web-file:v1:';
   var pageLifecycleClosing = false;
 
   function limitString(value, maxLength) {
@@ -141,6 +142,70 @@
     return '';
   }
 
+  function base64UrlEncode(value) {
+    return String(value || '').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  function base64UrlDecode(value) {
+    var raw = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (raw.length % 4) raw += '=';
+    return raw;
+  }
+
+  function encodeUtf8Base64(value) {
+    return btoa(unescape(encodeURIComponent(String(value || ''))));
+  }
+
+  function decodeUtf8Base64(value) {
+    return decodeURIComponent(escape(atob(String(value || ''))));
+  }
+
+  function parseAttachmentMarker(text) {
+    var value = String(text || '');
+    var idx = value.indexOf(ATTACHMENT_MARKER);
+    if (idx < 0) return null;
+    var marker = value.slice(idx + ATTACHMENT_MARKER.length).trim().split(/\s+/)[0] || '';
+    var parts = marker.split(':');
+    if (parts.length < 2) return null;
+    try {
+      var meta = JSON.parse(decodeUtf8Base64(base64UrlDecode(parts[0])));
+      var name = limitString(meta && meta.name || 'Attachment', MAX_LABEL_LENGTH);
+      var mime = limitString(meta && meta.mime || '', MAX_LABEL_LENGTH);
+      var size = Number(meta && meta.size || 0) || 0;
+      return {
+        text: value.slice(0, idx).replace(/\s+$/g, ''),
+        attachment: {
+          name: name,
+          mime: mime,
+          size: size
+        }
+      };
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var chunkSize = 0x8000;
+    var binary = '';
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      var chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.prototype.slice.call(chunk));
+    }
+    return btoa(binary);
+  }
+
+  function attachmentTextForFile(file, encodedBytes) {
+    var meta = {
+      name: limitString(file && file.name || 'attachment.bin', MAX_LABEL_LENGTH),
+      mime: limitString(file && file.type || 'application/octet-stream', MAX_LABEL_LENGTH),
+      size: Number(file && file.size || 0) || 0
+    };
+    var metaEncoded = base64UrlEncode(encodeUtf8Base64(JSON.stringify(meta)));
+    return 'Attachment: ' + meta.name + '\n' + ATTACHMENT_MARKER + metaEncoded + ':' + String(encodedBytes || '');
+  }
+
   function chatItemKind(chatItem) {
     var content = chatItem && chatItem.content && (chatItem.content.msgContent || chatItem.content.content || chatItem.content);
     if (content && typeof content.type === 'string') return content.type;
@@ -166,6 +231,13 @@
     ) {
       attachmentName = String(text || '').trim();
     }
+    var parsedAttachment = parseAttachmentMarker(text);
+    if (parsedAttachment) {
+      text = parsedAttachment.text;
+      messageKind = 'file';
+      attachmentName = parsedAttachment.attachment.name;
+      attachmentSize = parsedAttachment.attachment.size;
+    }
     return {
       seq: 0,
       direction: direction,
@@ -177,7 +249,7 @@
       text: text,
       attachment: attachmentName ? {
         name: attachmentName,
-        mime: '',
+        mime: parsedAttachment && parsedAttachment.attachment ? parsedAttachment.attachment.mime : '',
         size: Number(attachmentSize || 0) || 0
       } : null
     };
@@ -389,6 +461,44 @@
       return queryMessagesSequential(config, payload, userId, contactId, contactLink, count);
     }
 
+    function sendFiles(message) {
+      var payload = message && typeof message === 'object' ? message : {};
+      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
+      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
+      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var files = Array.prototype.slice.call(payload.files || []).filter(Boolean);
+      var maxBytes = Math.max(1, Number(payload.max_file_bytes || 12000) || 12000);
+      if (!contactId && !contactLink) {
+        return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
+      }
+      if (!files.length) {
+        return Promise.reject(makeError(ERROR_CONFIG, 'at least one file is required'));
+      }
+      return files.reduce(function (promise, file) {
+        return promise.then(function (receipts) {
+          if (Number(file.size || 0) > maxBytes) {
+            throw makeError(ERROR_CONFIG, 'Secure Chat attachments are limited to ' + String(maxBytes) + ' bytes for browser-local SimpleX sends');
+          }
+          if (!file || typeof file.arrayBuffer !== 'function') {
+            throw makeError(ERROR_CONFIG, 'Browser file data is unavailable');
+          }
+          return Promise.resolve(file.arrayBuffer()).then(function (buffer) {
+            var text = attachmentTextForFile(file, arrayBufferToBase64(buffer));
+            return sendTextSequential(config, payload, userId, contactId, contactLink, text, payload.client_message_id || payload.clientMessageId || '').then(function (receipt) {
+              receipts.push(Object.assign({}, receipt, {
+                attachment: {
+                  name: limitString(file.name || 'attachment.bin', MAX_LABEL_LENGTH),
+                  mime: limitString(file.type || '', MAX_LABEL_LENGTH),
+                  size: Number(file.size || 0) || 0
+                }
+              }));
+              return receipts;
+            });
+          });
+        });
+      }, Promise.resolve([]));
+    }
+
     return {
       getStatus: function () {
         return {
@@ -400,6 +510,7 @@
         return Promise.resolve(this.getStatus());
       },
       sendText: sendText,
+      sendFiles: sendFiles,
       getMessageStatus: getMessageStatus,
       getMessages: getMessages,
       disconnect: function () {
