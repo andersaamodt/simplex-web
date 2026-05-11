@@ -337,7 +337,14 @@
       if (nextModel && typeof nextModel === 'object') {
         state = normalizeModel(nextModel);
       }
+      var stableSimplexInfo = root.querySelector('.secure-chat-thread > .secure-chat-simplex-info');
       root.innerHTML = renderPanel(state);
+      if (stableSimplexInfo && state.simplexWebIntroDismissed !== true) {
+        var nextSimplexInfo = root.querySelector('.secure-chat-thread > .secure-chat-simplex-info');
+        if (nextSimplexInfo && nextSimplexInfo !== stableSimplexInfo) {
+          nextSimplexInfo.replaceWith(stableSimplexInfo);
+        }
+      }
       return state;
     }
 

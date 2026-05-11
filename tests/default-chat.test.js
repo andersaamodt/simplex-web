@@ -272,6 +272,34 @@ test('mount truncates hostile draft values and admin keys before callbacks', () 
   ]);
 });
 
+test('mount preserves simplex-web info banner node across refresh renders', () => {
+  const calls = [];
+  const stableInfo = { id: 'stable-info' };
+  const nextInfo = {
+    replaceWith(node) {
+      calls.push(node);
+    }
+  };
+  let queryCount = 0;
+  const root = {
+    innerHTML: '',
+    addEventListener() {},
+    removeEventListener() {},
+    querySelector(selector) {
+      if (selector !== '.secure-chat-thread > .secure-chat-simplex-info') {
+        return null;
+      }
+      queryCount += 1;
+      return queryCount === 1 ? stableInfo : nextInfo;
+    }
+  };
+
+  const mounted = ui.mount(root, { loggedIn: true, hasSigner: true }, {});
+  mounted.render({ loggedIn: true, hasSigner: true, messages: [{ text: 'fresh' }] });
+
+  assert.deepEqual(calls, [stableInfo]);
+});
+
 test('mount destroy removes event handlers', () => {
   const root = makeRoot();
   let sendCount = 0;
