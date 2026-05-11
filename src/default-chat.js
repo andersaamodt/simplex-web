@@ -227,12 +227,14 @@
       html += '</div>';
     }
     html += '<div class="secure-chat-compose">';
+    html += '<div class="secure-chat-input-wrap">';
     html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="4" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
-    html += '<div class="secure-chat-actions">';
     html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" type="file" multiple hidden><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
-    html += '<button type="button" class="list-admin-primary-btn secure-chat-send-btn" data-secure-chat-action="send"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span><span>Sending...</span>' : 'Send') + '</button>';
-    html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> Cmd/Ctrl+Enter to send</label>';
     html += '</div>';
+    html += '<div class="secure-chat-actions">';
+    html += '<button type="button" class="list-admin-primary-btn secure-chat-send-btn" data-secure-chat-action="send"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? '<span class="save-spinner secure-chat-send-spinner" aria-hidden="true"></span><span>Sending...</span>' : 'Send') + '</button>';
+    html += '</div>';
+    html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> Cmd/Ctrl+Enter to send</label>';
     html += '</div>';
     if (state.admin) {
       html += '<details class="secure-chat-admin-panel">';

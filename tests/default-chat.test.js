@@ -54,6 +54,8 @@ test('signed in panel renders messages and compose area', () => {
   assert.match(html, /hello/);
   assert.match(html, /secure-chat-input/);
   assert.match(html, /Attach files/);
+  assert.match(html, /secure-chat-input-wrap/);
+  assert.ok(html.indexOf('secure-chat-input-wrap') < html.indexOf('data-secure-chat-action="send"'));
 });
 
 test('status labels map known delivery states', () => {
