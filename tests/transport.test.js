@@ -106,6 +106,46 @@ test('registered browser adapter can query normalized message status', async () 
   });
 });
 
+test('registered browser adapter can query normalized recent messages', async () => {
+  const calls = [];
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('unused');
+    },
+    getMessages(message) {
+      calls.push(message);
+      return [{
+        direction: 'incoming',
+        messageRef: 'reply-1',
+        deliveryStatus: 'rcvNew',
+        createdAt: '2026-05-11T00:00:00Z',
+        text: 'hello from owl'
+      }];
+    }
+  });
+
+  const messages = await transport.getMessages(
+    { contactLink: 'simplex:/contact#abc', bridgeUserId: 'user-1', count: 500 },
+    { accountKey: 'ignored' }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].contact_link, 'simplex:/contact#abc');
+  assert.equal(calls[0].user_id, 'user-1');
+  assert.equal(calls[0].limit, 200);
+  assert.deepEqual(messages, [{
+    seq: 0,
+    direction: 'incoming',
+    message_ref: 'reply-1',
+    message_kind: 'text',
+    delivery_status: 'rcvNew',
+    created_at: '2026-05-11T00:00:00Z',
+    updated_at: '',
+    text: 'hello from owl',
+    attachment: null
+  }]);
+});
+
 test('invalid adapter registration is rejected', () => {
   assert.throws(
     () => transportApi.registerBrowserTransport({}),

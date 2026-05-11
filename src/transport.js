@@ -44,12 +44,45 @@
     };
   }
 
+  function normalizeMessageQuery(message, options) {
+    var normalized = normalizeOutboundMessage(message, options);
+    var limit = Math.max(1, Math.min(200, Math.floor(Number(
+      (message && (message.limit || message.count)) ||
+      (options && (options.limit || options.count)) ||
+      50
+    ) || 50)));
+    normalized.limit = limit;
+    return normalized;
+  }
+
   function normalizeReceipt(value, fallbackMessage) {
     var next = value && typeof value === 'object' ? value : {};
     return {
       accepted: next.accepted !== false,
       transport_status: normalizeStatus(next.transport_status || next.transportStatus, 'accepted'),
       message_ref: limitString(next.message_ref || next.messageRef || fallbackMessage.message_ref || fallbackMessage.client_message_id || '', MAX_LABEL_LENGTH)
+    };
+  }
+
+  function normalizeIncomingMessage(value) {
+    var next = value && typeof value === 'object' ? value : {};
+    var direction = String(next.direction || '').trim().toLowerCase() === 'incoming' ? 'incoming' : 'outgoing';
+    return {
+      seq: 0,
+      direction: direction,
+      message_ref: limitString(next.message_ref || next.messageRef || '', MAX_LABEL_LENGTH),
+      message_kind: limitString(next.message_kind || next.messageKind || 'text', MAX_STATUS_LENGTH) || 'text',
+      delivery_status: normalizeStatus(next.delivery_status || next.deliveryStatus || next.transport_status || next.transportStatus, direction === 'incoming' ? 'received' : 'sent'),
+      created_at: limitString(next.created_at || next.createdAt || '', MAX_TEXT_LENGTH),
+      updated_at: limitString(next.updated_at || next.updatedAt || '', MAX_TEXT_LENGTH),
+      text: limitString(next.text || '', MAX_TEXT_LENGTH),
+      attachment: next.attachment && typeof next.attachment === 'object'
+        ? {
+          name: limitString(next.attachment.name || '', MAX_TEXT_LENGTH),
+          mime: limitString(next.attachment.mime || '', MAX_STATUS_LENGTH),
+          size: Number(next.attachment.size || 0) || 0
+        }
+        : null
     };
   }
 
@@ -146,6 +179,21 @@
           return normalizeReceipt(receipt, normalized);
         });
       },
+      getMessages: function (message, options) {
+        var target;
+        try {
+          target = requireAdapter();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        if (typeof target.getMessages !== 'function') {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_RECEIVE_UNAVAILABLE', 'message receive lookup is not available'));
+        }
+        var normalized = normalizeMessageQuery(message, options);
+        return Promise.resolve(target.getMessages(normalized)).then(function (messages) {
+          return (Array.isArray(messages) ? messages : []).map(normalizeIncomingMessage);
+        });
+      },
       disconnect: function () {
         var target;
         try {
@@ -185,6 +233,7 @@
   api.createUnavailableTransport = createUnavailableTransport;
   api.registerBrowserTransport = registerBrowserTransport;
   api.normalizeOutboundMessage = normalizeOutboundMessage;
+  api.normalizeMessageQuery = normalizeMessageQuery;
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

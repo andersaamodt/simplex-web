@@ -167,7 +167,7 @@ test('websocket adapter polls SimpleX history when status event is missed', asyn
           type: 'apiChat',
           chat: {
             chatItems: [
-              { meta: { itemId: 125, itemStatus: { type: 'sndSent' } } }
+              { meta: { itemId: 125, itemStatus: { type: count === 3 ? 'sndSent' : 'sndRcvd' } } }
             ]
           }
         }
@@ -192,11 +192,13 @@ test('websocket adapter polls SimpleX history when status event is missed', asyn
     }
   });
   assert.equal(receipt.transport_status, 'sending');
-  await new Promise((resolve) => setTimeout(resolve, 850));
+  await new Promise((resolve) => setTimeout(resolve, 1600));
   assert.deepEqual(commands.slice(0, 3), ['/_user 7', '/_send @42 text hello', '/_get chat @42 count=20']);
-  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates.length, 2);
   assert.equal(statusUpdates[0].transport_status, 'sent');
   assert.equal(statusUpdates[0].raw_status, 'sndSent');
+  assert.equal(statusUpdates[1].transport_status, 'delivered');
+  assert.equal(statusUpdates[1].raw_status, 'sndRcvd');
   assert.equal(FakeWebSocket.sockets[0].closed, true);
 });
 
@@ -317,6 +319,69 @@ test('websocket adapter can query a cached message status from SimpleX history',
   assert.deepEqual(commands, ['/u', '/_get chat @77 count=20']);
   assert.equal(receipt.transport_status, 'delivered');
   assert.equal(receipt.raw_status, 'sndRcvd');
+});
+
+test('websocket adapter can query recent incoming SimpleX messages', async () => {
+  const storage = new Map([[
+    'simplex-chat-websocket-adapter-v1:example:npub1test:9:https://simplex.chat/contact#/?v=1&smp=receive',
+    '77'
+  ]]);
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_get chat @77 count=50');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'apiChat',
+          chat: {
+            chatItems: [
+              {
+                chatDir: { type: 'directRcv' },
+                meta: { itemId: 201, itemStatus: { type: 'rcvNew' }, itemTs: '2026-05-11T00:00:00Z' },
+                content: { msgContent: { type: 'text', text: 'reply from owl native' } }
+              },
+              {
+                chatDir: { type: 'directSnd' },
+                meta: { itemId: 202, itemStatus: { type: 'sndRcvd' }, itemTs: '2026-05-11T00:00:01Z' },
+                content: { msgContent: { type: 'text', text: 'local outgoing' } }
+              }
+            ]
+          }
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    storage: {
+      getItem(key) { return storage.get(key) || null; },
+      setItem(key, value) { storage.set(key, value); }
+    },
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const messages = await adapter.getMessages({
+    contact_link: 'https://simplex.chat/contact#/?v=1&smp=receive',
+    siteKey: 'example',
+    accountKey: 'npub1test'
+  });
+  assert.deepEqual(commands, ['/u', '/_get chat @77 count=50']);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].direction, 'incoming');
+  assert.equal(messages[0].delivery_status, 'received');
+  assert.equal(messages[0].message_ref, '201');
+  assert.equal(messages[0].text, 'reply from owl native');
+  assert.equal(messages[1].direction, 'outgoing');
+  assert.equal(messages[1].delivery_status, 'delivered');
 });
 
 test('websocket adapter ignores unsolicited startup events before active user response', async () => {

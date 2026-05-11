@@ -11,6 +11,7 @@
   var ERROR_RESPONSE = 'SIMPLEX_CHAT_WS_RESPONSE';
   var ERROR_SECURITY = 'SIMPLEX_CHAT_WS_SECURITY';
   var STORAGE_PREFIX = 'simplex-chat-websocket-adapter-v1';
+  var pageLifecycleClosing = false;
 
   function limitString(value, maxLength) {
     return String(value == null ? '' : value).slice(0, maxLength);
@@ -21,6 +22,24 @@
     error.name = 'SimplexChatWebSocketAdapterError';
     error.code = code;
     return error;
+  }
+
+  function markPageLifecycleClosing() {
+    pageLifecycleClosing = true;
+  }
+
+  function clearPageLifecycleClosing() {
+    pageLifecycleClosing = false;
+  }
+
+  function isPageLifecycleClosing() {
+    return pageLifecycleClosing;
+  }
+
+  if (global && typeof global.addEventListener === 'function') {
+    global.addEventListener('beforeunload', markPageLifecycleClosing);
+    global.addEventListener('pagehide', markPageLifecycleClosing);
+    global.addEventListener('pageshow', clearPageLifecycleClosing);
   }
 
   function normalizeUrl(value) {
@@ -109,6 +128,61 @@
     return [];
   }
 
+  function chatItemText(chatItem) {
+    if (!chatItem || !chatItem.content) return '';
+    var content = chatItem.content;
+    var msgContent = content.msgContent || content.content || null;
+    if (msgContent && typeof msgContent.text === 'string') {
+      return msgContent.text;
+    }
+    if (chatItem.meta && typeof chatItem.meta.itemText === 'string') {
+      return chatItem.meta.itemText;
+    }
+    return '';
+  }
+
+  function chatItemKind(chatItem) {
+    var content = chatItem && chatItem.content && (chatItem.content.msgContent || chatItem.content.content || chatItem.content);
+    if (content && typeof content.type === 'string') return content.type;
+    if (chatItem && chatItem.file) return 'file';
+    return 'text';
+  }
+
+  function chatItemDirection(chatItem) {
+    return chatItem && chatItem.chatDir && chatItem.chatDir.type === 'directRcv' ? 'incoming' : 'outgoing';
+  }
+
+  function messageFromChatItem(chatItem) {
+    var direction = chatItemDirection(chatItem);
+    var messageKind = chatItemKind(chatItem);
+    var text = chatItemText(chatItem);
+    var attachmentName = chatItem && chatItem.file && chatItem.file.fileName ? String(chatItem.file.fileName) : '';
+    var attachmentSize = chatItem && chatItem.file && chatItem.file.fileSize != null ? Number(chatItem.file.fileSize) : 0;
+    if (
+      messageKind === 'file' &&
+      attachmentName &&
+      /^upl-[^-]+-/.test(attachmentName) &&
+      String(text || '').trim()
+    ) {
+      attachmentName = String(text || '').trim();
+    }
+    return {
+      seq: 0,
+      direction: direction,
+      message_ref: messageRefFromChatItem(chatItem, ''),
+      message_kind: messageKind,
+      delivery_status: direction === 'incoming' ? 'received' : chatItemStatus(chatItem),
+      created_at: limitString(chatItem && chatItem.meta && (chatItem.meta.itemTs || chatItem.meta.createdAt) || '', MAX_TEXT_LENGTH),
+      updated_at: new Date().toISOString(),
+      text: text,
+      attachment: attachmentName ? {
+        name: attachmentName,
+        mime: '',
+        size: Number(attachmentSize || 0) || 0
+      } : null
+    };
+  }
+
   function messageRefFromChatItem(chatItem, fallback) {
     return limitString(chatItem && chatItem.meta && chatItem.meta.itemId != null ? String(chatItem.meta.itemId) : fallback, MAX_LABEL_LENGTH);
   }
@@ -126,7 +200,23 @@
 
   function statusIsTerminal(status) {
     var raw = String(status || '').trim();
-    return raw && raw !== 'sending' && raw !== 'sndNew';
+    switch (raw) {
+      case 'sending':
+      case 'sndNew':
+      case 'sent':
+      case 'sndSent':
+        return false;
+      case 'delivered':
+      case 'sndRcvd':
+      case 'failed':
+      case 'sndError':
+      case 'sndErrorAuth':
+      case 'warning':
+      case 'sndWarning':
+        return true;
+      default:
+        return !!raw;
+    }
   }
 
   function emitStatus(payload, receipt) {
@@ -287,6 +377,18 @@
       return queryMessageStatusSequential(config, payload, userId, contactId, contactLink, messageRef);
     }
 
+    function getMessages(message) {
+      var payload = message && typeof message === 'object' ? message : {};
+      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
+      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
+      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var count = Math.max(1, Math.min(200, Math.floor(Number(payload.limit || payload.count || 50) || 50)));
+      if (!contactId && !contactLink) {
+        return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
+      }
+      return queryMessagesSequential(config, payload, userId, contactId, contactLink, count);
+    }
+
     return {
       getStatus: function () {
         return {
@@ -299,6 +401,7 @@
       },
       sendText: sendText,
       getMessageStatus: getMessageStatus,
+      getMessages: getMessages,
       disconnect: function () {
         return Promise.resolve();
       }
@@ -514,6 +617,9 @@
       }
 
       function onError(event) {
+        if (isPageLifecycleClosing()) {
+          return;
+        }
         finish(reject, makeError(ERROR_RESPONSE, event && event.message ? event.message : 'SimpleX Chat WebSocket failed'));
       }
 
@@ -632,6 +738,117 @@
       }
 
       function onError(event) {
+        if (isPageLifecycleClosing()) {
+          return;
+        }
+        finish(reject, makeError(ERROR_RESPONSE, event && event.message ? event.message : 'SimpleX Chat WebSocket failed'));
+      }
+
+      try {
+        ws = new WebSocketImpl(config.url);
+        ws.addEventListener('open', onOpen);
+        ws.addEventListener('message', onMessage);
+        ws.addEventListener('error', onError);
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
+  }
+
+  function queryMessagesSequential(config, payload, userId, contactId, contactLink, count) {
+    return new Promise(function (resolve, reject) {
+      var WebSocketImpl = config.WebSocketImpl;
+      var ws = null;
+      var settled = false;
+      var step = 0;
+      var commandSeq = 0;
+      var pendingCorrId = '';
+      var timer = global.setTimeout(function () {
+        finish(reject, makeError(ERROR_TIMEOUT, 'SimpleX Chat WebSocket receive query timed out'));
+      }, config.timeout_ms);
+
+      function closeSocket() {
+        if (ws) {
+          try { ws.close(); } catch (_err) {}
+          ws = null;
+        }
+      }
+
+      function finish(fn, value) {
+        if (settled) return;
+        settled = true;
+        global.clearTimeout(timer);
+        closeSocket();
+        fn(value);
+      }
+
+      function send(cmd) {
+        var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
+        pendingCorrId = corrId;
+        ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+      }
+
+      function onOpen() {
+        if (userId) {
+          send('/_user ' + userId);
+        } else {
+          send('/u');
+        }
+      }
+
+      function onMessage(event) {
+        var envelope = parseEnvelope(event && event.data);
+        var resp = envelope && envelope.resp;
+        var type = responseType(resp);
+        if (!resp) return;
+        var corrId = String(envelope.corrId || '');
+        if (step === 0) {
+          if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (!corrId && type !== 'activeUser') {
+            return;
+          }
+          if (type !== 'activeUser') {
+            finish(reject, makeError(ERROR_RESPONSE, 'Could not resolve SimpleX Chat active user: ' + (type || 'unknown')));
+            return;
+          }
+          userId = userId || activeUserIdFromResponse(resp);
+          if (!userId) {
+            finish(reject, makeError(ERROR_RESPONSE, 'SimpleX Chat active user response did not include a user id'));
+            return;
+          }
+          contactId = contactId || cachedContactId(config, payload, userId, contactLink);
+          if (!contactId) {
+            finish(resolve, []);
+            return;
+          }
+          step = 1;
+          send('/_get chat @' + contactId + ' count=' + String(count));
+          return;
+        }
+        if (step === 1) {
+          if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (type === 'apiChat') {
+            finish(resolve, responseChatItems(resp).map(messageFromChatItem).filter(function (message) {
+              return !!(message.message_ref && (String(message.text || '').trim() || message.attachment));
+            }));
+            return;
+          }
+          if (type === 'chatCmdError') {
+            finish(reject, makeError(ERROR_RESPONSE, chatErrorSummary(resp) || 'Could not query SimpleX Chat messages'));
+            return;
+          }
+          finish(reject, makeError(ERROR_RESPONSE, 'Unexpected SimpleX Chat receive response: ' + (type || 'unknown')));
+        }
+      }
+
+      function onError(event) {
+        if (isPageLifecycleClosing()) {
+          return;
+        }
         finish(reject, makeError(ERROR_RESPONSE, event && event.message ? event.message : 'SimpleX Chat WebSocket failed'));
       }
 
