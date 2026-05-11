@@ -120,10 +120,25 @@
 .secure-chat-meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.45rem 0.7rem;
   margin-top: 0.52rem;
   font-size: 0.8rem;
   color: var(--admin-muted, #5f6f92);
+}
+
+.secure-chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.secure-chat-status-spinner {
+  width: 0.74rem;
+  height: 0.74rem;
+  flex: 0 0 auto;
+  box-sizing: border-box;
 }
 
 .secure-chat-uploads {

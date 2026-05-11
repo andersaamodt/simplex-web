@@ -121,12 +121,24 @@
         return 'Received';
       case 'sndNew':
       case 'sending':
-        return 'Sending';
+        return 'Sending...';
       case 'uploading':
         return 'Uploading';
       default:
         return raw ? raw : 'Queued';
     }
+  }
+
+  function statusIsSending(message) {
+    var raw = limitString(message && message.delivery_status || '', MAX_STATUS_LENGTH).trim();
+    return raw === 'sndNew' || raw === 'sending';
+  }
+
+  function statusHtml(message) {
+    if (statusIsSending(message)) {
+      return '<span class="secure-chat-status is-sending"><span>Sending...</span><span class="save-spinner secure-chat-status-spinner" aria-hidden="true"></span></span>';
+    }
+    return '<span class="secure-chat-status">' + escapeHtml(statusLabel(message)) + '</span>';
   }
 
   function normalizeModel(model) {
@@ -204,9 +216,9 @@
           html += '<p class="secure-chat-text">' + escapeHtml(String(message.text || '')).replace(/\n/g, '<br>') + '</p>';
         }
         if (message && message.attachment) {
-          html += '<p class="secure-chat-attachment">' + escapeHtml(String(message.attachment.name || 'Attachment')) + ' <span>' + escapeHtml(statusLabel(message)) + '</span></p>';
+          html += '<p class="secure-chat-attachment">' + escapeHtml(String(message.attachment.name || 'Attachment')) + ' ' + statusHtml(message) + '</p>';
         }
-        html += '<div class="secure-chat-meta"><span>' + escapeHtml(statusLabel(message)) + '</span><time>' + escapeHtml(String(message && message.created_at || '')) + '</time></div>';
+        html += '<div class="secure-chat-meta">' + statusHtml(message) + '<time>' + escapeHtml(String(message && message.created_at || '')) + '</time></div>';
         html += '</div>';
         html += '</article>';
       });
@@ -365,6 +377,7 @@
     clampProgress: clampProgress,
     normalizeModel: normalizeModel,
     statusLabel: statusLabel,
+    statusHtml: statusHtml,
     renderPanel: renderPanel,
     mount: mount
   };
