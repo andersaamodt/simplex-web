@@ -363,6 +363,61 @@ test('mount truncates hostile draft values and admin keys before callbacks', () 
   ]);
 });
 
+test('mount ignores delegated actions resolved outside the mounted root', () => {
+  const listeners = new Map();
+  const outsideActionNode = {
+    getAttribute(name) {
+      return name === 'data-secure-chat-action' ? 'send' : '';
+    }
+  };
+  const insideActionNode = {
+    inside: true,
+    getAttribute(name) {
+      return name === 'data-secure-chat-action' ? 'send' : '';
+    }
+  };
+  const root = {
+    innerHTML: '',
+    addEventListener(name, handler) {
+      listeners.set(name, handler);
+    },
+    removeEventListener() {},
+    querySelector(selector) {
+      return selector === '#secure-chat-input' ? { value: 'root draft' } : null;
+    },
+    contains(node) {
+      return !!(node && node.inside === true);
+    },
+    dispatch(name, event) {
+      listeners.get(name)(event);
+    }
+  };
+  const calls = [];
+
+  ui.mount(root, { loggedIn: true, hasSigner: true }, {
+    onSend(value) {
+      calls.push(value);
+    }
+  });
+
+  root.dispatch('click', {
+    target: {
+      closest() {
+        return outsideActionNode;
+      }
+    }
+  });
+  root.dispatch('click', {
+    target: {
+      closest() {
+        return insideActionNode;
+      }
+    }
+  });
+
+  assert.deepEqual(calls, ['root draft']);
+});
+
 test('mount dispatches pending file removal and dropped files', () => {
   const root = makeRoot();
   const calls = [];

@@ -833,7 +833,12 @@
       function send(cmd) {
         var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
         pendingCorrId = corrId;
-        ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        try {
+          ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        } catch (error) {
+          finish(reject, error);
+          return '';
+        }
         return corrId;
       }
 
@@ -1030,7 +1035,11 @@
       function send(cmd) {
         var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
         pendingCorrId = corrId;
-        ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        try {
+          ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        } catch (error) {
+          finish(reject, error);
+        }
       }
 
       function onOpen() {
@@ -1159,7 +1168,11 @@
       function send(cmd) {
         var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
         pendingCorrId = corrId;
-        ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        try {
+          ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        } catch (error) {
+          finish(reject, error);
+        }
       }
 
       function onOpen() {

@@ -431,11 +431,21 @@
       return state.draftText;
     }
 
+    function containsActionNode(node) {
+      if (!node) return false;
+      if (node === root) return true;
+      if (typeof root.contains === 'function') {
+        return root.contains(node);
+      }
+      return true;
+    }
+
     function onClick(event) {
       var target = event.target;
       if (!target || typeof target.closest !== 'function') return;
       var actionNode = target.closest('[data-secure-chat-action]');
       if (!actionNode) return;
+      if (!containsActionNode(actionNode)) return;
       var action = String(actionNode.getAttribute('data-secure-chat-action') || '').trim().toLowerCase();
       if (!action) return;
       if (action === 'login' && typeof actions.onLogin === 'function') {

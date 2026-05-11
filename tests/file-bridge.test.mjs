@@ -36,11 +36,14 @@ function startBridge(env) {
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
       const match = stdout.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (match) {
+      if (match && stdout.includes('serving files under ')) {
         clearTimeout(timer);
         resolve({
           child,
           baseUrl: `http://127.0.0.1:${match[1]}`,
+          stdout() {
+            return stdout;
+          },
           async stop() {
             child.kill();
             await new Promise((done) => child.once('exit', done));
@@ -106,6 +109,32 @@ test('file bridge rejects hostile origins, traversal reads, and malformed filena
     assert.match(staged.json.filePath, /^\/.*bad-script-\.txt$/);
     assert.equal(await readFile(staged.json.filePath, 'utf8'), 'hello');
     assert.equal(staged.resp.headers.get('x-content-type-options'), 'nosniff');
+  } finally {
+    await bridge.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('file bridge startup output sanitizes newline-bearing configured paths', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'simplex-web-file-bridge-log-test-'));
+  const storageRoot = join(tempRoot, 'staging\nforged=1');
+  const allowedRoot = join(tempRoot, 'allowed\rforged=2');
+  await mkdir(storageRoot, { recursive: true });
+  await mkdir(allowedRoot, { recursive: true });
+
+  const bridge = await startBridge({
+    SIMPLEX_WEB_FILE_BRIDGE_HOST: '127.0.0.1',
+    SIMPLEX_WEB_FILE_BRIDGE_PORT: '0',
+    SIMPLEX_WEB_FILE_BRIDGE_ROOT: storageRoot,
+    SIMPLEX_WEB_FILE_BRIDGE_ALLOWED_ROOTS: allowedRoot,
+    SIMPLEX_WEB_FILE_BRIDGE_ORIGIN: 'https://allowed.example'
+  });
+
+  try {
+    const stdout = bridge.stdout();
+    assert.doesNotMatch(stdout, /^forged=/m);
+    assert.match(stdout, /staging\\nforged=1/);
+    assert.match(stdout, /allowed\\rforged=2/);
   } finally {
     await bridge.stop();
     await rm(tempRoot, { recursive: true, force: true });

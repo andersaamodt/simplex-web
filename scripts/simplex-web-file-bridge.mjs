@@ -36,6 +36,10 @@ function safeHeaderValue(value) {
   return raw && !/[\r\n]/.test(raw) ? raw : '';
 }
 
+function safeLogValue(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+}
+
 function parseAllowedOrigins(value) {
   const origins = String(value || '')
     .split(',')
@@ -229,6 +233,6 @@ server.listen(port, host, () => {
   const address = server.address();
   const actualPort = address && typeof address === 'object' ? address.port : port;
   process.stdout.write(`simplex-web file bridge listening on http://${host}:${actualPort}\n`);
-  process.stdout.write(`staging files under ${storageRoot}\n`);
-  process.stdout.write(`serving files under ${allowedReadRoots.join(', ')}\n`);
+  process.stdout.write(`staging files under ${safeLogValue(storageRoot)}\n`);
+  process.stdout.write(`serving files under ${allowedReadRoots.map(safeLogValue).join(', ')}\n`);
 });

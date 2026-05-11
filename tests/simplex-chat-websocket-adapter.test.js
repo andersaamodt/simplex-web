@@ -992,6 +992,43 @@ test('websocket adapter does not create bridge URLs for relative history file pa
   assert.equal(messages[0].attachment.url, '');
 });
 
+test('websocket adapter rejects cleanly when a WebSocket send throws', async () => {
+  const sockets = [];
+  class ThrowingSendWebSocket {
+    constructor() {
+      this.closed = false;
+      this.listeners = new Map();
+      sockets.push(this);
+      queueMicrotask(() => this.emit('open', {}));
+    }
+    addEventListener(name, handler) {
+      if (!this.listeners.has(name)) this.listeners.set(name, []);
+      this.listeners.get(name).push(handler);
+    }
+    emit(name, event) {
+      (this.listeners.get(name) || []).forEach((handler) => handler(event));
+    }
+    send() {
+      throw new Error('socket already closed');
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '9',
+    WebSocketImpl: ThrowingSendWebSocket
+  });
+
+  await assert.rejects(
+    adapter.sendText({ contact_id: '77', text: 'hello' }),
+    /socket already closed/
+  );
+  assert.equal(sockets[0].closed, true);
+});
+
 test('websocket adapter reports SimpleX broker connection errors', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {
