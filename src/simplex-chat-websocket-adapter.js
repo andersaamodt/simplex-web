@@ -4,6 +4,7 @@
   var MAX_TEXT_LENGTH = 4000;
   var MAX_LABEL_LENGTH = 256;
   var DEFAULT_TIMEOUT_MS = 90000;
+  var DEFAULT_STATUS_TIMEOUT_MS = 15000;
   var DEFAULT_RETRIES = 3;
   var ERROR_CONFIG = 'SIMPLEX_CHAT_WS_CONFIG';
   var ERROR_TIMEOUT = 'SIMPLEX_CHAT_WS_TIMEOUT';
@@ -61,6 +62,7 @@
       url: validateWebSocketUrl(url, opts.allowRemote === true),
       user_id: userId,
       timeout_ms: Math.max(1000, Math.floor(Number(opts.timeout_ms || opts.timeoutMs || DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS)),
+      status_timeout_ms: Math.max(1000, Math.floor(Number(opts.status_timeout_ms || opts.statusTimeoutMs || DEFAULT_STATUS_TIMEOUT_MS) || DEFAULT_STATUS_TIMEOUT_MS)),
       retries: Math.max(1, Math.floor(Number(opts.retries || DEFAULT_RETRIES) || DEFAULT_RETRIES)),
       storage: opts.storage || null,
       WebSocketImpl: opts.WebSocketImpl || global.WebSocket
@@ -82,7 +84,7 @@
   function chatItemStatus(chatItem) {
     var itemStatus = chatItem && chatItem.meta && chatItem.meta.itemStatus;
     var type = String(itemStatus && itemStatus.type || '');
-    if (type === 'sndNew') return 'sent';
+    if (type === 'sndNew') return 'sending';
     if (type === 'sndRcvd') return 'delivered';
     if (type === 'sndSent') return 'sent';
     if (type === 'sndWarning') return 'warning';
@@ -93,6 +95,47 @@
   function firstChatItem(resp) {
     var items = Array.isArray(resp && resp.chatItems) ? resp.chatItems : [];
     return items.length && items[0] && items[0].chatItem ? items[0].chatItem : null;
+  }
+
+  function messageRefFromChatItem(chatItem, fallback) {
+    return limitString(chatItem && chatItem.meta && chatItem.meta.itemId != null ? String(chatItem.meta.itemId) : fallback, MAX_LABEL_LENGTH);
+  }
+
+  function statusReceiptFromChatItem(chatItem, fallback) {
+    var itemStatus = chatItem && chatItem.meta && chatItem.meta.itemStatus;
+    return {
+      accepted: true,
+      transport_status: chatItemStatus(chatItem),
+      raw_status: limitString(itemStatus && itemStatus.type || '', MAX_LABEL_LENGTH),
+      message_ref: messageRefFromChatItem(chatItem, fallback),
+      chat_item: chatItem || null
+    };
+  }
+
+  function statusIsTerminal(status) {
+    var raw = String(status || '').trim();
+    return raw && raw !== 'sending' && raw !== 'sndNew';
+  }
+
+  function emitStatus(payload, receipt) {
+    if (!payload || typeof payload.on_status !== 'function') return;
+    try {
+      payload.on_status(receipt);
+    } catch (_err) {
+      // UI status callbacks must not interfere with SimpleX command handling.
+    }
+  }
+
+  function matchingStatusChatItem(resp, messageRef) {
+    if (!messageRef || !resp || !Array.isArray(resp.chatItems)) return null;
+    for (var i = 0; i < resp.chatItems.length; i += 1) {
+      var wrapped = resp.chatItems[i];
+      var chatItem = wrapped && wrapped.chatItem ? wrapped.chatItem : null;
+      if (messageRefFromChatItem(chatItem, '') === messageRef) {
+        return chatItem;
+      }
+    }
+    return null;
   }
 
   function contactFromResponse(resp) {
@@ -225,22 +268,50 @@
       var WebSocketImpl = config.WebSocketImpl;
       var ws = null;
       var settled = false;
+      var resolved = false;
       var step = 0;
       var sendAttempts = 0;
       var commandSeq = 0;
       var pendingCorrId = '';
+      var sentMessageRef = '';
+      var statusTimer = null;
       var timer = global.setTimeout(function () {
         finish(reject, makeError(ERROR_TIMEOUT, 'SimpleX Chat WebSocket command timed out'));
       }, config.timeout_ms);
+
+      function closeSocket() {
+        if (statusTimer) {
+          global.clearTimeout(statusTimer);
+          statusTimer = null;
+        }
+        if (ws) {
+          try { ws.close(); } catch (_err) {}
+          ws = null;
+        }
+      }
 
       function finish(fn, value) {
         if (settled) return;
         settled = true;
         global.clearTimeout(timer);
-        if (ws) {
-          try { ws.close(); } catch (_err) {}
-        }
+        closeSocket();
         fn(value);
+      }
+
+      function resolveInitial(receipt, keepListening) {
+        if (resolved) return;
+        resolved = true;
+        global.clearTimeout(timer);
+        resolve(receipt);
+        if (!keepListening) {
+          settled = true;
+          closeSocket();
+        }
+      }
+
+      function stopStatusWatch() {
+        settled = true;
+        closeSocket();
       }
 
       function send(cmd) {
@@ -263,6 +334,18 @@
         var type = responseType(resp);
         if (!resp) return;
         var corrId = String(envelope.corrId || '');
+        if (resolved) {
+          if (type === 'chatItemsStatusesUpdated') {
+            var statusChatItem = matchingStatusChatItem(resp, sentMessageRef);
+            if (!statusChatItem) return;
+            var statusReceipt = statusReceiptFromChatItem(statusChatItem, sentMessageRef || clientMessageId);
+            emitStatus(payload, statusReceipt);
+            if (statusIsTerminal(statusReceipt.transport_status)) {
+              stopStatusWatch();
+            }
+          }
+          return;
+        }
         if (step === 0) {
           if (corrId && corrId !== pendingCorrId) {
             return;
@@ -314,12 +397,13 @@
         }
         if (type === 'newChatItems') {
           var chatItem = firstChatItem(resp);
-          finish(resolve, {
-            accepted: true,
-            transport_status: chatItemStatus(chatItem),
-            message_ref: limitString(chatItem && chatItem.meta && chatItem.meta.itemId != null ? String(chatItem.meta.itemId) : clientMessageId, MAX_LABEL_LENGTH),
-            chat_item: chatItem || null
-          });
+          var receipt = statusReceiptFromChatItem(chatItem, clientMessageId);
+          sentMessageRef = receipt.message_ref;
+          var shouldWatchStatus = typeof payload.on_status === 'function' && !statusIsTerminal(receipt.transport_status);
+          resolveInitial(receipt, shouldWatchStatus);
+          if (shouldWatchStatus) {
+            statusTimer = global.setTimeout(stopStatusWatch, config.status_timeout_ms);
+          }
           return;
         }
         if (type === 'chatCmdError' && sendAttempts < config.retries) {

@@ -36,7 +36,10 @@
       contact_link: limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || opts.contact_link || opts.contactLink || opts.owner_contact_link || opts.ownerContactLink || '', MAX_TEXT_LENGTH),
       text: limitString(payload.text || '', MAX_TEXT_LENGTH),
       client_message_id: limitString(payload.client_message_id || payload.clientMessageId || opts.client_message_id || opts.clientMessageId || '', MAX_LABEL_LENGTH),
-      user_id: limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || opts.user_id || opts.userId || opts.bridge_user_id || opts.bridgeUserId || '', MAX_LABEL_LENGTH)
+      user_id: limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || opts.user_id || opts.userId || opts.bridge_user_id || opts.bridgeUserId || '', MAX_LABEL_LENGTH),
+      on_status: typeof payload.on_status === 'function'
+        ? payload.on_status
+        : (typeof payload.onStatus === 'function' ? payload.onStatus : null)
     };
   }
 

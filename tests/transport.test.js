@@ -24,6 +24,7 @@ test('default transport fails closed with stable unavailable error', async () =>
 
 test('registered browser adapter receives normalized outbound text and returns normalized receipt', async () => {
   const calls = [];
+  function onStatus() {}
   const transport = transportApi.registerBrowserTransport({
     getStatus() {
       return { transport_status: 'direct-browser-smp' };
@@ -42,7 +43,7 @@ test('registered browser adapter receives normalized outbound text and returns n
   });
 
   const receipt = await transport.sendText(
-    { contactId: 'c'.repeat(300), text: 'x'.repeat(5000), bridgeUserId: 'user-1' },
+    { contactId: 'c'.repeat(300), text: 'x'.repeat(5000), bridgeUserId: 'user-1', on_status: onStatus },
     { clientMessageId: 'client-1' }
   );
 
@@ -51,6 +52,7 @@ test('registered browser adapter receives normalized outbound text and returns n
   assert.equal(calls[0].text.length, transportApi.MAX_TEXT_LENGTH);
   assert.equal(calls[0].client_message_id, 'client-1');
   assert.equal(calls[0].user_id, 'user-1');
+  assert.equal(calls[0].on_status, onStatus);
   assert.deepEqual(receipt, {
     accepted: true,
     transport_status: 'accepted',

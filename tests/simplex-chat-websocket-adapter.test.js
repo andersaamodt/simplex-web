@@ -71,13 +71,15 @@ test('websocket adapter sends via active SimpleX Chat user and contact', async (
   assert.deepEqual(receipt, {
     accepted: true,
     transport_status: 'sent',
+    raw_status: 'sndSent',
     message_ref: '123',
     chat_item: { meta: { itemId: 123, itemStatus: { type: 'sndSent' } } }
   });
   assert.equal(FakeWebSocket.sockets[0].closed, true);
 });
 
-test('websocket adapter treats accepted sndNew command receipts as sent', async () => {
+test('websocket adapter preserves sndNew and reports later status updates', async () => {
+  let sendItemId = '';
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {
       queueMicrotask(() => socket.emit('message', {
@@ -85,6 +87,7 @@ test('websocket adapter treats accepted sndNew command receipts as sent', async 
       }));
       return;
     }
+    sendItemId = outbound.corrId;
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({
         corrId: outbound.corrId,
@@ -96,7 +99,18 @@ test('websocket adapter treats accepted sndNew command receipts as sent', async 
         }
       })
     }));
+    setTimeout(() => socket.emit('message', {
+      data: JSON.stringify({
+        resp: {
+          type: 'chatItemsStatusesUpdated',
+          chatItems: [
+            { chatItem: { meta: { itemId: 124, itemStatus: { type: 'sndRcvd' } } } }
+          ]
+        }
+      })
+    }), 10);
   });
+  const statusUpdates = [];
 
   const adapter = adapterApi.createSimplexChatWebSocketAdapter({
     url: 'ws://127.0.0.1:5225',
@@ -104,9 +118,21 @@ test('websocket adapter treats accepted sndNew command receipts as sent', async 
     WebSocketImpl: FakeWebSocket
   });
 
-  const receipt = await adapter.sendText({ contact_id: '42', text: 'hello', client_message_id: 'client-2' });
-  assert.equal(receipt.transport_status, 'sent');
+  const receipt = await adapter.sendText({
+    contact_id: '42',
+    text: 'hello',
+    client_message_id: 'client-2',
+    on_status(update) {
+      statusUpdates.push(update);
+    }
+  });
+  assert.ok(sendItemId);
+  assert.equal(receipt.transport_status, 'sending');
   assert.equal(receipt.message_ref, '124');
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates[0].transport_status, 'delivered');
+  assert.equal(statusUpdates[0].raw_status, 'sndRcvd');
 });
 
 test('websocket adapter ignores unsolicited startup events before active user response', async () => {
