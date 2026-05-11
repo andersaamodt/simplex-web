@@ -236,26 +236,6 @@
     html += '</div>';
     html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> Cmd/Ctrl+Enter to send</label>';
     html += '</div>';
-    if (state.admin) {
-      html += '<details class="secure-chat-admin-panel">';
-      html += '<summary>Admin Mapping Console</summary>';
-      html += '<div class="secure-chat-admin-actions"><button type="button" data-secure-chat-action="admin-refresh">Refresh</button></div>';
-      html += '<div class="secure-chat-admin-table">';
-      state.adminMappings.forEach(function (row) {
-        html += '<div class="secure-chat-admin-row">';
-        html += '<span class="secure-chat-admin-npub">' + escapeHtml(String(row && row.npub || '')) + '</span>';
-        html += '<span class="secure-chat-admin-contact">' + escapeHtml(String(row && row.simplex_contact_id || '')) + '</span>';
-        html += '<span class="secure-chat-admin-status">' + escapeHtml(String(row && row.status || '')) + '</span>';
-        html += '<button type="button" data-secure-chat-action="deactivate" data-secure-chat-npub="' + escapeAttr(String(row && row.npub || '')) + '">Deactivate</button>';
-        html += '<button type="button" data-secure-chat-action="delete" data-secure-chat-npub="' + escapeAttr(String(row && row.npub || '')) + '">Delete Mapping</button>';
-        html += '</div>';
-      });
-      if (!state.adminMappings.length) {
-        html += '<p class="secure-chat-empty">No mappings yet.</p>';
-      }
-      html += '</div>';
-      html += '</details>';
-    }
     html += '</section>';
     return html;
   }

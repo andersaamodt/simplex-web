@@ -27,9 +27,7 @@
 }
 
 .secure-chat-login-btn,
-.secure-chat-attach-button,
-.secure-chat-admin-actions button,
-.secure-chat-admin-row button {
+.secure-chat-attach-button {
   width: fit-content;
 }
 
@@ -212,50 +210,6 @@
   font-size: 0.82rem;
 }
 
-.secure-chat-admin-panel {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 68%, white 32%);
-}
-
-.secure-chat-admin-panel summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.secure-chat-admin-actions {
-  margin-top: 0.75rem;
-}
-
-.secure-chat-admin-table {
-  display: grid;
-  gap: 0.6rem;
-  margin-top: 0.75rem;
-}
-
-.secure-chat-admin-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(8rem, 0.8fr) minmax(6rem, 0.7fr) auto auto;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.65rem 0.72rem;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 68%, white 32%);
-}
-
-.secure-chat-admin-npub,
-.secure-chat-admin-contact {
-  overflow-wrap: anywhere;
-  font-size: 0.88rem;
-}
-
-.secure-chat-admin-status {
-  font-size: 0.84rem;
-  color: var(--admin-muted, #5f6f92);
-  text-transform: capitalize;
-}
-
 @media (max-width: 760px) {
   .secure-chat-panel {
     padding: 0.88rem;
@@ -271,9 +225,4 @@
     max-width: 100%;
   }
 
-  .secure-chat-admin-row {
-    grid-template-columns: 1fr;
-    justify-items: start;
-  }
 }
-

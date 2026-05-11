@@ -103,7 +103,7 @@ test('render clamps hostile upload progress and ignores oversized history', () =
   assert.doesNotMatch(html, /background:red/);
 });
 
-test('render escapes hostile admin npub attributes', () => {
+test('does not render admin mapping console inline', () => {
   const html = ui.renderPanel({
     loggedIn: true,
     hasSigner: true,
@@ -113,8 +113,11 @@ test('render escapes hostile admin npub attributes', () => {
     ]
   });
 
+  assert.doesNotMatch(html, /Admin Mapping Console/);
+  assert.doesNotMatch(html, /data-secure-chat-action="admin-refresh"/);
+  assert.doesNotMatch(html, /data-secure-chat-action="deactivate"/);
+  assert.doesNotMatch(html, /data-secure-chat-action="delete"/);
   assert.doesNotMatch(html, /onclick="alert\(1\)/);
-  assert.match(html, /&quot; onclick=&quot;alert\(1\)/);
 });
 
 test('render escapes textarea and service banner hostile input', () => {
