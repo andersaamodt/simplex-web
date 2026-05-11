@@ -1,9 +1,17 @@
 {
   "name": "simplex-web",
   "version": "1.0.0",
-  "description": "Browser-hosted SimpleX chat UI shell, local session store, and closed transport facade.",
+  "description": "Browser-hosted SimpleX chat UI shell, local session store, transport facade, and SimpleX Chat WebSocket adapter.",
   "private": true,
   "main": "src/transport.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andersaamodt/simplex-web.git"
+  },
+  "homepage": "https://github.com/andersaamodt/simplex-web#readme",
+  "bugs": {
+    "url": "https://github.com/andersaamodt/simplex-web/issues"
+  },
   "exports": {
     ".": "./src/transport.js",
     "./transport": "./src/transport.js",

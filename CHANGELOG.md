@@ -1,13 +1,16 @@
 # Changelog
 
-## 1.0.0 - 2026-05-10
+## 1.0.0 - 2026-05-11
 
 - Stabilized the framework-free Secure Chat UI renderer and mount contract.
 - Stabilized bounded browser-local session persistence.
 - Added a closed-by-default `window.SimplexWebTransport` facade with explicit adapter registration.
 - Added `src/simplex-chat-websocket-adapter.js` for browser sends through a browser-reachable SimpleX Chat command WebSocket.
+- Hardened WebSocket send failure handling so synchronous socket failures reject and close cleanly.
+- Added the optional loopback file bridge for browser `File` staging, with origin, symlink, size, and output-shape hardening.
+- Hardened delegated UI click handling so actions resolved outside the mounted root are ignored.
 - Kept plaintext server bridge fallback out of the transport path.
-- Added focused adversarial input coverage for UI rendering, session storage, and transport normalization.
+- Added focused adversarial input coverage for UI rendering, session storage, transport normalization, WebSocket failure paths, file bridge boundaries, and Safari/WebKit rendering behavior.
 - Kept Haskell/WASM smoke and chat-core checks as explicit toolchain-dependent validation scripts.
 
 Not included in `1.0.0`:

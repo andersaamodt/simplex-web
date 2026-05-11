@@ -1,5 +1,9 @@
 node_modules/
 *.log
+npm-debug.log*
+*.tgz
+.DS_Store
+coverage/
 build/
 dist-newstyle/
 .ghc.environment.*

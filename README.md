@@ -13,7 +13,7 @@ Current scope:
 - Includes a Haskell-owned browser chat-state core with JS-string exports and a browser demo mounted on the default Secure Chat UI.
 - Uses the Secure Chat interface from `nostr-blog` as the default/example presentation layer.
 - Keeps the browser surface framework-free so it can be mounted in existing sites without a build step.
-- Includes Wizardry-style runtime tests for the UI contract and adversarial escaping.
+- Includes Wizardry-style runtime tests for the UI, adapter, file bridge, and adversarial escaping contracts.
 
 Not shipped yet:
 - A handwritten browser-native SimpleX protocol core.
@@ -29,11 +29,13 @@ The reason the protocol core is not here yet is architectural, not branding: the
 - `src/session-store.js`: bounded browser-local persistence helpers for per-user secure-chat session state.
 - `src/transport.js`: browser transport facade that fails closed until a real browser-native adapter is registered.
 - `src/simplex-chat-websocket-adapter.js`: transport adapter that registers with the facade and sends text/files through a browser-reachable SimpleX Chat WebSocket command API.
+- `scripts/simplex-web-file-bridge.mjs`: optional loopback file bridge for staging browser-selected files for a local SimpleX Chat API.
 - `examples/mock-chat.html`: runnable browser example with a mocked chat state.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
 - `tests/simplex-chat-websocket-adapter.test.js`: Node unit tests for the SimpleX Chat WebSocket adapter.
+- `tests/file-bridge.test.mjs`: Node integration tests for file bridge origin, path, symlink, size, and output-shape boundaries.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.
@@ -156,3 +158,19 @@ SIMPLEX_WEB_FILE_BRIDGE_ORIGIN=https://example.com npm run file-bridge
 Use `SIMPLEX_WEB_FILE_BRIDGE_ORIGIN='*'` only for local throwaway testing; it lets any website that can reach loopback read allowed bridge responses.
 
 Remote WebSocket endpoints are rejected by default because they can see plaintext. To use one deliberately, pass `allowRemote: true` and only point it at a trusted SimpleX Chat API endpoint, not a website bridge.
+
+## Release hygiene
+
+The repository intentionally does not track generated outputs such as `build/`, `node_modules/`, coverage output, logs, or packed `.tgz` files. A push-ready 1.0 tree should have `git status --short --branch` clean after running:
+
+```sh
+npm test
+npm audit --audit-level=moderate
+npm pack --dry-run --json
+```
+
+If `wasm32-wasi-ghc` is installed, also run:
+
+```sh
+npm run test:haskell
+```
