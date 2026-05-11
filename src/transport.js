@@ -36,6 +36,7 @@
       contact_link: limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || opts.contact_link || opts.contactLink || opts.owner_contact_link || opts.ownerContactLink || '', MAX_TEXT_LENGTH),
       text: limitString(payload.text || '', MAX_TEXT_LENGTH),
       client_message_id: limitString(payload.client_message_id || payload.clientMessageId || opts.client_message_id || opts.clientMessageId || '', MAX_LABEL_LENGTH),
+      message_ref: limitString(payload.message_ref || payload.messageRef || opts.message_ref || opts.messageRef || '', MAX_LABEL_LENGTH),
       user_id: limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || opts.user_id || opts.userId || opts.bridge_user_id || opts.bridgeUserId || '', MAX_LABEL_LENGTH),
       on_status: typeof payload.on_status === 'function'
         ? payload.on_status
@@ -48,7 +49,7 @@
     return {
       accepted: next.accepted !== false,
       transport_status: normalizeStatus(next.transport_status || next.transportStatus, 'accepted'),
-      message_ref: limitString(next.message_ref || next.messageRef || fallbackMessage.client_message_id || '', MAX_LABEL_LENGTH)
+      message_ref: limitString(next.message_ref || next.messageRef || fallbackMessage.message_ref || fallbackMessage.client_message_id || '', MAX_LABEL_LENGTH)
     };
   }
 
@@ -124,6 +125,24 @@
           return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_MESSAGE', 'message text is required'));
         }
         return Promise.resolve(target.sendText(normalized)).then(function (receipt) {
+          return normalizeReceipt(receipt, normalized);
+        });
+      },
+      getMessageStatus: function (message, options) {
+        var target;
+        try {
+          target = requireAdapter();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        if (typeof target.getMessageStatus !== 'function') {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_STATUS_UNAVAILABLE', 'message status lookup is not available'));
+        }
+        var normalized = normalizeOutboundMessage(message, options);
+        if (!normalized.message_ref) {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_MESSAGE_REF', 'message ref is required'));
+        }
+        return Promise.resolve(target.getMessageStatus(normalized)).then(function (receipt) {
           return normalizeReceipt(receipt, normalized);
         });
       },

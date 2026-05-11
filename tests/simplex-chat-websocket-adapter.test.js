@@ -135,6 +135,190 @@ test('websocket adapter preserves sndNew and reports later status updates', asyn
   assert.equal(statusUpdates[0].raw_status, 'sndRcvd');
 });
 
+test('websocket adapter polls SimpleX history when status event is missed', async () => {
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 7 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({
+          corrId: outbound.corrId,
+          resp: {
+            type: 'newChatItems',
+            chatItems: [
+              { chatItem: { meta: { itemId: 125, itemStatus: { type: 'sndNew' } } } }
+            ]
+          }
+        })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_get chat @42 count=20');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'apiChat',
+          chat: {
+            chatItems: [
+              { meta: { itemId: 125, itemStatus: { type: 'sndSent' } } }
+            ]
+          }
+        }
+      })
+    }));
+  });
+  const statusUpdates = [];
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '7',
+    status_timeout_ms: 2000,
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({
+    contact_id: '42',
+    text: 'hello',
+    client_message_id: 'client-poll-1',
+    on_status(update) {
+      statusUpdates.push(update);
+    }
+  });
+  assert.equal(receipt.transport_status, 'sending');
+  await new Promise((resolve) => setTimeout(resolve, 850));
+  assert.deepEqual(commands.slice(0, 3), ['/_user 7', '/_send @42 text hello', '/_get chat @42 count=20']);
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates[0].transport_status, 'sent');
+  assert.equal(statusUpdates[0].raw_status, 'sndSent');
+  assert.equal(FakeWebSocket.sockets[0].closed, true);
+});
+
+test('websocket adapter reconnects contact link after stale cached contact id fails', async () => {
+  const storage = new Map([[
+    'simplex-chat-websocket-adapter-v1:example:npub1test:9:https://simplex.chat/contact#/?v=1&smp=stale',
+    '12'
+  ]]);
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      assert.equal(outbound.cmd, '/_send @12 text via stale cache');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'chatCmdError', chatError: { type: 'contactNotFound' } } })
+      }));
+      return;
+    }
+    if (count === 3) {
+      assert.equal(outbound.cmd, '/connect https://simplex.chat/contact#/?v=1&smp=stale');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ resp: { type: 'contactAlreadyExists', contact: { contactId: 77 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_send @77 text via stale cache');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'newChatItems',
+          chatItems: [
+            { chatItem: { meta: { itemId: 126, itemStatus: { type: 'sndSent' } } } }
+          ]
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    storage: {
+      getItem(key) { return storage.get(key) || null; },
+      setItem(key, value) { storage.set(key, value); },
+      removeItem(key) { storage.delete(key); }
+    },
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.sendText({
+    contact_link: 'https://simplex.chat/contact#/?v=1&smp=stale',
+    siteKey: 'example',
+    accountKey: 'npub1test',
+    text: 'via stale cache',
+    client_message_id: 'client-stale-1'
+  });
+  assert.deepEqual(commands, [
+    '/u',
+    '/_send @12 text via stale cache',
+    '/connect https://simplex.chat/contact#/?v=1&smp=stale',
+    '/_send @77 text via stale cache'
+  ]);
+  assert.equal(receipt.transport_status, 'sent');
+  assert.equal(Array.from(storage.values())[0], '77');
+});
+
+test('websocket adapter can query a cached message status from SimpleX history', async () => {
+  const storage = new Map([[
+    'simplex-chat-websocket-adapter-v1:example:npub1test:9:https://simplex.chat/contact#/?v=1&smp=query',
+    '77'
+  ]]);
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_get chat @77 count=20');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'apiChat',
+          chat: {
+            chatItems: [
+              { meta: { itemId: 126, itemStatus: { type: 'sndRcvd' } } }
+            ]
+          }
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    storage: {
+      getItem(key) { return storage.get(key) || null; },
+      setItem(key, value) { storage.set(key, value); }
+    },
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const receipt = await adapter.getMessageStatus({
+    contact_link: 'https://simplex.chat/contact#/?v=1&smp=query',
+    siteKey: 'example',
+    accountKey: 'npub1test',
+    message_ref: '126'
+  });
+  assert.deepEqual(commands, ['/u', '/_get chat @77 count=20']);
+  assert.equal(receipt.transport_status, 'delivered');
+  assert.equal(receipt.raw_status, 'sndRcvd');
+});
+
 test('websocket adapter ignores unsolicited startup events before active user response', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {

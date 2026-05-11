@@ -97,6 +97,18 @@
     return items.length && items[0] && items[0].chatItem ? items[0].chatItem : null;
   }
 
+  function responseChatItems(resp) {
+    if (Array.isArray(resp && resp.chatItems)) {
+      return resp.chatItems.map(function (wrapped) {
+        return wrapped && wrapped.chatItem ? wrapped.chatItem : wrapped;
+      }).filter(Boolean);
+    }
+    if (resp && resp.chat && Array.isArray(resp.chat.chatItems)) {
+      return resp.chat.chatItems.filter(Boolean);
+    }
+    return [];
+  }
+
   function messageRefFromChatItem(chatItem, fallback) {
     return limitString(chatItem && chatItem.meta && chatItem.meta.itemId != null ? String(chatItem.meta.itemId) : fallback, MAX_LABEL_LENGTH);
   }
@@ -127,10 +139,10 @@
   }
 
   function matchingStatusChatItem(resp, messageRef) {
-    if (!messageRef || !resp || !Array.isArray(resp.chatItems)) return null;
-    for (var i = 0; i < resp.chatItems.length; i += 1) {
-      var wrapped = resp.chatItems[i];
-      var chatItem = wrapped && wrapped.chatItem ? wrapped.chatItem : null;
+    if (!messageRef || !resp) return null;
+    var items = responseChatItems(resp);
+    for (var i = 0; i < items.length; i += 1) {
+      var chatItem = items[i];
       if (messageRefFromChatItem(chatItem, '') === messageRef) {
         return chatItem;
       }
@@ -221,6 +233,20 @@
     }
   }
 
+  function forgetContactId(config, payload, userId, contactLink) {
+    var storage = storageOrNull(config.storage);
+    if (!storage || !contactLink) return;
+    try {
+      if (typeof storage.removeItem === 'function') {
+        storage.removeItem(cacheKey(payload, userId, contactLink));
+      } else {
+        storage.setItem(cacheKey(payload, userId, contactLink), '');
+      }
+    } catch (_err) {
+      // Ignore storage failures; the current send can still reconnect with the link.
+    }
+  }
+
   function encodeTextCommand(text) {
     return String(text || '').replace(/\r\n/g, '\n');
   }
@@ -246,6 +272,21 @@
       return sendTextSequential(config, payload, userId, contactId, contactLink, text, payload.client_message_id || payload.clientMessageId || '');
     }
 
+    function getMessageStatus(message) {
+      var payload = message && typeof message === 'object' ? message : {};
+      var userId = limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || config.user_id || '', MAX_LABEL_LENGTH).trim();
+      var contactId = limitString(payload.contact_id || payload.contactId || payload.simplex_contact_id || '', MAX_LABEL_LENGTH).trim();
+      var contactLink = limitString(payload.contact_link || payload.contactLink || payload.owner_contact_link || payload.ownerContactLink || '', MAX_TEXT_LENGTH).trim();
+      var messageRef = limitString(payload.message_ref || payload.messageRef || '', MAX_LABEL_LENGTH).trim();
+      if (!contactId && !contactLink) {
+        return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat contact id or contact link is required'));
+      }
+      if (!messageRef) {
+        return Promise.reject(makeError(ERROR_CONFIG, 'SimpleX Chat message ref is required'));
+      }
+      return queryMessageStatusSequential(config, payload, userId, contactId, contactLink, messageRef);
+    }
+
     return {
       getStatus: function () {
         return {
@@ -257,6 +298,7 @@
         return Promise.resolve(this.getStatus());
       },
       sendText: sendText,
+      getMessageStatus: getMessageStatus,
       disconnect: function () {
         return Promise.resolve();
       }
@@ -272,7 +314,11 @@
       var step = 0;
       var sendAttempts = 0;
       var commandSeq = 0;
+      var reconnectedAfterSendError = false;
       var pendingCorrId = '';
+      var statusPollCorrId = '';
+      var statusPollTimer = null;
+      var statusPollInFlight = false;
       var sentMessageRef = '';
       var statusTimer = null;
       var timer = global.setTimeout(function () {
@@ -283,6 +329,10 @@
         if (statusTimer) {
           global.clearTimeout(statusTimer);
           statusTimer = null;
+        }
+        if (statusPollTimer) {
+          global.clearTimeout(statusPollTimer);
+          statusPollTimer = null;
         }
         if (ws) {
           try { ws.close(); } catch (_err) {}
@@ -314,10 +364,33 @@
         closeSocket();
       }
 
+      function scheduleStatusPoll(delay) {
+        if (settled || !sentMessageRef || !contactId) return;
+        if (statusPollTimer) {
+          global.clearTimeout(statusPollTimer);
+        }
+        statusPollTimer = global.setTimeout(function () {
+          statusPollTimer = null;
+          if (settled || statusPollInFlight || !ws || !sentMessageRef || !contactId) return;
+          statusPollInFlight = true;
+          statusPollCorrId = send('/_get chat @' + contactId + ' count=20');
+        }, delay);
+      }
+
+      function handleStatusReceipt(statusReceipt) {
+        emitStatus(payload, statusReceipt);
+        if (statusIsTerminal(statusReceipt.transport_status)) {
+          stopStatusWatch();
+        } else {
+          scheduleStatusPoll(700);
+        }
+      }
+
       function send(cmd) {
         var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
         pendingCorrId = corrId;
         ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+        return corrId;
       }
 
       function onOpen() {
@@ -338,10 +411,21 @@
           if (type === 'chatItemsStatusesUpdated') {
             var statusChatItem = matchingStatusChatItem(resp, sentMessageRef);
             if (!statusChatItem) return;
-            var statusReceipt = statusReceiptFromChatItem(statusChatItem, sentMessageRef || clientMessageId);
-            emitStatus(payload, statusReceipt);
-            if (statusIsTerminal(statusReceipt.transport_status)) {
-              stopStatusWatch();
+            handleStatusReceipt(statusReceiptFromChatItem(statusChatItem, sentMessageRef || clientMessageId));
+            return;
+          }
+          if (corrId && corrId === statusPollCorrId) {
+            statusPollInFlight = false;
+            statusPollCorrId = '';
+            if (type === 'apiChat') {
+              var polledChatItem = matchingStatusChatItem(resp, sentMessageRef);
+              if (polledChatItem) {
+                handleStatusReceipt(statusReceiptFromChatItem(polledChatItem, sentMessageRef || clientMessageId));
+              } else {
+                scheduleStatusPoll(900);
+              }
+            } else if (type === 'chatCmdError') {
+              scheduleStatusPoll(1200);
             }
           }
           return;
@@ -362,7 +446,8 @@
             finish(reject, makeError(ERROR_RESPONSE, 'SimpleX Chat active user response did not include a user id'));
             return;
           }
-          contactId = contactId || cachedContactId(config, payload, userId, contactLink);
+          var cachedId = !contactId ? cachedContactId(config, payload, userId, contactLink) : '';
+          contactId = contactId || cachedId;
           step = 1;
           if (contactId) {
             sendAttempts = 1;
@@ -403,7 +488,17 @@
           resolveInitial(receipt, shouldWatchStatus);
           if (shouldWatchStatus) {
             statusTimer = global.setTimeout(stopStatusWatch, config.status_timeout_ms);
+            scheduleStatusPoll(400);
           }
+          return;
+        }
+        if (type === 'chatCmdError' && contactLink && contactId && !reconnectedAfterSendError) {
+          reconnectedAfterSendError = true;
+          forgetContactId(config, payload, userId, contactLink);
+          contactId = '';
+          step = 1;
+          sendAttempts = 0;
+          send('/connect ' + contactLink);
           return;
         }
         if (type === 'chatCmdError' && sendAttempts < config.retries) {
@@ -416,6 +511,124 @@
           return;
         }
         finish(reject, makeError(ERROR_RESPONSE, 'Unexpected SimpleX Chat response: ' + (type || 'unknown')));
+      }
+
+      function onError(event) {
+        finish(reject, makeError(ERROR_RESPONSE, event && event.message ? event.message : 'SimpleX Chat WebSocket failed'));
+      }
+
+      try {
+        ws = new WebSocketImpl(config.url);
+        ws.addEventListener('open', onOpen);
+        ws.addEventListener('message', onMessage);
+        ws.addEventListener('error', onError);
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
+  }
+
+  function queryMessageStatusSequential(config, payload, userId, contactId, contactLink, messageRef) {
+    return new Promise(function (resolve, reject) {
+      var WebSocketImpl = config.WebSocketImpl;
+      var ws = null;
+      var settled = false;
+      var step = 0;
+      var commandSeq = 0;
+      var pendingCorrId = '';
+      var timer = global.setTimeout(function () {
+        finish(reject, makeError(ERROR_TIMEOUT, 'SimpleX Chat WebSocket status query timed out'));
+      }, config.timeout_ms);
+
+      function closeSocket() {
+        if (ws) {
+          try { ws.close(); } catch (_err) {}
+          ws = null;
+        }
+      }
+
+      function finish(fn, value) {
+        if (settled) return;
+        settled = true;
+        global.clearTimeout(timer);
+        closeSocket();
+        fn(value);
+      }
+
+      function send(cmd) {
+        var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
+        pendingCorrId = corrId;
+        ws.send(JSON.stringify({ corrId: corrId, cmd: cmd }));
+      }
+
+      function onOpen() {
+        if (userId) {
+          send('/_user ' + userId);
+        } else {
+          send('/u');
+        }
+      }
+
+      function onMessage(event) {
+        var envelope = parseEnvelope(event && event.data);
+        var resp = envelope && envelope.resp;
+        var type = responseType(resp);
+        if (!resp) return;
+        var corrId = String(envelope.corrId || '');
+        if (step === 0) {
+          if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (!corrId && type !== 'activeUser') {
+            return;
+          }
+          if (type !== 'activeUser') {
+            finish(reject, makeError(ERROR_RESPONSE, 'Could not resolve SimpleX Chat active user: ' + (type || 'unknown')));
+            return;
+          }
+          userId = userId || activeUserIdFromResponse(resp);
+          if (!userId) {
+            finish(reject, makeError(ERROR_RESPONSE, 'SimpleX Chat active user response did not include a user id'));
+            return;
+          }
+          contactId = contactId || cachedContactId(config, payload, userId, contactLink);
+          if (!contactId) {
+            finish(resolve, {
+              accepted: true,
+              transport_status: 'unknown',
+              raw_status: '',
+              message_ref: messageRef,
+              chat_item: null
+            });
+            return;
+          }
+          step = 1;
+          send('/_get chat @' + contactId + ' count=20');
+          return;
+        }
+        if (step === 1) {
+          if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (type === 'apiChat') {
+            var chatItem = matchingStatusChatItem(resp, messageRef);
+            finish(resolve, chatItem
+              ? statusReceiptFromChatItem(chatItem, messageRef)
+              : {
+                accepted: true,
+                transport_status: 'unknown',
+                raw_status: '',
+                message_ref: messageRef,
+                chat_item: null
+              });
+            return;
+          }
+          if (type === 'chatCmdError') {
+            finish(reject, makeError(ERROR_RESPONSE, chatErrorSummary(resp) || 'Could not query SimpleX Chat message status'));
+            return;
+          }
+          finish(reject, makeError(ERROR_RESPONSE, 'Unexpected SimpleX Chat status response: ' + (type || 'unknown')));
+        }
       }
 
       function onError(event) {

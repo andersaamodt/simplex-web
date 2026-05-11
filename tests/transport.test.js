@@ -78,6 +78,34 @@ test('empty outbound text is rejected before adapter send', async () => {
   assert.equal(sent, false);
 });
 
+test('registered browser adapter can query normalized message status', async () => {
+  const calls = [];
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('unused');
+    },
+    getMessageStatus(message) {
+      calls.push(message);
+      return { transport_status: 'sent' };
+    }
+  });
+
+  const receipt = await transport.getMessageStatus(
+    { contactLink: 'simplex:/contact#abc', messageRef: 'msg-1', bridgeUserId: 'user-1' },
+    { accountKey: 'ignored' }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].contact_link, 'simplex:/contact#abc');
+  assert.equal(calls[0].message_ref, 'msg-1');
+  assert.equal(calls[0].user_id, 'user-1');
+  assert.deepEqual(receipt, {
+    accepted: true,
+    transport_status: 'sent',
+    message_ref: 'msg-1'
+  });
+});
+
 test('invalid adapter registration is rejected', () => {
   assert.throws(
     () => transportApi.registerBrowserTransport({}),
