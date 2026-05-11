@@ -384,7 +384,7 @@ test('websocket adapter can query recent incoming SimpleX messages', async () =>
   assert.equal(messages[1].delivery_status, 'delivered');
 });
 
-test('websocket adapter sends small attachments as SimpleX text envelope and preserves emoji metadata', async () => {
+test('websocket adapter sends attachments with the official SimpleX file JSON command', async () => {
   const commands = [];
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     commands.push(outbound.cmd);
@@ -394,8 +394,7 @@ test('websocket adapter sends small attachments as SimpleX text envelope and pre
       }));
       return;
     }
-    assert.match(outbound.cmd, /^\/_send @77 text caption with attachment\nsimplex-web-file:v1:/);
-    assert.match(outbound.cmd, /aGVsbG8=/);
+    assert.equal(outbound.cmd, '/_send @77 json [{"fileSource":{"filePath":"/tmp/probe-😀.txt"},"msgContent":{"type":"file","text":"caption with attachment"},"mentions":{}}]');
     queueMicrotask(() => socket.emit('message', {
       data: JSON.stringify({
         corrId: outbound.corrId,
@@ -414,27 +413,162 @@ test('websocket adapter sends small attachments as SimpleX text envelope and pre
     user_id: '9',
     WebSocketImpl: FakeWebSocket
   });
-  const bytes = new TextEncoder().encode('hello');
   const receipts = await adapter.sendFiles({
     contact_id: '77',
     text: 'caption with attachment',
     files: [{
       name: 'probe-😀.txt',
-      size: bytes.length,
+      size: 5,
       type: 'text/plain',
-      arrayBuffer() {
-        return Promise.resolve(bytes.buffer);
-      }
+      simplexFilePath: '/tmp/probe-😀.txt'
     }]
   });
 
-  assert.deepEqual(commands.map((cmd) => cmd.split('\n')[0]), ['/_user 9', '/_send @77 text caption with attachment']);
+  assert.deepEqual(commands, [
+    '/_user 9',
+    '/_send @77 json [{"fileSource":{"filePath":"/tmp/probe-😀.txt"},"msgContent":{"type":"file","text":"caption with attachment"},"mentions":{}}]'
+  ]);
   assert.equal(receipts.length, 1);
   assert.equal(receipts[0].transport_status, 'sent');
   assert.equal(receipts[0].attachment.name, 'probe-😀.txt');
   assert.equal(receipts[0].attachment.mime, 'text/plain');
   assert.equal(receipts[0].attachment.size, 5);
-  assert.equal(receipts[0].attachment.data_url, 'data:text/plain;base64,aGVsbG8=');
+  assert.equal(receipts[0].attachment.file_path, '/tmp/probe-😀.txt');
+  assert.equal(receipts[0].attachment.data_url, '');
+});
+
+test('websocket adapter stages browser File attachments through a loopback file bridge', async () => {
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_send @77 json [{"fileSource":{"filePath":"/tmp/simplex-web/probe.txt"},"msgContent":{"type":"file","text":""},"mentions":{}}]');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'newChatItems',
+          chatItems: [
+            { chatItem: { meta: { itemId: 303, itemStatus: { type: 'sndSent' } } } }
+          ]
+        }
+      })
+    }));
+  });
+
+  const fetchCalls = [];
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    fileBridgeUrl: 'http://127.0.0.1:5226',
+    user_id: '9',
+    WebSocketImpl: FakeWebSocket,
+    fetchImpl(url, options) {
+      fetchCalls.push({ url, options });
+      return Promise.resolve({
+        ok: true,
+        json() {
+          return Promise.resolve({ filePath: '/tmp/simplex-web/probe.txt' });
+        }
+      });
+    }
+  });
+
+  const receipts = await adapter.sendFiles({
+    contact_id: '77',
+    files: [{ name: 'probe.txt', size: 5, type: 'text/plain' }]
+  });
+
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0].url, 'http://127.0.0.1:5226/files');
+  assert.equal(fetchCalls[0].options.headers['X-File-Name'], 'probe.txt');
+  assert.deepEqual(commands, [
+    '/_user 9',
+    '/_send @77 json [{"fileSource":{"filePath":"/tmp/simplex-web/probe.txt"},"msgContent":{"type":"file","text":""},"mentions":{}}]'
+  ]);
+  assert.equal(receipts[0].attachment.file_path, '/tmp/simplex-web/probe.txt');
+});
+
+test('websocket adapter binds native browser fetch when staging browser File attachments', async () => {
+  const originalFetch = global.fetch;
+  const commands = [];
+  const fetchCalls = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_send @77 json [{"fileSource":{"filePath":"/tmp/simplex-web/window-bound.txt"},"msgContent":{"type":"file","text":""},"mentions":{}}]');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'newChatItems',
+          chatItems: [
+            { chatItem: { meta: { itemId: 304, itemStatus: { type: 'sndSent' } } } }
+          ]
+        }
+      })
+    }));
+  });
+
+  global.fetch = function strictWindowFetch(url, options) {
+    assert.equal(this, global);
+    fetchCalls.push({ url, options });
+    return Promise.resolve({
+      ok: true,
+      json() {
+        return Promise.resolve({ filePath: '/tmp/simplex-web/window-bound.txt' });
+      }
+    });
+  };
+
+  try {
+    const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+      url: 'ws://127.0.0.1:5225',
+      fileBridgeUrl: 'http://127.0.0.1:5226',
+      user_id: '9',
+      WebSocketImpl: FakeWebSocket
+    });
+
+    const receipts = await adapter.sendFiles({
+      contact_id: '77',
+      files: [{ name: 'window-bound.txt', size: 5, type: 'text/plain' }]
+    });
+
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0].url, 'http://127.0.0.1:5226/files');
+    assert.deepEqual(commands, [
+      '/_user 9',
+      '/_send @77 json [{"fileSource":{"filePath":"/tmp/simplex-web/window-bound.txt"},"msgContent":{"type":"file","text":""},"mentions":{}}]'
+    ]);
+    assert.equal(receipts[0].attachment.file_path, '/tmp/simplex-web/window-bound.txt');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('websocket adapter fails closed for browser File attachments without a path or loopback bridge', async () => {
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    user_id: '9',
+    WebSocketImpl: makeFakeWebSocket(() => {})
+  });
+
+  await assert.rejects(
+    adapter.sendFiles({
+      contact_id: '77',
+      files: [{ name: 'probe.txt', size: 5, type: 'text/plain' }]
+    }),
+    /loopback simplex-web file bridge/
+  );
 });
 
 test('websocket adapter parses SimpleX text envelope attachments from history', async () => {

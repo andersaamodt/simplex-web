@@ -75,17 +75,41 @@
     return parsed.href;
   }
 
+  function normalizeLoopbackHttpUrl(value, allowRemote) {
+    var raw = String(value || '').trim();
+    if (!raw) return '';
+    var parsed;
+    try {
+      parsed = new URL(raw, global.location && global.location.href || 'http://127.0.0.1/');
+    } catch (_err) {
+      throw makeError(ERROR_CONFIG, 'A valid SimpleX file bridge URL is required');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw makeError(ERROR_CONFIG, 'SimpleX file bridge URL must use http:// or https://');
+    }
+    if (!allowRemote && !isLoopbackHost(parsed.hostname)) {
+      throw makeError(ERROR_SECURITY, 'Remote SimpleX file bridge endpoints must opt in with allowRemoteFileBridge: true');
+    }
+    return parsed.href.replace(/\/+$/, '');
+  }
+
   function normalizeConfig(options) {
     var opts = options && typeof options === 'object' ? options : {};
     var url = normalizeUrl(opts.url || opts.webSocketUrl || opts.websocketUrl || opts.endpoint || '');
     var userId = limitString(opts.user_id || opts.userId || opts.active_user_id || opts.activeUserId || '', MAX_LABEL_LENGTH).trim();
+    var fetchImpl = opts.fetchImpl || global.fetch;
+    if (fetchImpl === global.fetch && typeof fetchImpl === 'function' && global) {
+      fetchImpl = fetchImpl.bind(global);
+    }
     return {
       url: validateWebSocketUrl(url, opts.allowRemote === true),
       user_id: userId,
+      file_bridge_url: normalizeLoopbackHttpUrl(opts.file_bridge_url || opts.fileBridgeUrl || '', opts.allowRemoteFileBridge === true),
       timeout_ms: Math.max(1000, Math.floor(Number(opts.timeout_ms || opts.timeoutMs || DEFAULT_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS)),
       status_timeout_ms: Math.max(1000, Math.floor(Number(opts.status_timeout_ms || opts.statusTimeoutMs || DEFAULT_STATUS_TIMEOUT_MS) || DEFAULT_STATUS_TIMEOUT_MS)),
       retries: Math.max(1, Math.floor(Number(opts.retries || DEFAULT_RETRIES) || DEFAULT_RETRIES)),
       storage: opts.storage || null,
+      fetchImpl: fetchImpl,
       WebSocketImpl: opts.WebSocketImpl || global.WebSocket
     };
   }
@@ -191,28 +215,6 @@
     }
   }
 
-  function arrayBufferToBase64(buffer) {
-    var bytes = new Uint8Array(buffer);
-    var chunkSize = 0x8000;
-    var binary = '';
-    for (var i = 0; i < bytes.length; i += chunkSize) {
-      var chunk = bytes.subarray(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, Array.prototype.slice.call(chunk));
-    }
-    return btoa(binary);
-  }
-
-  function attachmentTextForFile(file, encodedBytes, caption) {
-    var meta = {
-      name: limitString(file && file.name || 'attachment.bin', MAX_LABEL_LENGTH),
-      mime: limitString(file && file.type || 'application/octet-stream', MAX_LABEL_LENGTH),
-      size: Number(file && file.size || 0) || 0
-    };
-    var metaEncoded = base64UrlEncode(encodeUtf8Base64(JSON.stringify(meta)));
-    var prefix = limitString(caption || '', MAX_TEXT_LENGTH).trim();
-    return (prefix ? prefix + '\n' : '') + ATTACHMENT_MARKER + metaEncoded + ':' + String(encodedBytes || '');
-  }
-
   function chatItemKind(chatItem) {
     var content = chatItem && chatItem.content && (chatItem.content.msgContent || chatItem.content.content || chatItem.content);
     if (content && typeof content.type === 'string') return content.type;
@@ -224,12 +226,53 @@
     return chatItem && chatItem.chatDir && chatItem.chatDir.type === 'directRcv' ? 'incoming' : 'outgoing';
   }
 
-  function messageFromChatItem(chatItem) {
+  function mimeFromName(name) {
+    var value = String(name || '').toLowerCase();
+    if (/\.(apng)$/.test(value)) return 'image/apng';
+    if (/\.(avif)$/.test(value)) return 'image/avif';
+    if (/\.(gif)$/.test(value)) return 'image/gif';
+    if (/\.(jpe?g)$/.test(value)) return 'image/jpeg';
+    if (/\.(png)$/.test(value)) return 'image/png';
+    if (/\.(webp)$/.test(value)) return 'image/webp';
+    if (/\.(m4a)$/.test(value)) return 'audio/mp4';
+    if (/\.(mp3)$/.test(value)) return 'audio/mpeg';
+    if (/\.(ogg|oga)$/.test(value)) return 'audio/ogg';
+    if (/\.(wav)$/.test(value)) return 'audio/wav';
+    if (/\.(m4v|mp4)$/.test(value)) return 'video/mp4';
+    if (/\.(webm)$/.test(value)) return 'video/webm';
+    if (/\.(txt|md)$/.test(value)) return 'text/plain';
+    return '';
+  }
+
+  function chatFileLocalPath(file) {
+    var status = file && file.fileStatus && typeof file.fileStatus === 'object' ? file.fileStatus : {};
+    var source = file && file.fileSource && typeof file.fileSource === 'object' ? file.fileSource : {};
+    var raw = file && (
+      file.filePath ||
+      file.file_path ||
+      file.path ||
+      source.filePath ||
+      source.file_path ||
+      status.filePath ||
+      status.file_path ||
+      status.path
+    );
+    return raw ? limitString(raw, MAX_TEXT_LENGTH) : '';
+  }
+
+  function bridgedFileUrl(config, filePath) {
+    if (!config || !config.file_bridge_url || !filePath) return '';
+    return config.file_bridge_url + '/files?path=' + encodeURIComponent(filePath);
+  }
+
+  function messageFromChatItem(config, chatItem) {
     var direction = chatItemDirection(chatItem);
     var messageKind = chatItemKind(chatItem);
     var text = chatItemText(chatItem);
-    var attachmentName = chatItem && chatItem.file && chatItem.file.fileName ? String(chatItem.file.fileName) : '';
-    var attachmentSize = chatItem && chatItem.file && chatItem.file.fileSize != null ? Number(chatItem.file.fileSize) : 0;
+    var chatFile = chatItem && chatItem.file ? chatItem.file : null;
+    var attachmentName = chatFile && chatFile.fileName ? String(chatFile.fileName) : '';
+    var attachmentSize = chatFile && chatFile.fileSize != null ? Number(chatFile.fileSize) : 0;
+    var attachmentPath = chatFileLocalPath(chatFile);
     if (
       messageKind === 'file' &&
       attachmentName &&
@@ -245,6 +288,11 @@
       attachmentName = parsedAttachment.attachment.name;
       attachmentSize = parsedAttachment.attachment.size;
     }
+    var attachmentMime = parsedAttachment && parsedAttachment.attachment
+      ? parsedAttachment.attachment.mime
+      : mimeFromName(attachmentName);
+    var dataUrl = parsedAttachment && parsedAttachment.attachment ? parsedAttachment.attachment.data_url : '';
+    var url = dataUrl ? '' : bridgedFileUrl(config, attachmentPath);
     return {
       seq: 0,
       direction: direction,
@@ -256,9 +304,11 @@
       text: text,
       attachment: attachmentName ? {
         name: attachmentName,
-        mime: parsedAttachment && parsedAttachment.attachment ? parsedAttachment.attachment.mime : '',
+        mime: attachmentMime,
         size: Number(attachmentSize || 0) || 0,
-        data_url: parsedAttachment && parsedAttachment.attachment ? parsedAttachment.attachment.data_url : ''
+        file_path: attachmentPath,
+        data_url: dataUrl,
+        url: url
       } : null
     };
   }
@@ -421,6 +471,105 @@
     return String(text || '').replace(/\r\n/g, '\n');
   }
 
+  function fileName(file) {
+    return limitString(file && file.name || 'attachment.bin', MAX_LABEL_LENGTH);
+  }
+
+  function fileMime(file) {
+    return limitString(file && file.type || 'application/octet-stream', MAX_LABEL_LENGTH);
+  }
+
+  function fileSize(file) {
+    return Number(file && file.size || 0) || 0;
+  }
+
+  function localFilePath(file) {
+    var raw = file && (
+      file.simplexFilePath ||
+      file.simplex_file_path ||
+      file.filePath ||
+      file.path ||
+      file.mozFullPath ||
+      ''
+    );
+    var path = String(raw || '').trim();
+    if (!path) return '';
+    if (/^[A-Za-z]:[\\/]/.test(path) || path.charAt(0) === '/') return path;
+    return '';
+  }
+
+  function receiptAttachment(file, filePath) {
+    return {
+      name: fileName(file),
+      mime: fileMime(file),
+      size: fileSize(file),
+      file_path: limitString(filePath || '', MAX_TEXT_LENGTH),
+      data_url: limitString(file && (file.data_url || file.dataUrl || file.simplexPreviewUrl) || '', MAX_ATTACHMENT_DATA_URL_LENGTH)
+    };
+  }
+
+  function stageFileWithBridge(config, file) {
+    if (!config.file_bridge_url) {
+      return Promise.reject(makeError(
+        ERROR_CONFIG,
+        'SimpleX file sending needs a loopback simplex-web file bridge because browsers do not expose local file paths'
+      ));
+    }
+    if (typeof config.fetchImpl !== 'function') {
+      return Promise.reject(makeError(ERROR_CONFIG, 'Browser fetch runtime is unavailable for SimpleX file staging'));
+    }
+    return Promise.resolve(config.fetchImpl(config.file_bridge_url + '/files', {
+      method: 'POST',
+      headers: {
+        'Content-Type': fileMime(file),
+        'X-File-Name': encodeURIComponent(fileName(file))
+      },
+      body: file
+    })).then(function (resp) {
+      if (!resp || resp.ok === false) {
+        throw makeError(ERROR_RESPONSE, 'SimpleX file bridge rejected the attachment');
+      }
+      if (typeof resp.json === 'function') {
+        return resp.json();
+      }
+      if (typeof resp.text === 'function') {
+        return resp.text().then(function (text) {
+          return JSON.parse(text);
+        });
+      }
+      return resp;
+    }).then(function (data) {
+      var stagedPath = String(data && (data.filePath || data.file_path || data.path) || '').trim();
+      if (!stagedPath) {
+        throw makeError(ERROR_RESPONSE, 'SimpleX file bridge did not return a local file path');
+      }
+      return stagedPath;
+    });
+  }
+
+  function filePathForSend(config, file) {
+    var path = localFilePath(file);
+    if (path) return Promise.resolve(path);
+    return stageFileWithBridge(config, file);
+  }
+
+  function fileComposedMessage(filePath, caption) {
+    return {
+      fileSource: { filePath: filePath },
+      msgContent: {
+        type: 'file',
+        text: limitString(caption || '', MAX_TEXT_LENGTH)
+      },
+      mentions: {}
+    };
+  }
+
+  function fileSendCommand(contactId, filePath, caption) {
+    return '/_send @' + contactId + ' json ' + JSON.stringify([
+      fileComposedMessage(filePath, caption)
+    ]);
+  }
+
   function createSimplexChatWebSocketAdapter(options) {
     var config = normalizeConfig(options);
     if (!config.WebSocketImpl) {
@@ -487,19 +636,21 @@
           if (Number(file.size || 0) > maxBytes) {
             throw makeError(ERROR_CONFIG, 'Secure Chat attachments are limited to ' + String(maxBytes) + ' bytes for browser-local SimpleX sends');
           }
-          if (!file || typeof file.arrayBuffer !== 'function') {
-            throw makeError(ERROR_CONFIG, 'Browser file data is unavailable');
-          }
-          return Promise.resolve(file.arrayBuffer()).then(function (buffer) {
-            var text = attachmentTextForFile(file, arrayBufferToBase64(buffer), payload.text || '');
-            return sendTextSequential(config, payload, userId, contactId, contactLink, text, payload.client_message_id || payload.clientMessageId || '').then(function (receipt) {
+          return filePathForSend(config, file).then(function (stagedPath) {
+            return sendTextSequential(
+              config,
+              payload,
+              userId,
+              contactId,
+              contactLink,
+              payload.text || '',
+              payload.client_message_id || payload.clientMessageId || '',
+              function (resolvedContactId) {
+                return fileSendCommand(resolvedContactId, stagedPath, payload.text || '');
+              }
+            ).then(function (receipt) {
               receipts.push(Object.assign({}, receipt, {
-                attachment: {
-                  name: limitString(file.name || 'attachment.bin', MAX_LABEL_LENGTH),
-                  mime: limitString(file.type || '', MAX_LABEL_LENGTH),
-                  size: Number(file.size || 0) || 0,
-                  data_url: 'data:' + limitString(file.type || 'application/octet-stream', MAX_LABEL_LENGTH) + ';base64,' + arrayBufferToBase64(buffer)
-                }
+                attachment: receiptAttachment(file, stagedPath)
               }));
               return receipts;
             });
@@ -528,7 +679,7 @@
     };
   }
 
-  function sendTextSequential(config, payload, userId, contactId, contactLink, text, clientMessageId) {
+  function sendTextSequential(config, payload, userId, contactId, contactLink, text, clientMessageId, sendCommandForContact) {
     return new Promise(function (resolve, reject) {
       var WebSocketImpl = config.WebSocketImpl;
       var ws = null;
@@ -616,6 +767,13 @@
         return corrId;
       }
 
+      function sendMessageToContact(resolvedContactId) {
+        var command = typeof sendCommandForContact === 'function'
+          ? sendCommandForContact(resolvedContactId)
+          : '/_send @' + resolvedContactId + ' text ' + encodeTextCommand(text);
+        send(command);
+      }
+
       function onOpen() {
         if (userId) {
           send('/_user ' + userId);
@@ -674,7 +832,7 @@
           step = 1;
           if (contactId) {
             sendAttempts = 1;
-            send('/_send @' + contactId + ' text ' + encodeTextCommand(text));
+            sendMessageToContact(contactId);
           } else {
             send('/connect ' + contactLink);
           }
@@ -687,7 +845,7 @@
               rememberContactId(config, payload, userId, contactLink, contactId);
               step = 2;
               sendAttempts = 1;
-              send('/_send @' + contactId + ' text ' + encodeTextCommand(text));
+              sendMessageToContact(contactId);
             }
             return;
           }
@@ -728,7 +886,7 @@
           sendAttempts += 1;
           global.setTimeout(function () {
             if (!settled) {
-              send('/_send @' + contactId + ' text ' + encodeTextCommand(text));
+              sendMessageToContact(contactId);
             }
           }, 150);
           return;
@@ -834,6 +992,9 @@
         }
         if (step === 1) {
           if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (!corrId && type !== 'apiChat' && type !== 'chatCmdError') {
             return;
           }
           if (type === 'apiChat') {
@@ -951,8 +1112,13 @@
           if (corrId && corrId !== pendingCorrId) {
             return;
           }
+          if (!corrId && type !== 'apiChat' && type !== 'chatCmdError') {
+            return;
+          }
           if (type === 'apiChat') {
-            finish(resolve, responseChatItems(resp).map(messageFromChatItem).filter(function (message) {
+            finish(resolve, responseChatItems(resp).map(function (item) {
+              return messageFromChatItem(config, item);
+            }).filter(function (message) {
               return !!(message.message_ref && (String(message.text || '').trim() || message.attachment));
             }));
             return;

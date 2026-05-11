@@ -55,6 +55,8 @@ test('signed in panel renders messages and compose area', () => {
   assert.match(html, /hello/);
   assert.match(html, /secure-chat-input/);
   assert.match(html, /Attach files/);
+  assert.match(html, /class="secure-chat-file-input"/);
+  assert.doesNotMatch(html, /secure-chat-file-input" type="file" multiple hidden/);
   assert.match(html, /secure-chat-input-wrap/);
   assert.ok(html.indexOf('secure-chat-input-wrap') < html.indexOf('data-secure-chat-action="send"'));
   assert.match(html, /secure-chat-send-icon/);
@@ -91,7 +93,7 @@ test('signed in panel renders pending attachment pills above the draft', () => {
   assert.match(html, /data-secure-chat-file-id="file-1"/);
 });
 
-test('signed in panel renders image video and arbitrary attachments in place', () => {
+test('signed in panel renders image video audio and arbitrary attachments in place', () => {
   const html = ui.renderPanel({
     loggedIn: true,
     hasSigner: true,
@@ -113,11 +115,18 @@ test('signed in panel renders image video and arbitrary attachments in place', (
         text: 'document',
         delivery_status: 'received',
         attachment: { name: 'notes.bin', mime: 'application/octet-stream', size: 5, data_url: 'data:application/octet-stream;base64,aGVsbG8=' }
+      },
+      {
+        direction: 'incoming',
+        text: 'audio',
+        delivery_status: 'received',
+        attachment: { name: 'voice.mp3', mime: 'audio/mpeg', size: 42, data_url: 'data:audio/mpeg;base64,aGVsbG8=' }
       }
     ]
   });
   assert.match(html, /<img class="secure-chat-attachment-media" src="data:image\/png;base64,aGVsbG8="/);
   assert.match(html, /<video class="secure-chat-attachment-media" src="data:video\/mp4;base64,aGVsbG8=" controls/);
+  assert.match(html, /<audio class="secure-chat-attachment-audio" src="data:audio\/mpeg;base64,aGVsbG8=" controls/);
   assert.match(html, /download="notes\.bin"/);
   assert.match(html, /application\/octet-stream · 5 B/);
 });

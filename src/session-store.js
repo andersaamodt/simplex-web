@@ -66,7 +66,8 @@
       mime: limitString(next.mime || '', MAX_LABEL_LENGTH),
       size: clampCount(next.size, 0),
       upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH),
-      data_url: limitString(next.data_url || next.dataUrl || '', MAX_ATTACHMENT_DATA_URL_LENGTH)
+      data_url: limitString(next.data_url || next.dataUrl || '', MAX_ATTACHMENT_DATA_URL_LENGTH),
+      url: limitString(next.url || '', MAX_TEXT_LENGTH)
     };
   }
 

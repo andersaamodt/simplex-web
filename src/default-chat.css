@@ -133,6 +133,12 @@
   border: 1px solid color-mix(in srgb, var(--admin-border, #c7d2fe) 60%, transparent);
 }
 
+.secure-chat-attachment-audio {
+  display: block;
+  width: min(28rem, 100%);
+  max-width: 100%;
+}
+
 .secure-chat-attachment-file {
   display: inline-grid;
   gap: 0.12rem;
@@ -411,6 +417,15 @@
   transition: background-color 0.16s ease, color 0.16s ease;
 }
 
+.secure-chat-file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .secure-chat-attach-button:hover,
 .secure-chat-attach-button:focus-within {
   background: color-mix(in srgb, var(--light-bg, #e0e7ff) 72%, white 28%);
@@ -425,6 +440,7 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .secure-chat-compose-hint {

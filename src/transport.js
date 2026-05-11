@@ -8,7 +8,7 @@
   var UNAVAILABLE_MESSAGE = 'browser-native simplex-web transport is not available';
   var ERROR_UNAVAILABLE = 'SIMPLEX_WEB_TRANSPORT_UNAVAILABLE';
   var ERROR_BAD_ADAPTER = 'SIMPLEX_WEB_TRANSPORT_BAD_ADAPTER';
-  var MAX_FILE_BYTES = 524288;
+  var MAX_FILE_BYTES = 25 * 1024 * 1024;
 
   function limitString(value, maxLength) {
     return String(value == null ? '' : value).slice(0, maxLength);
@@ -82,7 +82,9 @@
           name: limitString(next.attachment.name || '', MAX_TEXT_LENGTH),
           mime: limitString(next.attachment.mime || '', MAX_STATUS_LENGTH),
           size: Number(next.attachment.size || 0) || 0,
-          data_url: limitString(next.attachment.data_url || next.attachment.dataUrl || '', 1200000)
+          data_url: limitString(next.attachment.data_url || next.attachment.dataUrl || '', 1200000),
+          url: limitString(next.attachment.url || '', MAX_TEXT_LENGTH),
+          file_path: limitString(next.attachment.file_path || next.attachment.filePath || '', MAX_TEXT_LENGTH)
         }
         : null
     };

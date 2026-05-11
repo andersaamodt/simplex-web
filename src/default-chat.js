@@ -55,7 +55,8 @@
       mime: limitString(next.mime || '', MAX_LABEL_LENGTH),
       size: clampNonNegativeInteger(next.size),
       upload_id: limitString(next.upload_id || '', MAX_LABEL_LENGTH),
-      data_url: limitString(next.data_url || next.dataUrl || '', MAX_ATTACHMENT_DATA_URL_LENGTH)
+      data_url: limitString(next.data_url || next.dataUrl || '', MAX_ATTACHMENT_DATA_URL_LENGTH),
+      url: limitString(next.url || '', MAX_TEXT_LENGTH)
     };
   }
 
@@ -63,6 +64,7 @@
     var mime = String(attachment && attachment.mime || '').toLowerCase();
     if (mime.indexOf('image/') === 0) return 'image';
     if (mime.indexOf('video/') === 0) return 'video';
+    if (mime.indexOf('audio/') === 0) return 'audio';
     return 'file';
   }
 
@@ -78,15 +80,19 @@
     if (!attachment) return '';
     var name = String(attachment.name || 'Attachment');
     var mime = String(attachment.mime || 'application/octet-stream');
-    var dataUrl = String(attachment.data_url || '');
+    var dataUrl = String(attachment.data_url || attachment.dataUrl || '');
+    var mediaUrl = dataUrl || String(attachment.url || '');
     var meta = '<span class="secure-chat-attachment-meta">' + escapeHtml(mime || 'file') + ' · ' + escapeHtml(formatBytes(attachment.size)) + '</span>';
-    var html = '<div class="secure-chat-attachment secure-chat-attachment-' + attachmentKind(attachment) + '">';
-    if (dataUrl && attachmentKind(attachment) === 'image') {
-      html += '<img class="secure-chat-attachment-media" src="' + escapeAttr(dataUrl) + '" alt="' + escapeAttr(name) + '" loading="lazy">';
-    } else if (dataUrl && attachmentKind(attachment) === 'video') {
-      html += '<video class="secure-chat-attachment-media" src="' + escapeAttr(dataUrl) + '" controls preload="metadata"></video>';
+    var kind = attachmentKind(attachment);
+    var html = '<div class="secure-chat-attachment secure-chat-attachment-' + kind + '">';
+    if (mediaUrl && kind === 'image') {
+      html += '<img class="secure-chat-attachment-media" src="' + escapeAttr(mediaUrl) + '" alt="' + escapeAttr(name) + '" loading="lazy">';
+    } else if (mediaUrl && kind === 'video') {
+      html += '<video class="secure-chat-attachment-media" src="' + escapeAttr(mediaUrl) + '" controls preload="metadata"></video>';
+    } else if (mediaUrl && kind === 'audio') {
+      html += '<audio class="secure-chat-attachment-audio" src="' + escapeAttr(mediaUrl) + '" controls preload="metadata"></audio>';
     }
-    html += '<a class="secure-chat-attachment-file" href="' + (dataUrl ? escapeAttr(dataUrl) : '#') + '" download="' + escapeAttr(name) + '">';
+    html += '<a class="secure-chat-attachment-file" href="' + (mediaUrl ? escapeAttr(mediaUrl) : '#') + '" download="' + escapeAttr(name) + '">';
     html += '<span class="secure-chat-attachment-name">' + escapeHtml(name) + '</span>' + meta + '</a>';
     html += statusHtml(message);
     html += '</div>';
@@ -343,7 +349,7 @@
       html += '</div>';
     }
     html += '<textarea id="secure-chat-input" class="secure-chat-input" rows="2" placeholder="Write a secure message">' + escapeHtml(state.draftText) + '</textarea>';
-    html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" type="file" multiple hidden><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
+    html += '<label class="secure-chat-attach-button" aria-label="Attach files" title="Attach files"><input id="secure-chat-file-input" class="secure-chat-file-input" type="file" multiple><svg class="secure-chat-attach-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"/></svg></label>';
     html += '<button type="button" class="secure-chat-send-btn" data-secure-chat-action="send" aria-label="' + (state.sending ? 'Sending...' : 'Send secure message') + '" title="' + (state.sending ? 'Sending...' : 'Send secure message') + '"' + (state.sending ? ' disabled aria-busy="true"' : '') + '>' + (state.sending ? spinnerHtml('secure-chat-send-spinner') : renderSendIcon()) + '</button>';
     html += '</div>';
     html += '<label class="secure-chat-compose-hint secure-chat-send-shortcut"><input id="secure-chat-send-modifier" type="checkbox"' + (state.sendWithModifier === true ? ' checked' : '') + '> ' + escapeHtml(state.shortcutModifierLabel) + ' + Enter to send</label>';

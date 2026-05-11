@@ -28,7 +28,7 @@ The reason the protocol core is not here yet is architectural, not branding: the
 - `src/default-chat.css`: default/example chat styles extracted from the current `nostr-blog` contact chat.
 - `src/session-store.js`: bounded browser-local persistence helpers for per-user secure-chat session state.
 - `src/transport.js`: browser transport facade that fails closed until a real browser-native adapter is registered.
-- `src/simplex-chat-websocket-adapter.js`: transport adapter that registers with the facade and sends text through a browser-reachable SimpleX Chat WebSocket command API.
+- `src/simplex-chat-websocket-adapter.js`: transport adapter that registers with the facade and sends text/files through a browser-reachable SimpleX Chat WebSocket command API.
 - `examples/mock-chat.html`: runnable browser example with a mocked chat state.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
@@ -136,5 +136,13 @@ The adapter sends text with the official SimpleX Chat command WebSocket flow:
 /_user <user_id>
 /_send @<contact_id> text <message>
 ```
+
+File sends use SimpleX's `ComposedMessage` file-transfer command shape rather than embedding file bytes inside chat text:
+
+```text
+/_send @<contact_id> json [{"fileSource":{"filePath":"/local/path/to/file"},"msgContent":{"type":"file","text":"optional caption"},"mentions":{}}]
+```
+
+Browsers do not expose selected files' absolute local paths to web pages. For ordinary browser `File` objects, configure a loopback-only `fileBridgeUrl` that stages the selected file on the same machine as the SimpleX Chat WebSocket API and returns a local `filePath`. Without a local file path or loopback file bridge, attachment sending fails closed.
 
 Remote WebSocket endpoints are rejected by default because they can see plaintext. To use one deliberately, pass `allowRemote: true` and only point it at a trusted SimpleX Chat API endpoint, not a website bridge.
