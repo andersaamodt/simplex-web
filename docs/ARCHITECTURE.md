@@ -302,8 +302,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   accepts incoming contact requests, persists ratchets, sends active-contact
   messages, decrypts inbound queue messages, acknowledges received SMP messages,
   uploads encrypted XFTP file chunks, ratchet-sends file descriptors and root
-  keys, downloads received encrypted files, and stores failed sends as retry
-  tasks.
+  keys, downloads received encrypted files, stores failed sends as retry tasks,
+  and scrubs queue, ratchet, and retry secrets when a contact is deleted.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

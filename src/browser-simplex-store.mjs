@@ -170,6 +170,7 @@ export class BrowserSimplexStore {
   deleteContact(id) { return this.delete('contact', id); }
   saveRatchet(id, ratchet) { return this.save('ratchet', id, ratchet); }
   loadRatchet(id) { return this.load('ratchet', id); }
+  deleteRatchet(id) { return this.delete('ratchet', id); }
 
   enqueuePending(id, task) {
     var queue = this.load('pending', 'queue') || [];
@@ -184,6 +185,13 @@ export class BrowserSimplexStore {
 
   replacePending(items) {
     this.save('pending', 'queue', (Array.isArray(items) ? items : []).slice(0, SIMPLEX_STORE_MAX_LIST_ITEMS));
+  }
+
+  deletePendingWhere(predicate) {
+    var test = typeof predicate === 'function' ? predicate : () => false;
+    var next = this.listPending().filter((item) => !test(item));
+    this.replacePending(next);
+    return next;
   }
 }
 

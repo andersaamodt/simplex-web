@@ -128,7 +128,8 @@ Coverage added:
 - Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, durable retry enqueueing after transport
-  failure, and explicit retry draining.
+  failure, explicit retry draining, and contact deletion that scrubs durable
+  queue records, ratchet secrets, and contact-scoped pending retry payloads.
 - Contact request tests cover invitation URI generation, encrypted initial
   confirmation sends, profile hiding from broker bodies, recipient confirmation
   decrypt, queue `KEY` securing, ACK, and receiving-ratchet persistence.

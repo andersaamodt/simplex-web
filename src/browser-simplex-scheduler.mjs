@@ -116,6 +116,14 @@ export class BrowserSimplexRetryScheduler {
     return this.tasks.find((task) => task.id === cleanId);
   }
 
+  removeWhere(predicate) {
+    var test = typeof predicate === 'function' ? predicate : () => false;
+    this.load();
+    this.tasks = this.tasks.filter((task) => !test(task));
+    this.save();
+    return this.tasks;
+  }
+
   prune() {
     this.load();
     var maxAttempts = Math.max(1, Math.floor(Number(this.options.maxAttempts || SIMPLEX_RETRY_MAX_ATTEMPTS)));

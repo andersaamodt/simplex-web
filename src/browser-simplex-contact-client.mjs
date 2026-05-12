@@ -51,6 +51,14 @@ function safeId(value, label = 'contact id') {
   return text;
 }
 
+function safeStoredId(value, fallback) {
+  try {
+    return value == null ? fallback : safeId(value, 'stored contact record id');
+  } catch (_error) {
+    return fallback;
+  }
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -301,16 +309,32 @@ export class BrowserSimplexContactClient {
     return contact;
   }
 
-  deleteContact(id) {
+  deleteContact(id, options = {}) {
     var cleanId = safeId(id);
     var contact = this.store.loadContact(cleanId);
-    if (contact) {
-      contact.state = CONTACT_STATE_DELETED;
-      contact.updatedAt = nowIso();
-      this.store.saveContact(cleanId, contact);
+    var inboxQueueId = safeStoredId(contact && contact.inboxQueueId, cleanId + ':inbox');
+    var outboxQueueId = safeStoredId(contact && contact.outboxQueueId, cleanId + ':outbox');
+    if (typeof this.scheduler.removeWhere === 'function') {
+      this.scheduler.removeWhere((task) => task && task.payload && task.payload.contactId === cleanId);
     }
+    if (contact) {
+      if (options.hardDelete === true) {
+        this.store.deleteContact(cleanId);
+      } else {
+        this.store.saveContact(cleanId, {
+          id: cleanId,
+          state: CONTACT_STATE_DELETED,
+          createdAt: contact.createdAt || nowIso(),
+          updatedAt: nowIso(),
+          deletedAt: nowIso()
+        });
+      }
+    }
+    this.store.deleteQueue(inboxQueueId);
+    this.store.deleteQueue(outboxQueueId);
     this.store.deleteQueue(cleanId + ':inbox');
     this.store.deleteQueue(cleanId + ':outbox');
+    if (typeof this.store.deleteRatchet === 'function') this.store.deleteRatchet(cleanId);
     return contact || null;
   }
 

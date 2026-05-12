@@ -283,6 +283,39 @@ test('browser simplex durable store fuzzing rejects hostile record ids before wr
   }), { numRuns: 160, seed: FUZZ_SEED + 4 });
 });
 
+test('browser contact deletion fuzzing scrubs secrets despite hostile stored metadata', async () => {
+  const { createBrowserSimplexContactClient } = await import('../src/browser-simplex-contact-client.mjs');
+  const { createBrowserSimplexStore } = await import('../src/browser-simplex-store.mjs');
+
+  await fc.assert(fc.asyncProperty(hostileString, hostileString, async (inboxQueueId, outboxQueueId) => {
+    const store = createBrowserSimplexStore({ namespace: 'delete-fuzz' });
+    const contacts = createBrowserSimplexContactClient({ client: {}, store });
+    store.saveContact('alice', {
+      id: 'alice',
+      state: 'active',
+      inboxQueueId,
+      outboxQueueId,
+      outboundQueue: { senderSignKey: new Uint8Array(32).fill(1) },
+      invitationUri: 'smp://secret'
+    });
+    store.saveQueue('alice:inbox', { rcvSignKey: new Uint8Array(32).fill(2) });
+    store.saveQueue('alice:outbox', { senderSignKey: new Uint8Array(32).fill(3) });
+    store.saveRatchet('alice', { rootKey: new Uint8Array(32).fill(4) });
+    contacts.scheduler.enqueue('alice:send:fuzz', { contactId: 'alice', payloadText: 'secret' });
+
+    contacts.deleteContact('alice');
+
+    const tombstone = store.loadContact('alice');
+    assert.equal(tombstone.state, 'deleted');
+    assert.equal(tombstone.outboundQueue, undefined);
+    assert.equal(tombstone.invitationUri, undefined);
+    assert.equal(store.loadQueue('alice:inbox'), null);
+    assert.equal(store.loadQueue('alice:outbox'), null);
+    assert.equal(store.loadRatchet('alice'), null);
+    assert.equal(store.listPending().some((task) => task.payload && task.payload.contactId === 'alice'), false);
+  }), { numRuns: 100, seed: FUZZ_SEED + 13 });
+});
+
 test('browser XFTP fuzzing round-trips hostile byte payloads and rejects tampering', async () => {
   const { createXftpUpload, assembleXftpDownload } = await import('../src/browser-xftp-core.mjs');
   const { equalBytes } = await import('../src/browser-smp-core.mjs');

@@ -393,6 +393,51 @@ test('contact client drains due retry tasks through the queue client', async () 
   assert.equal(store.listPending()[0].completedAt > 0, true);
 });
 
+test('contact client delete scrubs durable queues ratchets and pending retries', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-delete' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const outbox = {
+    sndId: filled(24, 80),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 81))
+  };
+  store.saveContact('alice', {
+    id: 'alice',
+    state: 'active',
+    inboxQueueId: 'alice:custom-inbox',
+    outboxQueueId: 'alice:custom-outbox',
+    outboundQueue: outbox,
+    remoteProfile: { displayName: 'Bob' },
+    invitationUri: 'smp://secret'
+  });
+  store.saveQueue('alice:custom-inbox', { rcvId: filled(24, 82), rcvSignKey: smp.generateEd25519KeyPair(filled(32, 83)) });
+  store.saveQueue('alice:custom-outbox', outbox);
+  store.saveQueue('alice:inbox', { rcvId: filled(24, 84) });
+  store.saveQueue('alice:outbox', outbox);
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 85),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 86)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 87)).publicKey,
+    sendingChainKey: filled(32, 88)
+  });
+  contacts.scheduler.enqueue('alice:send:secret', { contactId: 'alice', payloadText: 'secret text' });
+  contacts.scheduler.enqueue('bob:send:keep', { contactId: 'bob', payloadText: 'keep text' });
+
+  const deleted = contacts.deleteContact('alice');
+  assert.equal(deleted.state, 'active');
+  const tombstone = store.loadContact('alice');
+  assert.equal(tombstone.state, 'deleted');
+  assert.equal(tombstone.outboundQueue, undefined);
+  assert.equal(tombstone.invitationUri, undefined);
+  assert.equal(store.loadQueue('alice:custom-inbox'), null);
+  assert.equal(store.loadQueue('alice:custom-outbox'), null);
+  assert.equal(store.loadQueue('alice:inbox'), null);
+  assert.equal(store.loadQueue('alice:outbox'), null);
+  assert.equal(store.loadRatchet('alice'), null);
+  assert.deepEqual(store.listPending().map((task) => task.payload.contactId), ['bob']);
+});
+
 test('contact payload decoder preserves plain text and rejects malformed prefixed payloads', () => {
   assert.deepEqual(decodeContactPayload('hello'), { type: 'text', text: 'hello' });
   assert.throws(() => decodeContactPayload(CONTACT_PAYLOAD_PREFIX + '{"type":"file"}'), /file payload/i);

@@ -22,6 +22,7 @@
 - Added `src/browser-simplex-ratchet.mjs` for browser-owned double-ratchet message encryption, skipped-message keys, and tamper rejection.
 - Added `src/browser-simplex-contact-client.mjs` for contact lifecycle, active-contact sends, inbound decrypt-and-ack receive handling, ratchet persistence, and failed-send retry enqueueing/draining.
 - Added contact-client invitation URI, encrypted contact request, request receive, queue secure, and ACK handling.
+- Added contact deletion scrubbing for durable queue records, ratchet state, and contact-scoped retry payloads.
 - Added contact-client XFTP file send/receive helpers that upload encrypted chunks, ratchet-send file descriptors/root keys, and verify received downloads.
 - Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.
 - Added `src/browser-simplex-web-transport-adapter.mjs`, a first-party adapter that registers the browser contact client with `window.SimplexWebTransport` over SMP WebSocket and optional XFTP web file transfer.

@@ -21,3 +21,13 @@ test('retry delay is bounded with deterministic jitter', () => {
   assert.equal(nextRetryDelay(0, { baseMs: 100, maxMs: 1000, jitter: 0, random: () => 0 }), 100);
   assert.equal(nextRetryDelay(10, { baseMs: 100, maxMs: 1000, jitter: 0, random: () => 0 }), 1000);
 });
+
+test('retry scheduler removes selected durable tasks', () => {
+  const scheduler = createBrowserSimplexRetryScheduler();
+  scheduler.enqueue('alice-send', { contactId: 'alice' });
+  scheduler.enqueue('bob-send', { contactId: 'bob' });
+
+  const remaining = scheduler.removeWhere((task) => task.payload && task.payload.contactId === 'alice');
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].payload.contactId, 'bob');
+});
