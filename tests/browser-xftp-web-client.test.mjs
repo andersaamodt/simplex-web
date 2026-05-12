@@ -5,6 +5,7 @@ import http from 'node:http';
 import {
   asciiBytes,
   concatBytes,
+  decodePublicKeyDer,
   ed25519Sign,
   encodeLargeBytes,
   encodePublicKeyDer,
@@ -14,7 +15,8 @@ import {
   generateX25519KeyPair,
   padBlock,
   sha256Hash,
-  unpadBlock
+  unpadBlock,
+  x25519SharedSecret
 } from '../src/browser-smp-core.mjs';
 import {
   XFTP_WEB_BLOCK_SIZE,
@@ -23,7 +25,9 @@ import {
   decodeXftpWebResponse,
   decodeXftpWebTransmission,
   decodeXftpWebServerHandshake,
+  decryptXftpWebTransportChunk,
   deleteXftpWebFile,
+  downloadXftpWebFileChunk,
   encodeXftpWebClientHandshake,
   encodeXftpWebClientHello,
   encodeXftpWebFNEW,
@@ -31,6 +35,7 @@ import {
   encodeXftpWebPING,
   encodeXftpWebSignedKeyForTests,
   encodeXftpWebTransmission,
+  encryptXftpWebTransportChunk,
   getXftpWebFile,
   normalizeXftpWebUrl,
   parseXftpWebServerAddress,
@@ -170,8 +175,12 @@ async function withLoopbackXftpWebServer(fn, options = {}) {
         storedBody = chunk;
         responseCommand = asciiBytes('OK');
       } else if (command === 'FGET') {
-        responseCommand = concatBytes(asciiBytes('FILE '), encodeSmallBytes(encodePublicKeyDer('X25519', serverDh.publicKey)), filled(24, 63));
-        responseBody = storedBody || filled(4, 64);
+        var dhKeyDer = tx.commandBytes.slice(6, 6 + tx.commandBytes[5]);
+        var requestDh = decodePublicKeyDer(dhKeyDer);
+        var nonce = filled(24, 63);
+        var dhSecret = x25519SharedSecret(serverDh.secretKey, requestDh.rawPublicKey);
+        responseCommand = concatBytes(asciiBytes('FILE '), encodeSmallBytes(encodePublicKeyDer('X25519', serverDh.publicKey)), nonce);
+        responseBody = encryptXftpWebTransportChunk(dhSecret, nonce, storedBody || filled(4, 64));
       } else if (command === 'FDEL') {
         storedBody = null;
         responseCommand = asciiBytes('OK');
@@ -258,6 +267,18 @@ test('XFTP web URL and address parsing reject plaintext remote and path smugglin
   assert.equal(normalizeXftpWebUrl('http://127.0.0.1:8080/', { allowInsecureLocal: true }), 'http://127.0.0.1:8080/');
 });
 
+test('XFTP web transport chunk decrypts with digest checks and rejects tampering', () => {
+  var dhSecret = filled(32, 31);
+  var nonce = filled(24, 32);
+  var plaintext = filled(96, 33);
+  var encrypted = encryptXftpWebTransportChunk(dhSecret, nonce, plaintext);
+  assert.equal(equalBytes(decryptXftpWebTransportChunk(dhSecret, nonce, encrypted, sha256Hash(plaintext)), plaintext), true);
+  var tampered = encrypted.slice();
+  tampered[4] ^= 1;
+  assert.throws(() => decryptXftpWebTransportChunk(dhSecret, nonce, tampered, sha256Hash(plaintext)), /decryption failed/i);
+  assert.throws(() => decryptXftpWebTransportChunk(dhSecret, nonce, encrypted, filled(32, 34)), /digest mismatch/i);
+});
+
 test('XFTP web client rejects missing server identity proof unless explicit loopback test mode is enabled', async () => {
   await withLoopbackXftpWebServer(async ({ url, transcript }) => {
     var expected = makeHandshake(filled(32, 90)).keyHash;
@@ -324,7 +345,14 @@ test('XFTP web client handshakes pings and sends authenticated file commands ove
       dhSeed: filled(32, 75)
     });
     assert.equal(downloaded.dhSecret.length, 32);
-    assert.equal(equalBytes(downloaded.body, filled(4, 74)), true);
+    assert.equal(equalBytes(decryptXftpWebTransportChunk(downloaded.dhSecret, downloaded.nonce, downloaded.body, sha256Hash(filled(4, 74))), filled(4, 74)), true);
+    var downloadedChunk = await downloadXftpWebFileChunk(client, {
+      privateKey: recipient.secretKey,
+      recipientId: created.recipientIds[0],
+      dhSeed: filled(32, 76),
+      digest: sha256Hash(filled(4, 74))
+    });
+    assert.equal(equalBytes(downloadedChunk.plaintext, filled(4, 74)), true);
     await deleteXftpWebFile(client, {
       privateKey: sender.secretKey,
       senderId: created.senderId
@@ -334,6 +362,7 @@ test('XFTP web client handshakes pings and sends authenticated file commands ove
       'PING',
       'FNEW',
       'FPUT',
+      'FGET',
       'FGET',
       'FDEL'
     ]);

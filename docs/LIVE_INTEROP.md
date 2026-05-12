@@ -22,11 +22,14 @@ When enabled, it checks:
 - XFTP web HTTPS/fetch hello with a 32-byte browser challenge.
 - XFTP web server identity proof verification against the configured key hash.
 - XFTP web padded client handshake and binary `PING`/`PONG`.
+- Optional destructive XFTP web `FNEW`/`FPUT`/`FGET`/`FDEL` round trip against a
+  disposable endpoint, including transport-encrypted `FGET` body decryption and
+  SHA-256 chunk digest verification.
 
 It does not send chat plaintext through a website server. The SMP endpoint sees
-SMP protocol blocks. The XFTP endpoint sees XFTP protocol blocks. File upload
-and download commands are covered by local loopback tests; live destructive file
-interop should be added only against a disposable reviewed endpoint.
+SMP protocol blocks. The XFTP endpoint sees XFTP protocol blocks. The
+destructive XFTP test creates, uploads, downloads, verifies, and deletes one
+test chunk; keep it pointed at a disposable reviewed endpoint.
 
 ## Required Endpoint Shape
 
@@ -50,9 +53,12 @@ The XFTP server must expose the upstream-style XFTP web profile implemented by
 - `POST {base}` with `xftp-handshake: 1` for the padded client handshake.
 - One padded 16384-byte XFTP command block per fetch request after handshake.
 - Broker `PONG` response to an unauthenticated XFTP `PING`.
+- Disposable file-command tests must support `FNEW`, `FPUT`, `FGET`, and `FDEL`;
+  `FGET` must return a transport-encrypted chunk body decryptable with the
+  response DH key and nonce.
 
-Point this harness only at a reviewed browser-profile endpoint. The current live
-XFTP test is non-destructive.
+Point this harness only at a reviewed browser-profile endpoint. The default
+live XFTP test is non-destructive.
 
 ## Run
 
@@ -78,6 +84,8 @@ Optional variables:
 - `SIMPLEX_WEB_LIVE_SMP_EXPECTED_SESSION_ID`: base64url or hex session id that
   must match the server handshake.
 - `SIMPLEX_WEB_LIVE_TIMEOUT_MS`: per-step network timeout, default `15000`.
+- `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`: enables the disposable live XFTP
+  file-command round trip.
 
 ## Release Meaning
 

@@ -11,6 +11,7 @@
 // profile when talking to compatible servers.
 
 import { ed448 } from '@noble/curves/ed448.js';
+import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
 
 import {
   asciiBytes,
@@ -351,6 +352,32 @@ export function decodeXftpWebBrokerTransmission(sessionId, block) {
   return { ...tx, response: decodeXftpWebResponse(tx.commandBytes) };
 }
 
+export function encryptXftpWebTransportChunk(dhSecret, nonce, plaintext) {
+  var key = toBytes(dhSecret, 'XFTP web transport DH secret');
+  if (key.length !== 32) fail('XFTP_WEB_KEY', 'XFTP web transport DH secret must be 32 bytes');
+  var nonceBytes = toBytes(nonce, 'XFTP web transport nonce');
+  if (nonceBytes.length !== 24) fail('XFTP_WEB_NONCE', 'XFTP web transport nonce must be 24 bytes');
+  return xsalsa20poly1305(key, nonceBytes).encrypt(toBytes(plaintext || new Uint8Array(), 'XFTP web transport plaintext'));
+}
+
+export function decryptXftpWebTransportChunk(dhSecret, nonce, encryptedBody, expectedDigest = null) {
+  var key = toBytes(dhSecret, 'XFTP web transport DH secret');
+  if (key.length !== 32) fail('XFTP_WEB_KEY', 'XFTP web transport DH secret must be 32 bytes');
+  var nonceBytes = toBytes(nonce, 'XFTP web transport nonce');
+  if (nonceBytes.length !== 24) fail('XFTP_WEB_NONCE', 'XFTP web transport nonce must be 24 bytes');
+  var body = toBytes(encryptedBody || new Uint8Array(), 'XFTP web transport encrypted body');
+  try {
+    var plaintext = xsalsa20poly1305(key, nonceBytes).decrypt(body);
+    if (expectedDigest != null && !equalBytes(sha256Hash(plaintext), expectedDigest)) {
+      fail('XFTP_WEB_DIGEST', 'XFTP web downloaded chunk digest mismatch');
+    }
+    return plaintext;
+  } catch (error) {
+    if (error instanceof BrowserXftpWebClientError) throw error;
+    fail('XFTP_WEB_DECRYPT', 'XFTP web transport chunk decryption failed');
+  }
+}
+
 export function parseXftpWebServerAddress(value) {
   var text = String(value == null ? '' : value).trim();
   var match = /^xftp:\/\/([A-Za-z0-9_-]+={0,2})@([^:#,;\/\s]+)(?::([0-9]+))?$/.exec(text);
@@ -686,6 +713,19 @@ export async function getXftpWebFile(client, options = {}) {
   };
 }
 
+export async function downloadXftpWebFileChunk(client, options = {}) {
+  var downloaded = await getXftpWebFile(client, options);
+  return {
+    ...downloaded,
+    plaintext: decryptXftpWebTransportChunk(
+      downloaded.dhSecret,
+      downloaded.nonce,
+      downloaded.body,
+      options.digest || options.expectedDigest || null
+    )
+  };
+}
+
 export async function deleteXftpWebFile(client, options = {}) {
   var response = await sendXftpWebCommand(client, {
     privateKey: options.privateKey,
@@ -705,7 +745,9 @@ export default {
   decodeXftpWebResponse,
   decodeXftpWebServerHandshake,
   decodeXftpWebTransmission,
+  decryptXftpWebTransportChunk,
   deleteXftpWebFile,
+  downloadXftpWebFileChunk,
   encodeXftpWebAuthTransmission,
   encodeXftpWebClientHandshake,
   encodeXftpWebClientHello,
@@ -718,6 +760,7 @@ export default {
   encodeXftpWebPING,
   encodeXftpWebSignedKeyForTests,
   encodeXftpWebTransmission,
+  encryptXftpWebTransportChunk,
   formatXftpWebServerAddress,
   getXftpWebFile,
   normalizeXftpWebUrl,

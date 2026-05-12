@@ -15,10 +15,20 @@ import {
   decodeBase64Url,
   encodeSignedTransmission,
   equalBytes,
-  hexToBytes
+  generateEd25519KeyPair,
+  hexToBytes,
+  sha256Hash,
+  utf8Bytes
 } from '../src/browser-smp-core.mjs';
 import { connectBrowserSmpWebSocketTransport } from '../src/browser-smp-websocket-transport.mjs';
-import { connectBrowserXftpWebClient, pingXftpWeb } from '../src/browser-xftp-web-client.mjs';
+import {
+  connectBrowserXftpWebClient,
+  createXftpWebFile,
+  deleteXftpWebFile,
+  downloadXftpWebFileChunk,
+  pingXftpWeb,
+  putXftpWebFile
+} from '../src/browser-xftp-web-client.mjs';
 
 const LIVE_ENABLED = process.env.SIMPLEX_WEB_LIVE_ENABLE === '1';
 
@@ -119,4 +129,64 @@ test('live browser XFTP web profile handshakes verifies identity and answers PIN
   assert.equal(equalBytes(client.keyHash, keyHash), true);
   const response = await pingXftpWeb(client);
   assert.equal(response.response.type, 'PONG');
+});
+
+test('live browser XFTP web profile creates uploads downloads and deletes a disposable chunk', async (t) => {
+  if (!requireLiveEnv(t, [
+    'SIMPLEX_WEB_LIVE_XFTP_WEB_URL',
+    'SIMPLEX_WEB_LIVE_XFTP_KEY_HASH'
+  ])) return;
+  if (env('SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE') !== '1') {
+    t.skip('set SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1 to run disposable live XFTP file-command interop');
+    return;
+  }
+
+  const keyHash = decodeEnvBytes('SIMPLEX_WEB_LIVE_XFTP_KEY_HASH');
+  const client = await connectBrowserXftpWebClient({
+    url: env('SIMPLEX_WEB_LIVE_XFTP_WEB_URL'),
+    keyHash,
+    timeoutMs: liveTimeoutMs()
+  });
+  const sender = generateEd25519KeyPair();
+  const recipient = generateEd25519KeyPair();
+  const chunk = utf8Bytes('simplex-web live xftp web chunk ' + uniqueLiveId('xftp-web'));
+  const digest = sha256Hash(chunk);
+  let created = null;
+  let primaryError = null;
+  try {
+    created = await createXftpWebFile(client, {
+      privateKey: sender.secretKey,
+      fileInfo: {
+        sndKey: sender.publicKeyDer,
+        size: chunk.length,
+        digest
+      },
+      recipientKeys: [recipient.publicKeyDer]
+    });
+    await putXftpWebFile(client, {
+      privateKey: sender.secretKey,
+      senderId: created.senderId,
+      body: chunk
+    });
+    const downloaded = await downloadXftpWebFileChunk(client, {
+      privateKey: recipient.secretKey,
+      recipientId: created.recipientIds[0],
+      digest
+    });
+    assert.equal(equalBytes(downloaded.plaintext, chunk), true);
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    if (created) {
+      try {
+        await deleteXftpWebFile(client, {
+          privateKey: sender.secretKey,
+          senderId: created.senderId
+        });
+      } catch (deleteError) {
+        if (!primaryError) primaryError = deleteError;
+      }
+    }
+  }
+  if (primaryError) throw primaryError;
 });

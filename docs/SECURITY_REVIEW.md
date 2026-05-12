@@ -70,7 +70,8 @@ Primary attacker capabilities tested:
 - Exercise real loopback `fetch` upload, download, and deletion for encrypted
   XFTP chunks without exposing plaintext bytes to request bodies.
 - Exercise upstream-style XFTP web binary fetch handshake, identity proof
-  verification, PING, and authenticated file-command wrappers.
+  verification, PING, authenticated file-command wrappers, and
+  transport-encrypted download chunk verification.
 - Provide a skipped-by-default live interop harness for reviewed non-loopback
   SMP/XFTP browser-profile endpoints.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
@@ -139,15 +140,18 @@ Coverage added:
   file bytes.
 - XFTP web loopback tests cover padded browser hello, server identity proof
   verification, padded client handshake, PING, authenticated FNEW/FPUT/FGET/FDEL
-  command blocks, and explicit rejection of missing identity proof outside
-  loopback test mode.
+  command blocks, transport-encrypted FGET body decryption, digest mismatch
+  rejection, ciphertext tamper rejection, and explicit rejection of missing
+  identity proof outside loopback test mode.
 - Local interoperability-vector tests cover stable SMP command/broker/handshake,
   signed transmission, transport-block, agent-envelope, and XFTP fixture bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
   browser SMP transport profile without reintroducing a plaintext bridge.
 - Skipped-by-default live interop tests define the required non-loopback proof
   for browser-profile SMP WebSocket PING/PONG and upstream-style XFTP web
-  HTTPS handshake, identity proof, and PING/PONG.
+  HTTPS handshake, identity proof, and PING/PONG. A second opt-in destructive
+  live XFTP test creates, uploads, downloads, decrypts, verifies, and deletes a
+  disposable chunk when `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server

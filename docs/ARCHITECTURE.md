@@ -37,7 +37,8 @@ framework app:
    server profiles before encrypted file chunks are uploaded or downloaded.
 13. `src/browser-xftp-web-client.mjs` implements the upstream-style browser
    XFTP web profile: binary fetch transport, web challenge, identity proof,
-   padded handshake, PING, and authenticated file-command wrappers.
+   padded handshake, PING, authenticated file-command wrappers, and
+   transport-encrypted download chunk verification.
 14. `src/browser-smp-server-profile.mjs` validates production browser SMP server
    profiles before a browser endpoint is trusted.
 15. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
@@ -89,7 +90,7 @@ Safari automation, and wasm GHC without a bundler.
 - encrypted XFTP chunk upload/download sequencing over a reviewed server boundary
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
 - browser XFTP server profile validation for encrypted chunk storage endpoints
-- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, and authenticated FNEW/FPUT/FGET/FDEL command wrappers
+- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, and transport-encrypted FGET chunk decryption
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
@@ -325,9 +326,11 @@ profile. It sends binary blocks with `fetch`, starts with a padded web hello and
 32-byte challenge, verifies the server identity proof against the configured key
 hash, sends a padded client handshake, and then moves one padded XFTP command
 block per request. It now covers `PING` plus authenticated `FNEW`, `FPUT`,
-`FGET`, and `FDEL` command wrappers. The local loopback test exercises those
-commands through a real HTTP server; live non-loopback coverage is gated through
-`tests/live-interop.test.mjs`.
+`FGET`, and `FDEL` command wrappers. `FGET` download bodies are decrypted as
+transport-encrypted XSalsa20-Poly1305 chunks and checked against the expected
+SHA-256 chunk digest before plaintext is returned. The local loopback test
+exercises those commands through a real HTTP server; live non-loopback coverage
+is gated through `tests/live-interop.test.mjs`.
 
 ## Browser SMP Server Profile
 
@@ -358,7 +361,9 @@ browser-profile SMP server interoperability result.
 `SIMPLEX_WEB_LIVE_ENABLE=1` and reviewed endpoint variables are present. When
 enabled, it checks a real browser-profile SMP WebSocket handshake plus PING/PONG
 and a real upstream-style XFTP web HTTPS handshake, identity proof, and
-PING/PONG. See `docs/LIVE_INTEROP.md`.
+PING/PONG. With `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`, it also creates,
+uploads, downloads, decrypts, verifies, and deletes one disposable XFTP chunk.
+See `docs/LIVE_INTEROP.md`.
 
 This profile is browser-native protocol transport, but it is not a claim that
 ordinary browser JavaScript can speak the upstream raw TCP/TLS transport. Browser
@@ -372,9 +377,8 @@ as part of the protocol, not as a website plaintext bridge.
 1. Point the live SMP/XFTP harness at reviewed browser-profile servers and keep
    the passing run metadata outside the repo unless it is scrubbed release
    evidence.
-2. Extend the live XFTP web harness from non-destructive PING to disposable
-   FNEW/FPUT/FGET/FDEL file-command interoperability once a reviewed endpoint is
-   available.
+2. Run the destructive live XFTP web harness against a reviewed disposable
+   endpoint and preserve scrubbed passing evidence outside the source tree.
 3. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
 4. Review the browser-profile SMP/XFTP server specifications against upstream
    SimpleX security goals before describing any deployment as production
