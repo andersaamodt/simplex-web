@@ -86,7 +86,7 @@ Safari automation, and wasm GHC without a bundler.
 - browser invitation URI creation, requester reply queues, encrypted sender
   contact requests, encrypted accept confirmations, recipient/requester
   confirmation-key verification, queue `KEY` securing, and request/accept ACKs
-- active-contact sends and receives with ratchet persistence, SMP ACKs, durable ACK retry, and failed-send retry enqueueing
+- active-contact sends and receives with ratchet persistence, SMP ACKs, durable ACK retry, and encrypted-packet failed-send retry enqueueing
 - contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
 - contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
 - in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
@@ -307,8 +307,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   received SMP messages, stores non-plaintext ACK retry tasks if ACK transport
   fails after decrypt, uploads encrypted XFTP file chunks, ratchet-sends file
   descriptors and root keys, downloads received encrypted files, stores failed
-  sends as retry tasks, and scrubs queue, ratchet, and retry secrets when a
-  contact is deleted.
+  sends as already-ratcheted packet retry tasks instead of chat plaintext, and
+  scrubs queue, ratchet, and retry secrets when a contact is deleted.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

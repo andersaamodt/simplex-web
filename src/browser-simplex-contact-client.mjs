@@ -5,7 +5,8 @@
 // This module combines the queue client, durable store, retry scheduler, and
 // ratchet helpers into a full browser-owned contact state machine. It keeps the
 // policy visible: contacts have explicit states, sends require an active
-// ratchet, and failed sends become durable retry tasks instead of disappearing.
+// ratchet, and failed sends become durable encrypted-packet retry tasks instead
+// of disappearing or storing chat plaintext.
 
 import {
   decodeBase64Url,
@@ -138,6 +139,10 @@ function parseJsonBytes(bytes, label) {
 
 function ackTaskId(contactId, msgId) {
   return 'ack:' + encodeBase64Url(msgId).slice(0, 96) + ':' + encodeBase64Url(utf8Bytes(safeId(contactId))).slice(0, 48);
+}
+
+function outboxQueueId(contact) {
+  return contact.outboxQueueId || (contact.id + ':outbox');
 }
 
 export function createBrowserSimplexContactClient(options = {}) {
@@ -442,35 +447,39 @@ export class BrowserSimplexContactClient {
   }
 
   async sendText(id, text, options = {}) {
-    return this.sendPlaintext(id, utf8Bytes(text), options, {
-      type: 'sendText',
-      contactId: safeId(id),
-      text: String(text),
-      options: { clientMessageId: options.clientMessageId || '' }
-    });
+    return this.sendPlaintext(id, utf8Bytes(text), options);
   }
 
-  async sendPlaintext(id, plaintext, options = {}, retryPayload = null) {
+  async sendPlaintext(id, plaintext, options = {}) {
     var contact = this.store.loadContact(safeId(id));
     requireState(contact, [CONTACT_STATE_ACTIVE]);
     var ratchet = this.store.loadRatchet(contact.id);
     if (!ratchet) fail('SIMPLEX_CONTACT_RATCHET', 'contact ratchet is missing');
     var encrypted = encryptRatchetMessage(ratchet, toBytes(plaintext, 'contact plaintext'), options);
+    var body = packetBytes(encrypted.packet);
     this.store.saveRatchet(contact.id, encrypted.state);
-    var queue = options.queue || contact.outboundQueue || this.store.loadQueue(contact.id + ':outbox');
+    var queue = options.queue || contact.outboundQueue || this.store.loadQueue(outboxQueueId(contact));
     if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact outbound queue is missing');
     var taskId = contact.id + ':send:' + (options.clientMessageId || Date.now());
     try {
-      var response = await this.client.sendQueueMessage(queue, packetBytes(encrypted.packet), options);
+      var response = await this.client.sendQueueMessage(queue, body, options);
       this.scheduler.complete(taskId);
       return response;
     } catch (error) {
       if (options.retryOnFailure !== false) {
-        this.scheduler.enqueue(taskId, retryPayload || {
-          type: 'sendPayload',
+        // A failed send is retried as the same already-ratcheted packet. The
+        // pending task does not need chat plaintext, so it stores only bytes
+        // that were already safe to hand to the SMP transport.
+        this.scheduler.enqueue(taskId, {
+          type: 'sendPacket',
           contactId: contact.id,
-          payloadText: utf8Text(toBytes(plaintext, 'retry plaintext')),
-          options: { clientMessageId: options.clientMessageId || '' }
+          queueId: outboxQueueId(contact),
+          packet: encodeBase64Url(body),
+          options: {
+            clientMessageId: options.clientMessageId || '',
+            timeoutMs: options.timeoutMs || 0,
+            flags: options.flags || null
+          }
         });
         this.scheduler.fail(taskId, error);
       }
@@ -494,12 +503,7 @@ export class BrowserSimplexContactClient {
       uploadedChunks: upload.uploadedChunks
     };
     var payloadText = encodeContactPayload({ type: 'file', file });
-    var response = await this.sendPlaintext(id, utf8Bytes(payloadText), options, {
-      type: 'sendPayload',
-      contactId: safeId(id),
-      payloadText,
-      options: { clientMessageId: options.clientMessageId || '' }
-    });
+    var response = await this.sendPlaintext(id, utf8Bytes(payloadText), options);
     return { ...response, file };
   }
 
@@ -581,23 +585,20 @@ export class BrowserSimplexContactClient {
     var results = [];
     for (var task of due) {
       if (!task || !task.payload) continue;
-      if (task.payload.type !== 'sendText' && task.payload.type !== 'sendPayload' && task.payload.type !== 'ackMessage') continue;
+      if (task.payload.type !== 'sendPacket' && task.payload.type !== 'ackMessage') continue;
       try {
         var response;
-        if (task.payload.type === 'sendText') {
-          var sendTextOptions = {
+        if (task.payload.type === 'sendPacket') {
+          var sendPacketOptions = {
             ...(task.payload.options || {}),
             ...(options.sendOptions || {}),
             retryOnFailure: false
           };
-          response = await this.sendText(task.payload.contactId, task.payload.text, sendTextOptions);
-        } else if (task.payload.type === 'sendPayload') {
-          var sendPayloadOptions = {
-            ...(task.payload.options || {}),
-            ...(options.sendOptions || {}),
-            retryOnFailure: false
-          };
-          response = await this.sendPlaintext(task.payload.contactId, utf8Bytes(task.payload.payloadText), sendPayloadOptions, task.payload);
+          var sendContact = this.store.loadContact(safeId(task.payload.contactId));
+          if (!sendContact) fail('SIMPLEX_CONTACT_MISSING', 'contact does not exist');
+          var sendQueue = options.queue || sendContact.outboundQueue || this.store.loadQueue(task.payload.queueId || outboxQueueId(sendContact));
+          if (!sendQueue) fail('SIMPLEX_CONTACT_QUEUE', 'contact retry queue is missing');
+          response = await this.client.sendQueueMessage(sendQueue, decodeBase64Url(task.payload.packet, 'retry packet'), sendPacketOptions);
         } else {
           // ACK retry tasks carry only enough metadata to repeat the SMP ACK.
           // They deliberately avoid storing the plaintext message or ratchet

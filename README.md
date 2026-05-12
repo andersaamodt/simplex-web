@@ -125,7 +125,7 @@ ratcheted chat layer.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry on transient failure, downloads received encrypted files, queues failed sends for retry, and scrubs contact queue/ratchet/retry secrets on delete.
+- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry on transient failure, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, and scrubs contact queue/ratchet/retry secrets on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
@@ -405,12 +405,12 @@ await aliceContacts.sendText("bob", "hello");
 const received = await bobContacts.receiveNext("alice", { ackCorrId: "bob-msg-ack-1" });
 ```
 
-Failed sends are persisted as retry tasks. Contact sends require active contact
-state, a ratchet, and an outbound queue; otherwise they fail closed. Deleting a
-contact removes its durable inbox/outbox queue records, ratchet state, and
-pending retry payloads before leaving only a small tombstone. File sends first
-upload encrypted XFTP chunks, then ratchet-send the manifest and file root key
-as a contact payload:
+Failed sends are persisted as encrypted packet retry tasks, not chat plaintext
+retry tasks. Contact sends require active contact state, a ratchet, and an
+outbound queue; otherwise they fail closed. Deleting a contact removes its
+durable inbox/outbox queue records, ratchet state, and pending retry payloads
+before leaving only a small tombstone. File sends first upload encrypted XFTP
+chunks, then ratchet-send the manifest and file root key as a contact payload:
 
 ```js
 const sent = await contacts.sendFile("alice", fileBytes, { name: "notes.txt" });

@@ -581,8 +581,13 @@ test('contact client schedules failed sends for retry', async () => {
   });
 
   await assert.rejects(() => contacts.sendText('alice', 'retry me', { corrId: 'send-2', clientMessageId: 'm1' }), /no fake responses/);
+  const pending = store.listPending()[0];
   assert.equal(store.listPending().length, 1);
-  assert.equal(store.listPending()[0].payload.contactId, 'alice');
+  assert.equal(pending.payload.type, 'sendPacket');
+  assert.equal(pending.payload.contactId, 'alice');
+  assert.equal(JSON.stringify(pending).includes('retry me'), false);
+  const sent = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  assert.equal(smp.encodeBase64Url(sent.command.body), pending.payload.packet);
 });
 
 test('contact client receives decrypts and acknowledges queue messages', async () => {
@@ -791,6 +796,9 @@ test('contact client drains due retry tasks through the queue client', async () 
   assert.equal(result.length, 1);
   assert.equal(result[0].ok, true);
   assert.equal(store.listPending()[0].completedAt > 0, true);
+  const firstSend = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  const retrySend = smp.parseSignedTransmission(4, transport.sent[1].bytes);
+  assert.equal(smp.equalBytes(firstSend.command.body, retrySend.command.body), true);
 });
 
 test('contact client delete scrubs durable queues ratchets and pending retries', async () => {
@@ -821,8 +829,8 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
     remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 87)).publicKey,
     sendingChainKey: filled(32, 88)
   });
-  contacts.scheduler.enqueue('alice:send:secret', { contactId: 'alice', payloadText: 'secret text' });
-  contacts.scheduler.enqueue('bob:send:keep', { contactId: 'bob', payloadText: 'keep text' });
+  contacts.scheduler.enqueue('alice:send:secret', { type: 'sendPacket', contactId: 'alice', packet: smp.encodeBase64Url(filled(8, 89)) });
+  contacts.scheduler.enqueue('bob:send:keep', { type: 'sendPacket', contactId: 'bob', packet: smp.encodeBase64Url(filled(8, 90)) });
 
   const deleted = contacts.deleteContact('alice');
   assert.equal(deleted.state, 'active');

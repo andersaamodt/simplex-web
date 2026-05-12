@@ -286,6 +286,7 @@ test('browser simplex durable store fuzzing rejects hostile record ids before wr
 test('browser contact deletion fuzzing scrubs secrets despite hostile stored metadata', async () => {
   const { createBrowserSimplexContactClient } = await import('../src/browser-simplex-contact-client.mjs');
   const { createBrowserSimplexStore } = await import('../src/browser-simplex-store.mjs');
+  const { encodeBase64Url } = await import('../src/browser-smp-core.mjs');
 
   await fc.assert(fc.asyncProperty(hostileString, hostileString, async (inboxQueueId, outboxQueueId) => {
     const store = createBrowserSimplexStore({ namespace: 'delete-fuzz' });
@@ -301,7 +302,7 @@ test('browser contact deletion fuzzing scrubs secrets despite hostile stored met
     store.saveQueue('alice:inbox', { rcvSignKey: new Uint8Array(32).fill(2) });
     store.saveQueue('alice:outbox', { senderSignKey: new Uint8Array(32).fill(3) });
     store.saveRatchet('alice', { rootKey: new Uint8Array(32).fill(4) });
-    contacts.scheduler.enqueue('alice:send:fuzz', { contactId: 'alice', payloadText: 'secret' });
+    contacts.scheduler.enqueue('alice:send:fuzz', { type: 'sendPacket', contactId: 'alice', packet: encodeBase64Url(new Uint8Array(8).fill(5)) });
 
     contacts.deleteContact('alice');
 

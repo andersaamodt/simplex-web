@@ -127,9 +127,13 @@ Coverage added:
 - Durable store round trips binary records and rejects hostile storage keys.
 - Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
 - Contact tests cover invitation creation, active ratcheted sends, inbound
-  queue-message decrypt-and-ack, durable retry enqueueing after transport
-  failure, explicit retry draining, and contact deletion that scrubs durable
-  queue records, ratchet secrets, and contact-scoped pending retry payloads.
+  queue-message decrypt-and-ack, encrypted-packet retry enqueueing after
+  transport failure, explicit retry draining, and contact deletion that scrubs
+  durable queue records, ratchet secrets, and contact-scoped pending retry
+  payloads.
+- Failed-send tests prove retry records contain the already-ratcheted packet
+  bytes, do not contain the outbound plaintext, and resend the same encrypted
+  packet during retry drain.
 - ACK-failure tests cover decrypt-success/ACK-failure ordering, prove the
   plaintext is returned to the caller, persist only a non-plaintext ACK retry
   task, and complete that ACK through the retry drain.
