@@ -4,6 +4,8 @@
 
 Version `1.0.0` is a stable browser integration surface for the UI, local session store, Haskell/WASM state-core scaffold, closed-by-default transport facade, and browser adapter for a browser-reachable SimpleX Chat API WebSocket. It does not claim to ship a handwritten SMP/XFTP protocol implementation in JavaScript.
 
+`simplex-web` was made by AI and was adversarially tested as much as conceivably possible by Codex Desktop with ChatGPT 5.5 in the local environment described in `docs/SECURITY_REVIEW.md`.
+
 Current scope:
 - Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
 - Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
@@ -177,3 +179,9 @@ npm pack --dry-run --json
 `npm run test:live` requires a `simplex-chat` binary. It uses `~/.local/bin/simplex-chat` when present, or `SIMPLEX_CHAT_BIN=/path/to/simplex-chat`.
 
 `npm run test:haskell` requires `wasm32-wasi-ghc`; source the `ghc-wasm-meta` env first when it is installed outside the default shell path.
+
+## License
+
+`simplex-web` is licensed under the GNU Affero General Public License version 3 only (`AGPL-3.0-only`). See `LICENSE`.
+
+SimpleX, SimpleX Chat, and related marks belong to their respective owners. This project is independent unless explicitly stated otherwise.

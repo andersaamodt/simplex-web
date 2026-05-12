@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Browser-hosted SimpleX chat UI shell, local session store, transport facade, and SimpleX Chat WebSocket adapter.",
   "private": true,
+  "license": "AGPL-3.0-only",
   "main": "src/transport.js",
   "repository": {
     "type": "git",
@@ -27,6 +28,7 @@
     "docs",
     "examples",
     "haskell",
+    "LICENSE",
     "README.md",
     "CHANGELOG.md"
   ],
