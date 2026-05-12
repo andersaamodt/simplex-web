@@ -573,6 +573,7 @@ test('websocket adapter stages browser File attachments through a loopback file 
     files: [{ name: 'probe.txt', size: 5, type: 'text/plain' }]
   });
 
+  assert.equal(adapter.getStatus().file_bridge_url, 'http://127.0.0.1:5226');
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, 'http://127.0.0.1:5226/files');
   assert.equal(fetchCalls[0].options.headers['X-File-Name'], 'probe.txt');
@@ -643,6 +644,61 @@ test('websocket adapter binds native browser fetch when staging browser File att
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test('websocket adapter aborts stalled file bridge uploads with the configured timeout', async (t) => {
+  if (typeof global.AbortController !== 'function') {
+    t.skip('AbortController is unavailable in this runtime');
+    return;
+  }
+
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  let timeoutDelay = 0;
+  let clearCount = 0;
+  let sawAbortSignal = false;
+
+  global.setTimeout = function immediateTimeout(callback, delay) {
+    timeoutDelay = delay;
+    queueMicrotask(callback);
+    return 9191;
+  };
+  global.clearTimeout = function countedClearTimeout(id) {
+    if (id === 9191) clearCount += 1;
+  };
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    fileBridgeUrl: 'http://127.0.0.1:5226',
+    timeout_ms: 1,
+    user_id: '9',
+    WebSocketImpl: makeFakeWebSocket(() => {
+      throw new Error('WebSocket should not open when file staging times out');
+    }),
+    fetchImpl(_url, options) {
+      sawAbortSignal = !!(options && options.signal);
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new Error('aborted by test timeout')));
+      });
+    }
+  });
+
+  try {
+    await assert.rejects(
+      adapter.sendFiles({
+        contact_id: '77',
+        files: [{ name: 'stalled.txt', size: 5, type: 'text/plain' }]
+      }),
+      /aborted by test timeout/
+    );
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+  }
+
+  assert.equal(sawAbortSignal, true);
+  assert.equal(timeoutDelay, 1000);
+  assert.equal(clearCount, 1);
 });
 
 test('websocket adapter fails closed for browser File attachments without a path or loopback bridge', async () => {
@@ -752,7 +808,8 @@ test('websocket adapter can register as SimplexWebTransport adapter', async () =
   assert.deepEqual(transport.getStatus(), {
     available: true,
     transport_status: 'simplex-chat-websocket',
-    transport_error: ''
+    transport_error: '',
+    file_bridge_url: ''
   });
   const receipt = await transport.sendText({ contact_id: '5', text: 'registered', client_message_id: 'fallback-ref' });
   assert.equal(receipt.message_ref, 'fallback-ref');

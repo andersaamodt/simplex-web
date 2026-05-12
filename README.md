@@ -48,6 +48,7 @@ The reason the protocol core is not here yet is architectural, not branding: the
 - `examples/haskell-core-chat.html`: browser example that mounts the default Secure Chat UI against the Haskell core.
 - `docs/ARCHITECTURE.md`: current boundaries and next protocol steps.
 - `docs/HASKELL_BROWSER_STATUS.md`: current Haskell/browser status and why the UI ships first.
+- `docs/SECURITY_REVIEW.md`: adversarial review scope, findings, coverage, and release posture.
 
 ## Run
 

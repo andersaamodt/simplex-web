@@ -137,7 +137,8 @@
         return {
           available: true,
           transport_status: normalizeStatus(reported.transport_status || reported.transportStatus, 'connected'),
-          transport_error: limitString(reported.transport_error || reported.transportError || '', MAX_TEXT_LENGTH)
+          transport_error: limitString(reported.transport_error || reported.transportError || '', MAX_TEXT_LENGTH),
+          file_bridge_url: limitString(reported.file_bridge_url || reported.fileBridgeUrl || '', MAX_TEXT_LENGTH)
         };
       }
       return {

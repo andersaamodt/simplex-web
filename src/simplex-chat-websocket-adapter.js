@@ -138,8 +138,8 @@
     var opts = options && typeof options === 'object' ? options : {};
     var url = normalizeUrl(opts.url || opts.webSocketUrl || opts.websocketUrl || opts.endpoint || '');
     var userId = limitString(opts.user_id || opts.userId || opts.active_user_id || opts.activeUserId || '', MAX_LABEL_LENGTH).trim();
-    var fetchImpl = opts.fetchImpl || global.fetch;
-    if (fetchImpl === global.fetch && typeof fetchImpl === 'function' && global) {
+    var fetchImpl = opts.fetchImpl || null;
+    if (fetchImpl && fetchImpl === global.fetch && typeof fetchImpl === 'function' && global) {
       fetchImpl = fetchImpl.bind(global);
     }
     return {
@@ -573,17 +573,41 @@
         'SimpleX file sending needs a loopback simplex-web file bridge because browsers do not expose local file paths'
       ));
     }
-    if (typeof config.fetchImpl !== 'function') {
+    var fetchImpl = config.fetchImpl || global.fetch;
+    if (fetchImpl === global.fetch && typeof fetchImpl === 'function' && global) {
+      fetchImpl = fetchImpl.bind(global);
+    }
+    if (typeof fetchImpl !== 'function') {
       return Promise.reject(makeError(ERROR_CONFIG, 'Browser fetch runtime is unavailable for SimpleX file staging'));
     }
-    return Promise.resolve(config.fetchImpl(config.file_bridge_url + '/files', {
+    var requestOptions = {
       method: 'POST',
       headers: {
         'Content-Type': fileMime(file),
         'X-File-Name': encodeURIComponent(fileName(file))
       },
       body: file
-    })).then(function (resp) {
+    };
+    var timeoutId = null;
+    if (global.AbortController && typeof global.AbortController === 'function' && config.timeout_ms) {
+      var controller = new global.AbortController();
+      requestOptions.signal = controller.signal;
+      timeoutId = global.setTimeout(function () {
+        controller.abort();
+      }, config.timeout_ms);
+    }
+    var fetchPromise;
+    try {
+      fetchPromise = Promise.resolve(fetchImpl(config.file_bridge_url + '/files', requestOptions));
+    } catch (error) {
+      if (timeoutId) global.clearTimeout(timeoutId);
+      return Promise.reject(error);
+    }
+    return fetchPromise.then(function (resp) {
+      if (timeoutId) {
+        global.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       if (!resp || resp.ok === false) {
         throw makeError(ERROR_RESPONSE, 'SimpleX file bridge rejected the attachment');
       }
@@ -596,6 +620,9 @@
         });
       }
       return resp;
+    }, function (error) {
+      if (timeoutId) global.clearTimeout(timeoutId);
+      throw error;
     }).then(function (data) {
       var stagedPath = String(data && (data.filePath || data.file_path || data.path) || '').trim();
       if (!stagedPath) {
@@ -758,7 +785,8 @@
       getStatus: function () {
         return {
           transport_status: 'simplex-chat-websocket',
-          transport_error: ''
+          transport_error: '',
+          file_bridge_url: config.file_bridge_url
         };
       },
       connect: function () {

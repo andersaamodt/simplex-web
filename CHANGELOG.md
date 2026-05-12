@@ -11,6 +11,8 @@
 - Hardened delegated UI click handling so actions resolved outside the mounted root are ignored.
 - Kept plaintext server bridge fallback out of the transport path.
 - Added focused adversarial input coverage for UI rendering, session storage, transport normalization, WebSocket failure paths, file bridge boundaries, and Safari/WebKit rendering behavior.
+- Added live two-daemon SimpleX E2E coverage for the WebSocket adapter using temporary profiles.
+- Added the 2026-05-11 external-review-style security review notes in `docs/SECURITY_REVIEW.md`.
 - Kept Haskell/WASM smoke and chat-core checks as explicit toolchain-dependent validation scripts.
 
 Not included in `1.0.0`:
