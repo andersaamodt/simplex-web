@@ -184,6 +184,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   var sentFiles = [];
   var acceptCalls = [];
   var received = [{
+    duplicate: true,
+    payload: { type: 'duplicate' },
+    msgId: smp.asciiBytes('msg-dup')
+  }, {
     text: 'reply',
     msgId: smp.asciiBytes('msg-1'),
     timestamp: 123n

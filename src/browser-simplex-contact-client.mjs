@@ -9,12 +9,14 @@
 // of disappearing or storing chat plaintext.
 
 import {
+  concatBytes,
   decodeBase64Url,
   decodePublicKeyDer,
   encodeBase64Url,
   formatSmpQueueUri,
   generateX25519KeyPair,
   parseSmpQueueUri,
+  sha256Hash,
   toBytes,
   utf8Bytes,
   utf8Text,
@@ -139,6 +141,19 @@ function parseJsonBytes(bytes, label) {
 
 function ackTaskId(contactId, msgId) {
   return 'ack:' + encodeBase64Url(msgId).slice(0, 96) + ':' + encodeBase64Url(utf8Bytes(safeId(contactId))).slice(0, 48);
+}
+
+function receivedRecordId(contactId, msgId) {
+  var digest = sha256Hash(concatBytes(
+    utf8Bytes(safeId(contactId)),
+    new Uint8Array([0]),
+    toBytes(msgId, 'received message id')
+  ));
+  return 'rx:' + encodeBase64Url(digest);
+}
+
+function receivedBodyHash(body) {
+  return encodeBase64Url(sha256Hash(toBytes(body || new Uint8Array(), 'received encrypted body')));
 }
 
 function outboxQueueId(contact) {
@@ -517,59 +532,106 @@ export class BrowserSimplexContactClient {
     return utf8Text(decrypted.plaintext);
   }
 
+  async acknowledgeOrQueue(contact, queue, msgId, options = {}) {
+    if (options.acknowledge === false) {
+      return { acknowledged: false, ackPending: false, ackError: '' };
+    }
+    try {
+      await this.client.acknowledgeMessage(queue, msgId, {
+        ...options,
+        corrId: options.ackCorrId || options.corrId || ('ack-' + Date.now())
+      });
+      return { acknowledged: true, ackPending: false, ackError: '' };
+    } catch (error) {
+      if (options.retryAckOnFailure === false) throw error;
+      var taskId = ackTaskId(contact.id, msgId);
+      this.scheduler.enqueue(taskId, {
+        type: 'ackMessage',
+        contactId: contact.id,
+        queueId: contact.inboxQueueId || (contact.id + ':inbox'),
+        msgId: encodeBase64Url(msgId),
+        options: { timeoutMs: options.timeoutMs || 0 }
+      });
+      this.scheduler.fail(taskId, error);
+      return {
+        acknowledged: false,
+        ackPending: true,
+        ackError: String(error && error.message || error || '').slice(0, 500)
+      };
+    }
+  }
+
   async receiveNext(id, options = {}) {
     var contact = this.store.loadContact(safeId(id));
     requireState(contact, [CONTACT_STATE_ACTIVE]);
     var queue = options.queue || this.store.loadQueue(contact.id + ':inbox');
     if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact inbox queue is missing');
     var received = await this.client.receiveQueueMessage(queue, options);
+    var msgId = received.message.msgId;
+    var bodyHash = receivedBodyHash(received.message.body);
+    var seenId = receivedRecordId(contact.id, msgId);
+    var seen = this.store.load('received', seenId);
+    if (seen) {
+      if (seen.bodyHash && seen.bodyHash !== bodyHash) {
+        fail('SIMPLEX_CONTACT_REPLAY', 'received message id replay changed the encrypted body');
+      }
+      var duplicateAck = await this.acknowledgeOrQueue(contact, queue, msgId, options);
+      this.store.save('received', seenId, {
+        ...seen,
+        duplicateSeenAt: nowIso(),
+        ackPending: duplicateAck.ackPending,
+        ackError: duplicateAck.ackError,
+        acknowledgedAt: duplicateAck.acknowledged ? nowIso() : seen.acknowledgedAt || ''
+      });
+      return {
+        contactId: contact.id,
+        text: '',
+        payload: { type: 'duplicate' },
+        file: null,
+        msgId,
+        timestamp: seen.timestamp || 0n,
+        flags: seen.flags || {},
+        duplicate: true,
+        ...duplicateAck
+      };
+    }
     var decryptedBody = decryptRcvMessageBody({
       serverDhSecret: queue.serverDhSecret,
-      msgId: received.message.msgId,
+      msgId,
       encryptedBody: received.message.body
     });
     var text = this.receiveText(contact.id, decryptedBody.body);
     var payload = decodeContactPayload(text);
-    var acknowledged = false;
-    var ackPending = false;
-    var ackError = '';
-    if (options.acknowledge !== false) {
-      try {
-        // The plaintext has already been handed to the local ratchet above, so
-        // ACK failures must not hide the message from the website. Instead, the
-        // client records a small retry task that contains the queue id and SMP
-        // message id, but never the decrypted body.
-        await this.client.acknowledgeMessage(queue, received.message.msgId, {
-          ...options,
-          corrId: options.ackCorrId || options.corrId || ('ack-' + Date.now())
-        });
-        acknowledged = true;
-      } catch (error) {
-        if (options.retryAckOnFailure === false) throw error;
-        var taskId = ackTaskId(contact.id, received.message.msgId);
-        this.scheduler.enqueue(taskId, {
-          type: 'ackMessage',
-          contactId: contact.id,
-          queueId: contact.inboxQueueId || (contact.id + ':inbox'),
-          msgId: encodeBase64Url(received.message.msgId),
-          options: { timeoutMs: options.timeoutMs || 0 }
-        });
-        this.scheduler.fail(taskId, error);
-        ackPending = true;
-        ackError = String(error && error.message || error || '').slice(0, 500);
-      }
-    }
+    // Store only metadata and encrypted-body fingerprints before the ACK. If a
+    // server redelivers the same message because ACK failed, the caller will not
+    // receive the plaintext twice and the ratchet will not be replayed.
+    this.store.save('received', seenId, {
+      contactId: contact.id,
+      queueId: contact.inboxQueueId || (contact.id + ':inbox'),
+      msgId: encodeBase64Url(msgId),
+      bodyHash,
+      timestamp: decryptedBody.timestamp,
+      flags: decryptedBody.flags,
+      payloadType: payload.type || 'text',
+      receivedAt: nowIso()
+    });
+    var ack = await this.acknowledgeOrQueue(contact, queue, msgId, options);
+    this.store.save('received', seenId, {
+      ...(this.store.load('received', seenId) || {}),
+      ackPending: ack.ackPending,
+      ackError: ack.ackError,
+      acknowledgedAt: ack.acknowledged ? nowIso() : ''
+    });
     return {
       contactId: contact.id,
       text: payload.type === 'text' ? payload.text : '',
       payload,
       file: payload.type === 'file' ? payload.file : null,
-      msgId: received.message.msgId,
+      msgId,
       timestamp: decryptedBody.timestamp,
       flags: decryptedBody.flags,
-      acknowledged,
-      ackPending,
-      ackError
+      duplicate: false,
+      ...ack
     };
   }
 

@@ -319,6 +319,7 @@ export class SimplexWebTransportAdapter {
           timeoutMs: query.timeout_ms || query.timeoutMs || this.options.receiveTimeoutMs || 100,
           acknowledge: query.acknowledge !== false
         });
+        if (received && received.duplicate) continue;
         var facadeMessage = receivedToFacadeMessage(received);
         messages.push(facadeMessage);
         this.history.push(facadeMessage);

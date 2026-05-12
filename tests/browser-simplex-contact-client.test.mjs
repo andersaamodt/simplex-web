@@ -679,6 +679,92 @@ test('contact client keeps decrypted message and retries ACK after ack transport
   assert.equal(smp.equalBytes(retryAck.command.msgId, msgId), true);
 });
 
+test('contact client ACKs duplicate received message ids without redelivering plaintext', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-replay-ack' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const aliceDh = smp.generateX25519KeyPair(filled(32, 165));
+  const bobDh = smp.generateX25519KeyPair(filled(32, 166));
+  const root = filled(32, 167);
+  const senderRatchet = createRatchetState({ rootKey: root, ownDhKey: aliceDh, remoteDhPublicKey: bobDh.publicKey });
+  const receiverRatchet = createRatchetState({ rootKey: root, ownDhKey: bobDh, initializeSending: false });
+  const queue = {
+    rcvId: filled(24, 168),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 169)),
+    serverDhSecret: filled(32, 170)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+  store.saveRatchet('alice', receiverRatchet);
+
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes('deliver once'), { nonce: filled(24, 171) }).packet;
+  const msgId = filled(24, 172);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 778n,
+    body: packetBytes(packet)
+  });
+  transport.pushResponse('msg-first', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('ack-first', { type: 'OK' }, queue.rcvId);
+  const first = await contacts.receiveNext('alice', { ackCorrId: 'ack-first' });
+  assert.equal(first.text, 'deliver once');
+
+  transport.pushResponse('msg-duplicate', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('ack-duplicate', { type: 'OK' }, queue.rcvId);
+  const duplicate = await contacts.receiveNext('alice', { ackCorrId: 'ack-duplicate' });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.text, '');
+  assert.equal(duplicate.payload.type, 'duplicate');
+  assert.equal(duplicate.acknowledged, true);
+  assert.equal(JSON.stringify(store.list('received'), (_key, value) => (
+    typeof value === 'bigint' ? String(value) : value
+  )).includes('deliver once'), false);
+  const duplicateAck = smp.parseSignedTransmission(4, transport.sent[1].bytes);
+  assert.equal(duplicateAck.command.type, 'ACK');
+  assert.equal(smp.equalBytes(duplicateAck.command.msgId, msgId), true);
+});
+
+test('contact client rejects changed-body replay before ACK side effects', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-replay-tamper' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const aliceDh = smp.generateX25519KeyPair(filled(32, 173));
+  const bobDh = smp.generateX25519KeyPair(filled(32, 174));
+  const root = filled(32, 175);
+  const senderRatchet = createRatchetState({ rootKey: root, ownDhKey: aliceDh, remoteDhPublicKey: bobDh.publicKey });
+  const receiverRatchet = createRatchetState({ rootKey: root, ownDhKey: bobDh, initializeSending: false });
+  const queue = {
+    rcvId: filled(24, 176),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 177)),
+    serverDhSecret: filled(32, 178)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+  store.saveRatchet('alice', receiverRatchet);
+
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes('original'), { nonce: filled(24, 179) }).packet;
+  const msgId = filled(24, 180);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 779n,
+    body: packetBytes(packet)
+  });
+  const changed = new Uint8Array(body);
+  changed[changed.length - 1] ^= 1;
+  transport.pushResponse('msg-original', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('ack-original', { type: 'OK' }, queue.rcvId);
+  await contacts.receiveNext('alice', { ackCorrId: 'ack-original' });
+
+  transport.pushResponse('msg-changed', { type: 'MSG', msgId, body: changed }, queue.rcvId);
+  transport.pushResponse('ack-should-not-send', { type: 'OK' }, queue.rcvId);
+  await assert.rejects(() => contacts.receiveNext('alice', { ackCorrId: 'ack-should-not-send' }), /replay/i);
+  assert.equal(transport.sent.length, 1);
+});
+
 test('contact client uploads files through XFTP and sends only a ratcheted file descriptor', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });

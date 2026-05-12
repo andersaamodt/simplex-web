@@ -134,6 +134,9 @@ Coverage added:
 - Failed-send tests prove retry records contain the already-ratcheted packet
   bytes, do not contain the outbound plaintext, and resend the same encrypted
   packet during retry drain.
+- Replay tests cover duplicate received-message IDs with identical encrypted
+  bodies, proving they are ACKed without ratchet replay or plaintext
+  redelivery, and changed-body replays, proving no ACK side effect happens.
 - ACK-failure tests cover decrypt-success/ACK-failure ordering, prove the
   plaintext is returned to the caller, persist only a non-plaintext ACK retry
   task, and complete that ACK through the retry drain.

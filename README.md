@@ -125,7 +125,7 @@ ratcheted chat layer.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry on transient failure, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, and scrubs contact queue/ratchet/retry secrets on delete.
+- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, and scrubs contact queue/ratchet/retry secrets on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
@@ -418,7 +418,9 @@ const sent = await contacts.sendFile("alice", fileBytes, { name: "notes.txt" });
 
 Inbound queue messages decrypt the server-wrapped received body, decrypt the
 contact ratchet packet, persist the updated ratchet, and acknowledge the SMP
-message:
+message. The client stores only a message-id/body fingerprint for received
+messages, so duplicate broker redelivery can be ACKed without replaying the
+ratchet or returning plaintext twice:
 
 ```js
 const received = await contacts.receiveNext("alice", { ackCorrId: "ack-1" });
