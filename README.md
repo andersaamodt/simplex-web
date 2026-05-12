@@ -56,8 +56,9 @@ What works locally today:
   reassembly, and an HTTPS/`fetch` encrypted chunk transport.
 - Upstream-style XFTP web hello, identity-proof verification, padded handshake,
   binary command blocks, PING, authenticated file-command wrappers,
-  file-level envelope encryption, deterministic chunk planning, verified
-  file upload/download assembly, and transport-encrypted download chunks.
+  file-level envelope encryption, deterministic chunk planning, serializable
+  file descriptions, verified file upload/download assembly, and
+  transport-encrypted download chunks.
 - Binary SMP-over-WebSocket transport for browser-compatible SMP servers.
 - A public website adapter that can register with `window.SimplexWebTransport`
   and send/receive through the browser contact client.
@@ -128,7 +129,7 @@ ratcheted chat layer.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships a browser XFTP-over-HTTPS/fetch transport for encrypted chunk upload, download, and deletion.
-- Ships an upstream-style browser XFTP web client for binary HTTPS/fetch hello, identity proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, full encrypted file upload/download/delete helpers, and transport-encrypted FGET body decryption.
+- Ships an upstream-style browser XFTP web client for binary HTTPS/fetch hello, identity proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, serializable encrypted-file descriptions, full encrypted file upload/download/delete helpers, and transport-encrypted FGET body decryption.
 - Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
 - Ships production browser XFTP server profile validation for encrypted chunk storage endpoints.
 - Ships a binary SMP-over-WebSocket transport profile for browser-reachable SMP servers that expose one padded SMP block per WebSocket frame.
@@ -164,7 +165,7 @@ Not shipped:
 - `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
 - `src/browser-xftp-client.mjs`: browser XFTP encrypted chunk upload/download sequencing over a reviewed server boundary.
 - `src/browser-xftp-http-transport.mjs`: browser XFTP-over-HTTPS/fetch encrypted chunk transport.
-- `src/browser-xftp-web-client.mjs`: upstream-style browser XFTP web handshake, identity proof, binary command transport, command wrappers, file envelope encryption, chunk planning, upload/download/delete helpers, and transport chunk decryption.
+- `src/browser-xftp-web-client.mjs`: upstream-style browser XFTP web handshake, identity proof, binary command transport, command wrappers, file envelope encryption, chunk planning, serializable descriptions, upload/download/delete helpers, and transport chunk decryption.
 - `src/browser-xftp-server-profile.mjs`: production browser XFTP server profile validation.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/interop-vectors.test.mjs`: deterministic local interoperability-vector checks for SMP, agent envelopes, and XFTP chunks.
@@ -187,7 +188,7 @@ Not shipped:
 - `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
 - `tests/browser-xftp-client.test.mjs`: Node tests for encrypted XFTP upload/download, deletion, and tamper rejection.
 - `tests/browser-xftp-http-transport.test.mjs`: Node loopback HTTP/fetch test for encrypted XFTP chunk upload, download, and deletion.
-- `tests/browser-xftp-web-client.test.mjs`: Node loopback HTTP/fetch tests for XFTP web identity proof, PING, authenticated file commands, encrypted file envelopes, upload/download/delete assembly, transport chunk decryption, and tamper rejection.
+- `tests/browser-xftp-web-client.test.mjs`: Node loopback HTTP/fetch tests for XFTP web identity proof, PING, authenticated file commands, encrypted file envelopes, description serialization, upload/download/delete assembly, transport chunk decryption, and tamper rejection.
 - `tests/browser-xftp-server-profile.test.mjs`: Node tests for browser XFTP server profile downgrade rejection.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
@@ -441,6 +442,7 @@ import { createXftpUpload, assembleXftpDownload } from "simplex-web/browser-xftp
 import { createBrowserXftpClient } from "simplex-web/browser-xftp-client";
 import {
   connectBrowserXftpWebClient,
+  encodeXftpWebFileDescription,
   downloadXftpWebFile,
   pingXftpWeb,
   uploadXftpWebFile
@@ -459,7 +461,8 @@ const xftpWeb = await connectBrowserXftpWebClient({
 });
 await pingXftpWeb(xftpWeb);
 const webUpload = await uploadXftpWebFile(xftpWeb, fileBytes, { fileName: "notes.txt" });
-const webDownload = await downloadXftpWebFile(xftpWeb, webUpload.recipientDescription);
+const descriptorText = encodeXftpWebFileDescription(webUpload.recipientDescription);
+const webDownload = await downloadXftpWebFile(xftpWeb, descriptorText);
 ```
 
 The older `browser-xftp-core` and `browser-xftp-client` modules are local
@@ -470,9 +473,12 @@ The newer `browser-xftp-web-client` module is the upstream-style browser XFTP
 web transport: binary fetch requests, web challenge, server identity proof,
 padded handshake, PING, authenticated file-command wrappers, and
 transport-encrypted download chunk verification. It also builds the file-level
-XFTP envelope, plans deterministic encrypted chunks, uploads and downloads those
-chunks through `FNEW`/`FPUT`/`FGET`, and deletes uploaded chunks through `FDEL`.
-That is the path to use for real browser-profile XFTP server interoperability.
+XFTP envelope, plans deterministic encrypted chunks, serializes file
+descriptions into a strict text form for ratcheted delivery, rejects malformed
+or wrong-server descriptions before any network side effect, uploads and
+downloads those chunks through `FNEW`/`FPUT`/`FGET`, and deletes uploaded chunks
+through `FDEL`. That is the path to use for real browser-profile XFTP server
+interoperability.
 
 ## Release Hygiene
 

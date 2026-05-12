@@ -73,6 +73,9 @@ Primary attacker capabilities tested:
 - Exercise upstream-style XFTP web binary fetch handshake, identity proof
   verification, PING, authenticated file-command wrappers, and
   transport-encrypted download chunk verification.
+- Serialize and parse XFTP web file descriptions with bounded, strict text
+  parsing, party checks, contiguous chunk-plan checks, and connected-server
+  matching before descriptor text is accepted for download or deletion.
 - Exercise first-party `window.SimplexWebTransport` adapter sends, file sends,
   receive polling, and in-process browser-contact E2E delivery.
 - Provide a skipped-by-default live interop harness for reviewed non-loopback
@@ -148,10 +151,12 @@ Coverage added:
 - XFTP web loopback tests cover padded browser hello, server identity proof
   verification, padded client handshake, PING, authenticated FNEW/FPUT/FGET/FDEL
   command blocks, file-level envelope encryption, deterministic chunk planning,
-  encrypted file upload/download/delete assembly, transport-encrypted FGET body
-  decryption, digest mismatch rejection, ciphertext tamper rejection, path
-  smuggling rejection, and explicit rejection of missing identity proof outside
-  loopback test mode.
+  strict file-description serialization/parsing, encrypted file
+  upload/download/delete assembly, transport-encrypted FGET body decryption,
+  digest mismatch rejection, malformed descriptor rejection, wrong-party
+  descriptor rejection before side effects, wrong-server descriptor rejection
+  before side effects, ciphertext tamper rejection, path smuggling rejection,
+  and explicit rejection of missing identity proof outside loopback test mode.
 - Local interoperability-vector tests cover stable SMP command/broker/handshake,
   signed transmission, transport-block, agent-envelope, and XFTP fixture bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
@@ -165,7 +170,8 @@ Coverage added:
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server
   profile downgrades, hostile XFTP addresses, hostile facade adapter inputs
-  before contact side effects, and encrypted XFTP client boundary round trips.
+  before contact side effects, hostile XFTP web descriptor text, and encrypted
+  XFTP client boundary round trips.
 
 ### Accepted residual risk: browser WebSocket SMP profile is not raw TCP/TLS SMP
 

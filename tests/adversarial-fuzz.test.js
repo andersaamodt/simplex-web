@@ -305,6 +305,15 @@ test('browser XFTP fuzzing round-trips hostile byte payloads and rejects tamperi
   }), { numRuns: 120, seed: FUZZ_SEED + 5 });
 });
 
+test('browser XFTP web description fuzzing rejects hostile descriptor text', async () => {
+  const { decodeXftpWebFileDescription } = await import('../src/browser-xftp-web-client.mjs');
+
+  await fc.assert(fc.asyncProperty(hostileString, async (text) => {
+    fc.pre(!String(text == null ? '' : text).startsWith('simplexWebXftpDescription: 1\n'));
+    assert.throws(() => decodeXftpWebFileDescription(text), /description|base64|size|party/i);
+  }), { numRuns: 120, seed: FUZZ_SEED + 12 });
+});
+
 test('browser SMP server profile fuzzing rejects unsafe production downgrades', async () => {
   const { assertProductionBrowserSmpServerProfile } = await import('../src/browser-smp-server-profile.mjs');
   const { encodeBase64Url } = await import('../src/browser-smp-core.mjs');

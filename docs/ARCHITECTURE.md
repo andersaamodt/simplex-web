@@ -39,9 +39,9 @@ framework app:
    server profiles before encrypted file chunks are uploaded or downloaded.
 14. `src/browser-xftp-web-client.mjs` implements the upstream-style browser
    XFTP web profile: binary fetch transport, web challenge, identity proof,
-   padded handshake, PING, authenticated file-command wrappers, and
-   file-level encrypted upload/download assembly with transport-encrypted
-   download chunk verification.
+   padded handshake, PING, authenticated file-command wrappers, serializable
+   file descriptions, and file-level encrypted upload/download assembly with
+   transport-encrypted download chunk verification.
 15. `src/browser-smp-server-profile.mjs` validates production browser SMP server
    profiles before a browser endpoint is trusted.
 16. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
@@ -93,7 +93,7 @@ Safari automation, and wasm GHC without a bundler.
 - encrypted XFTP chunk upload/download sequencing over a reviewed server boundary
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
 - browser XFTP server profile validation for encrypted chunk storage endpoints
-- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, upload/download/delete helpers, and transport-encrypted FGET chunk decryption
+- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, strict text file-description serialization, upload/download/delete helpers, and transport-encrypted FGET chunk decryption
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
@@ -338,13 +338,17 @@ profile. It sends binary blocks with `fetch`, starts with a padded web hello and
 hash, sends a padded client handshake, and then moves one padded XFTP command
 block per request. It now covers `PING` plus authenticated `FNEW`, `FPUT`,
 `FGET`, and `FDEL` command wrappers. Above that command layer it encrypts the
-upstream-style file envelope, pads to deterministic XFTP chunk sizes, uploads
-encrypted chunks, downloads and verifies every encrypted chunk, decrypts the
-file envelope, and deletes uploaded chunks from sender descriptions. `FGET`
-download bodies are decrypted as transport-encrypted XSalsa20-Poly1305 chunks
-and checked against the expected SHA-256 chunk digest before the encrypted file
-chunk is returned. The local loopback test exercises those commands through a
-real HTTP server; live non-loopback coverage is gated through
+upstream-style file envelope, pads to deterministic XFTP chunk sizes, serializes
+recipient/sender file descriptions into a strict text form, uploads encrypted
+chunks, downloads and verifies every encrypted chunk, decrypts the file
+envelope, and deletes uploaded chunks from sender descriptions. Description
+parsing enforces the party, bounded replica counts, contiguous chunk numbers and
+offsets, total encrypted size, and connected-server match before a recipient or
+sender key can be used in a network command. `FGET` download bodies are
+decrypted as transport-encrypted XSalsa20-Poly1305 chunks and checked against
+the expected SHA-256 chunk digest before the encrypted file chunk is returned.
+The local loopback test exercises those commands through a real HTTP server;
+live non-loopback coverage is gated through
 `tests/live-interop.test.mjs`.
 
 ## Browser SMP Server Profile

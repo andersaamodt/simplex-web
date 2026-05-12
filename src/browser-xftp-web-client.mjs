@@ -55,6 +55,8 @@ export const XFTP_WEB_SMALL_CHUNK_SIZE = 64 * 1024;
 export const XFTP_WEB_MEDIUM_CHUNK_SIZE = 256 * 1024;
 export const XFTP_WEB_LARGE_CHUNK_SIZE = 1024 * 1024;
 export const XFTP_WEB_HUGE_CHUNK_SIZE = 4 * 1024 * 1024;
+export const XFTP_WEB_MAX_DESCRIPTION_CHUNKS = 4096;
+export const XFTP_WEB_MAX_DESCRIPTION_REPLICAS = 16;
 
 export class BrowserXftpWebClientError extends Error {
   constructor(code, message) {
@@ -489,6 +491,48 @@ function normalizeXftpWebFileNonce(nonce) {
 
 function xftpWebSha512Hash(bytes) {
   return sha512(toBytes(bytes, 'XFTP SHA-512 input'));
+}
+
+function encodeBase64UrlPadded(bytes) {
+  var text = encodeBase64Url(bytes);
+  while (text.length % 4) text += '=';
+  return text;
+}
+
+function encodeMaybeBase64UrlString(value) {
+  if (value == null) return '-';
+  return encodeBase64UrlPadded(utf8Bytes(String(value)));
+}
+
+function decodeMaybeBase64UrlString(value, label) {
+  var text = String(value == null ? '' : value).trim();
+  if (text === '-') return null;
+  try {
+    return utf8Text(decodeBase64Url(text, label));
+  } catch (_error) {
+    fail('XFTP_WEB_DESCRIPTION', label + ' is invalid');
+  }
+}
+
+function formatXftpWebDescriptionSize(value) {
+  var n = safeInteger(value, 'XFTP description size', 0, Number.MAX_SAFE_INTEGER);
+  if (n >= XFTP_WEB_HUGE_CHUNK_SIZE && n % XFTP_WEB_HUGE_CHUNK_SIZE === 0) return String(n / XFTP_WEB_HUGE_CHUNK_SIZE * 4) + 'mb';
+  if (n >= 1024 * 1024 && n % (1024 * 1024) === 0) return String(n / (1024 * 1024)) + 'mb';
+  if (n >= 1024 && n % 1024 === 0) return String(n / 1024) + 'kb';
+  return String(n);
+}
+
+function parseXftpWebDescriptionSize(value, label) {
+  var match = /^([0-9]+)(kb|mb|gb)?$/i.exec(String(value == null ? '' : value).trim());
+  if (!match) fail('XFTP_WEB_DESCRIPTION', label + ' is not a valid size');
+  var multiplier = match[2] ? { kb: 1024, mb: 1024 * 1024, gb: 1024 * 1024 * 1024 }[match[2].toLowerCase()] : 1;
+  return safeInteger(Number(match[1]) * multiplier, label, 0, Number.MAX_SAFE_INTEGER);
+}
+
+function parseXftpWebDescriptionBytes(value, label, length = null) {
+  var bytes = decodeBase64Url(String(value == null ? '' : value).trim(), label);
+  if (length != null && bytes.length !== length) fail('XFTP_WEB_DESCRIPTION', label + ' has the wrong length');
+  return bytes;
 }
 
 export function encryptXftpWebFileEnvelope(source, options = {}) {
@@ -982,10 +1026,165 @@ function xftpWebAddressFromClient(client, options = {}) {
   });
 }
 
+function normalizedXftpWebServerAddress(address) {
+  var parsed = parseXftpWebServerAddress(address);
+  return {
+    keyHash: parsed.keyHash,
+    host: String(parsed.host || '').toLowerCase(),
+    port: String(parsed.port || '443')
+  };
+}
+
+function assertXftpWebReplicaServerMatchesClient(client, replica, options = {}) {
+  if (options.allowReplicaServerMismatchForTests === true) return;
+  var expected = normalizedXftpWebServerAddress(xftpWebAddressFromClient(client, options));
+  var got = normalizedXftpWebServerAddress(replica.server);
+  if (!equalBytes(got.keyHash, expected.keyHash) || got.host !== expected.host || got.port !== expected.port) {
+    fail('XFTP_WEB_DESCRIPTION', 'XFTP replica server does not match the connected client');
+  }
+}
+
+function readDescriptionLine(lines, index, pattern, label) {
+  if (index >= lines.length) fail('XFTP_WEB_DESCRIPTION', label + ' is missing');
+  var match = pattern.exec(lines[index]);
+  if (!match) fail('XFTP_WEB_DESCRIPTION', label + ' is invalid');
+  return match;
+}
+
+export function encodeXftpWebFileDescription(description) {
+  var desc = normalizeXftpWebDescription(description);
+  var lines = [
+    'simplexWebXftpDescription: 1',
+    'party: ' + desc.party,
+    'size: ' + formatXftpWebDescriptionSize(desc.size),
+    'digest: ' + encodeBase64UrlPadded(desc.digest),
+    'key: ' + encodeBase64UrlPadded(desc.key),
+    'nonce: ' + encodeBase64UrlPadded(desc.nonce),
+    'chunkSize: ' + formatXftpWebDescriptionSize(desc.chunkSize || desc.chunks[0].chunkSize),
+    'fileName: ' + encodeMaybeBase64UrlString(desc.fileName || 'file'),
+    'fileExtra: ' + encodeMaybeBase64UrlString(desc.fileExtra),
+    'chunks:'
+  ];
+  for (var chunk of sortDescriptionChunks(desc)) {
+    lines.push('  - chunkNo: ' + safeInteger(chunk.chunkNo, 'XFTP chunk number', 1, 0xffffffff));
+    lines.push('    offset: ' + safeInteger(chunk.offset || 0, 'XFTP chunk offset', 0, Number.MAX_SAFE_INTEGER));
+    lines.push('    chunkSize: ' + formatXftpWebDescriptionSize(chunk.chunkSize));
+    lines.push('    digest: ' + encodeBase64UrlPadded(chunk.digest));
+    lines.push('    replicas:');
+    for (var replica of chunk.replicas) {
+      lines.push('      - server: ' + replica.server);
+      lines.push('        replicaId: ' + encodeBase64UrlPadded(replica.replicaId));
+      lines.push('        replicaKey: ' + encodeBase64UrlPadded(replica.replicaKey));
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
+export function decodeXftpWebFileDescription(text) {
+  var raw = String(text == null ? '' : text);
+  if (!raw || raw.length > 1024 * 1024) fail('XFTP_WEB_DESCRIPTION', 'XFTP file description size is invalid');
+  var lines = raw.split(/\r?\n/).filter((line) => line.trim() && !/^\s*#/.test(line));
+  var i = 0;
+  readDescriptionLine(lines, i++, /^simplexWebXftpDescription: 1$/, 'description marker');
+  var party = readDescriptionLine(lines, i++, /^party: (recipient|sender)$/, 'description party')[1];
+  var size = parseXftpWebDescriptionSize(readDescriptionLine(lines, i++, /^size: ([0-9]+(?:kb|mb|gb)?)$/i, 'description size')[1], 'XFTP description size');
+  var digest = parseXftpWebDescriptionBytes(readDescriptionLine(lines, i++, /^digest: ([A-Za-z0-9_-]+={0,2})$/, 'description digest')[1], 'XFTP description digest', 64);
+  var key = parseXftpWebDescriptionBytes(readDescriptionLine(lines, i++, /^key: ([A-Za-z0-9_-]+={0,2})$/, 'description key')[1], 'XFTP description key', 32);
+  var nonce = parseXftpWebDescriptionBytes(readDescriptionLine(lines, i++, /^nonce: ([A-Za-z0-9_-]+={0,2})$/, 'description nonce')[1], 'XFTP description nonce', 24);
+  var chunkSize = parseXftpWebDescriptionSize(readDescriptionLine(lines, i++, /^chunkSize: ([0-9]+(?:kb|mb|gb)?)$/i, 'description chunk size')[1], 'XFTP description chunk size');
+  var fileName = decodeMaybeBase64UrlString(readDescriptionLine(lines, i++, /^fileName: ([A-Za-z0-9_-]+={0,2}|-)$/, 'description file name')[1], 'XFTP description file name');
+  var fileExtra = decodeMaybeBase64UrlString(readDescriptionLine(lines, i++, /^fileExtra: ([A-Za-z0-9_-]+={0,2}|-)$/, 'description file extra')[1], 'XFTP description file extra');
+  readDescriptionLine(lines, i++, /^chunks:$/, 'description chunks marker');
+  var chunks = [];
+  while (i < lines.length) {
+    var chunkNo = safeInteger(readDescriptionLine(lines, i++, /^  - chunkNo: ([0-9]+)$/, 'chunk number')[1], 'XFTP chunk number', 1, 0xffffffff);
+    var offset = safeInteger(readDescriptionLine(lines, i++, /^    offset: ([0-9]+)$/, 'chunk offset')[1], 'XFTP chunk offset', 0, Number.MAX_SAFE_INTEGER);
+    var nextChunkSize = parseXftpWebDescriptionSize(readDescriptionLine(lines, i++, /^    chunkSize: ([0-9]+(?:kb|mb|gb)?)$/i, 'chunk size')[1], 'XFTP chunk size');
+    var chunkDigest = parseXftpWebDescriptionBytes(readDescriptionLine(lines, i++, /^    digest: ([A-Za-z0-9_-]+={0,2})$/, 'chunk digest')[1], 'XFTP chunk digest', 32);
+    readDescriptionLine(lines, i++, /^    replicas:$/, 'chunk replicas marker');
+    var replicas = [];
+    while (i < lines.length && /^      - server: /.test(lines[i])) {
+      var server = readDescriptionLine(lines, i++, /^      - server: (xftp:\/\/[A-Za-z0-9_-]+={0,2}@[^:#,;\/\s]+(?::[0-9]+)?)$/, 'replica server')[1];
+      parseXftpWebServerAddress(server);
+      var replicaId = parseXftpWebDescriptionBytes(readDescriptionLine(lines, i++, /^        replicaId: ([A-Za-z0-9_-]+={0,2})$/, 'replica id')[1], 'XFTP replica id');
+      var replicaKey = parseXftpWebDescriptionBytes(readDescriptionLine(lines, i++, /^        replicaKey: ([A-Za-z0-9_-]+={0,2})$/, 'replica key')[1], 'XFTP replica key');
+      replicas.push({ server, replicaId, replicaKey });
+    }
+    chunks.push({ chunkNo, offset, chunkSize: nextChunkSize, digest: chunkDigest, replicas });
+  }
+  return normalizeXftpWebDescription({
+    party,
+    size,
+    digest,
+    key,
+    nonce,
+    chunkSize,
+    fileName: safeXftpWebFileName(fileName || 'file'),
+    fileExtra,
+    chunks
+  });
+}
+
+function validateXftpWebDescriptionChunkPlan(description) {
+  var expectedOffset = 0;
+  var sorted = [...description.chunks].sort((left, right) => left.chunkNo - right.chunkNo);
+  for (var index = 0; index < sorted.length; index += 1) {
+    var chunk = sorted[index];
+    if (chunk.chunkNo !== index + 1) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk numbers must be contiguous');
+    if (chunk.offset !== expectedOffset) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk offsets must be contiguous');
+    expectedOffset += chunk.chunkSize;
+  }
+  if (expectedOffset !== description.size) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk sizes do not match the encrypted file size');
+}
+
 function normalizeXftpWebDescription(description) {
+  if (typeof description === 'string') return decodeXftpWebFileDescription(description);
   var desc = description && typeof description === 'object' ? description : {};
-  if (!Array.isArray(desc.chunks) || !desc.chunks.length) fail('XFTP_WEB_DESCRIPTION', 'XFTP file description has no chunks');
-  return desc;
+  var party = String(desc.party || '').trim();
+  if (party !== 'recipient' && party !== 'sender') fail('XFTP_WEB_DESCRIPTION', 'XFTP file description party is invalid');
+  var chunks = Array.isArray(desc.chunks) ? desc.chunks : [];
+  if (!chunks.length) fail('XFTP_WEB_DESCRIPTION', 'XFTP file description has no chunks');
+  if (chunks.length > XFTP_WEB_MAX_DESCRIPTION_CHUNKS) fail('XFTP_WEB_DESCRIPTION', 'XFTP file description has too many chunks');
+  var normalized = {
+    party,
+    size: safeInteger(desc.size, 'XFTP description size', 0, Number.MAX_SAFE_INTEGER),
+    digest: toBytes(desc.digest || new Uint8Array(), 'XFTP description digest'),
+    key: toBytes(desc.key || new Uint8Array(), 'XFTP description key'),
+    nonce: toBytes(desc.nonce || new Uint8Array(), 'XFTP description nonce'),
+    chunkSize: safeInteger(desc.chunkSize || chunks[0].chunkSize, 'XFTP description chunk size', 1, 0xffffffff),
+    fileName: safeXftpWebFileName(desc.fileName || 'file'),
+    fileExtra: desc.fileExtra == null ? null : String(desc.fileExtra),
+    chunks: []
+  };
+  if (normalized.digest.length !== 64) fail('XFTP_WEB_DESCRIPTION', 'XFTP description digest has the wrong length');
+  if (normalized.key.length !== 32) fail('XFTP_WEB_DESCRIPTION', 'XFTP description key has the wrong length');
+  if (normalized.nonce.length !== 24) fail('XFTP_WEB_DESCRIPTION', 'XFTP description nonce has the wrong length');
+  for (var chunk of chunks) {
+    var replicas = Array.isArray(chunk.replicas) ? chunk.replicas : [];
+    if (!replicas.length) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk has no replicas');
+    if (replicas.length > XFTP_WEB_MAX_DESCRIPTION_REPLICAS) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk has too many replicas');
+    var normalizedChunk = {
+      chunkNo: safeInteger(chunk.chunkNo, 'XFTP chunk number', 1, 0xffffffff),
+      offset: safeInteger(chunk.offset || 0, 'XFTP chunk offset', 0, Number.MAX_SAFE_INTEGER),
+      chunkSize: safeInteger(chunk.chunkSize, 'XFTP chunk size', 1, 0xffffffff),
+      digest: toBytes(chunk.digest || new Uint8Array(), 'XFTP chunk digest'),
+      replicas: replicas.map((replica) => {
+        var server = String(replica.server || '').trim();
+        parseXftpWebServerAddress(server);
+        var replicaId = toBytes(replica.replicaId || new Uint8Array(), 'XFTP replica id');
+        var replicaKey = toBytes(replica.replicaKey || new Uint8Array(), 'XFTP replica key');
+        if (!replicaId.length || replicaId.length > 255) fail('XFTP_WEB_DESCRIPTION', 'XFTP replica id length is invalid');
+        if (replicaKey.length !== 32 && replicaKey.length !== ED25519_PKCS8_PREFIX.length + 32) {
+          fail('XFTP_WEB_DESCRIPTION', 'XFTP replica key length is invalid');
+        }
+        return { server, replicaId, replicaKey };
+      })
+    };
+    if (normalizedChunk.digest.length !== 32) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk digest has the wrong length');
+    normalized.chunks.push(normalizedChunk);
+  }
+  validateXftpWebDescriptionChunkPlan(normalized);
+  return normalized;
 }
 
 function firstReplica(chunk) {
@@ -995,6 +1194,28 @@ function firstReplica(chunk) {
 
 function sortDescriptionChunks(description) {
   return [...normalizeXftpWebDescription(description).chunks].sort((left, right) => left.chunkNo - right.chunkNo);
+}
+
+function sortUploadedXftpWebDeleteChunks(description) {
+  var source = typeof description === 'string' ? normalizeXftpWebDescription(description) : (description && typeof description === 'object' ? description : {});
+  if (source.party != null && String(source.party).trim() !== 'sender') {
+    fail('XFTP_WEB_DESCRIPTION', 'XFTP delete requires a sender file description');
+  }
+  var chunks = Array.isArray(source.chunks) ? source.chunks : [];
+  if (!chunks.length) fail('XFTP_WEB_DESCRIPTION', 'XFTP delete description has no chunks');
+  return chunks.map((chunk) => ({
+    ...chunk,
+    chunkNo: safeInteger(chunk.chunkNo, 'XFTP chunk number', 1, 0xffffffff),
+    replicas: (Array.isArray(chunk.replicas) ? chunk.replicas : []).map((replica) => {
+      var replicaId = toBytes(replica.replicaId || new Uint8Array(), 'XFTP delete replica id');
+      if (!replicaId.length || replicaId.length > 255) fail('XFTP_WEB_DESCRIPTION', 'XFTP delete replica id length is invalid');
+      return {
+        ...replica,
+        replicaId,
+        replicaKey: toBytes(replica.replicaKey || replica.privateKey || replica.privateKeyDer || new Uint8Array(), 'XFTP delete replica key')
+      };
+    })
+  })).sort((left, right) => left.chunkNo - right.chunkNo);
 }
 
 export async function uploadXftpWebFile(client, source, options = {}) {
@@ -1095,6 +1316,7 @@ export async function uploadXftpWebFile(client, source, options = {}) {
 
 export async function downloadXftpWebFile(client, description, options = {}) {
   var desc = normalizeXftpWebDescription(description);
+  if (desc.party !== 'recipient') fail('XFTP_WEB_DESCRIPTION', 'XFTP download requires a recipient file description');
   var encryptedChunks = [];
   var totalSize = 0;
   // Download starts from the recipient description: authenticate each server
@@ -1102,6 +1324,7 @@ export async function downloadXftpWebFile(client, description, options = {}) {
   // whole file envelope only after all chunks have arrived.
   for (var chunk of sortDescriptionChunks(desc)) {
     var replica = options.chooseReplica ? options.chooseReplica(chunk) : firstReplica(chunk);
+    assertXftpWebReplicaServerMatchesClient(client, replica, options);
     var seed = decodeXftpWebEd25519PrivateKeyDer(replica.replicaKey || replica.privateKey || replica.privateKeyDer);
     var downloaded = await downloadXftpWebFileChunk(client, {
       privateKey: seed,
@@ -1130,8 +1353,9 @@ export async function downloadXftpWebFile(client, description, options = {}) {
 }
 
 export async function deleteUploadedXftpWebFile(client, senderDescription, options = {}) {
-  for (var chunk of sortDescriptionChunks(senderDescription)) {
+  for (var chunk of sortUploadedXftpWebDeleteChunks(senderDescription)) {
     var replica = options.chooseReplica ? options.chooseReplica(chunk) : firstReplica(chunk);
+    assertXftpWebReplicaServerMatchesClient(client, replica, options);
     var seed = decodeXftpWebEd25519PrivateKeyDer(replica.replicaKey || replica.privateKey || replica.privateKeyDer);
     await deleteXftpWebFile(client, {
       privateKey: seed,
@@ -1147,11 +1371,14 @@ export default {
   XFTP_WEB_FILE_SIZE_PREFIX_LENGTH,
   XFTP_WEB_HUGE_CHUNK_SIZE,
   XFTP_WEB_LARGE_CHUNK_SIZE,
+  XFTP_WEB_MAX_DESCRIPTION_CHUNKS,
+  XFTP_WEB_MAX_DESCRIPTION_REPLICAS,
   XFTP_WEB_MEDIUM_CHUNK_SIZE,
   XFTP_WEB_SMALL_CHUNK_SIZE,
   connectBrowserXftpWebClient,
   createXftpWebFile,
   decodeXftpWebBrokerTransmission,
+  decodeXftpWebFileDescription,
   decodeXftpWebFileHeader,
   decodeXftpWebResponse,
   decodeXftpWebServerHandshake,
@@ -1162,6 +1389,7 @@ export default {
   deleteXftpWebFile,
   downloadXftpWebFile,
   downloadXftpWebFileChunk,
+  encodeXftpWebFileDescription,
   encodeXftpWebFileHeader,
   encodeXftpWebAuthTransmission,
   encodeXftpWebClientHandshake,

@@ -23,6 +23,7 @@ import {
   connectBrowserXftpWebClient,
   createXftpWebFile,
   decryptXftpWebFileEnvelope,
+  decodeXftpWebFileDescription,
   decodeXftpWebResponse,
   decodeXftpWebTransmission,
   decodeXftpWebServerHandshake,
@@ -32,6 +33,7 @@ import {
   downloadXftpWebFile,
   downloadXftpWebFileChunk,
   encryptXftpWebFileEnvelope,
+  encodeXftpWebFileDescription,
   encodeXftpWebClientHandshake,
   encodeXftpWebClientHello,
   encodeXftpWebFNEW,
@@ -394,11 +396,29 @@ test('XFTP web client uploads downloads and deletes encrypted file descriptions'
     assert.equal(uploaded.senderDescription.party, 'sender');
     assert.equal(uploaded.recipientDescription.chunks.length, 2);
     assert.equal(uploaded.senderDescription.chunks.length, 2);
+    var encodedRecipient = encodeXftpWebFileDescription(uploaded.recipientDescription);
+    var encodedSender = encodeXftpWebFileDescription(uploaded.senderDescription);
+    assert.match(encodedRecipient, /^simplexWebXftpDescription: 1\nparty: recipient\n/);
+    assert.equal(decodeXftpWebFileDescription(encodedRecipient).chunks.length, 2);
+    assert.throws(() => decodeXftpWebFileDescription(encodedRecipient.replace('  - chunkNo: 2', '  - chunkNo: 1')), /chunk numbers/i);
+    assert.throws(() => decodeXftpWebFileDescription(encodedRecipient.replace('    offset: 65536', '    offset: 1')), /chunk offsets/i);
 
-    var downloaded = await downloadXftpWebFile(client, uploaded.recipientDescription);
+    var commandCountBeforeRejectedDescriptions = transcript.filter((row) => row.type === 'command').length;
+    await assert.rejects(() => downloadXftpWebFile(client, encodedSender), /recipient file description/i);
+    await assert.rejects(() => deleteUploadedXftpWebFile(client, encodedRecipient), /sender file description/i);
+    var mismatchedServer = encodedRecipient.replace(
+      /^      - server: .+$/m,
+      '      - server: xftp://' + Buffer.from(filled(32, 120)).toString('base64url') + '@xftp.evil.test:443'
+    );
+    await assert.rejects(() => downloadXftpWebFile(client, mismatchedServer), /server does not match/i);
+    assert.equal(transcript.filter((row) => row.type === 'command').length, commandCountBeforeRejectedDescriptions);
+
+    var downloaded = await downloadXftpWebFile(client, encodedRecipient);
     assert.equal(downloaded.header.fileName, 'browser.bin');
     assert.equal(downloaded.header.fileExtra, 'fixture');
     assert.equal(equalBytes(downloaded.content, source), true);
+    assert.throws(() => decodeXftpWebFileDescription(encodedRecipient.replace(/^digest: .+$/m, 'digest: AAAA')), /wrong length/i);
+    assert.throws(() => decodeXftpWebFileDescription(encodedRecipient.replace('party: recipient', 'party: stranger')), /party/i);
 
     var tampered = {
       ...uploaded.recipientDescription,
@@ -410,7 +430,7 @@ test('XFTP web client uploads downloads and deletes encrypted file descriptions'
     };
     await assert.rejects(() => downloadXftpWebFile(client, tampered), /digest mismatch/i);
 
-    await deleteUploadedXftpWebFile(client, uploaded.senderDescription);
+    await deleteUploadedXftpWebFile(client, encodedSender);
     assert.deepEqual(transcript.filter((row) => row.type === 'command').map((row) => row.command), [
       'FNEW',
       'FPUT',
