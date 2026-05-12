@@ -26,6 +26,7 @@ Reviewed release surface:
 - `src/browser-xftp-client.mjs`
 - `src/browser-xftp-core.mjs`
 - `src/browser-xftp-server-profile.mjs`
+- `src/browser-xftp-web-client.mjs`
 - Haskell/WASM scaffolds and runtime wrappers
 - Browser examples and release documentation
 
@@ -68,6 +69,8 @@ Primary attacker capabilities tested:
 - Tamper with XFTP chunks, manifests, sizes, hashes, and server chunk responses.
 - Exercise real loopback `fetch` upload, download, and deletion for encrypted
   XFTP chunks without exposing plaintext bytes to request bodies.
+- Exercise upstream-style XFTP web binary fetch handshake, identity proof
+  verification, PING, and authenticated file-command wrappers.
 - Provide a skipped-by-default live interop harness for reviewed non-loopback
   SMP/XFTP browser-profile endpoints.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
@@ -134,13 +137,17 @@ Coverage added:
 - Live loopback XFTP HTTP tests cover actual `fetch` transport behavior and
   verify server request bodies contain encrypted chunk packets, not plaintext
   file bytes.
+- XFTP web loopback tests cover padded browser hello, server identity proof
+  verification, padded client handshake, PING, authenticated FNEW/FPUT/FGET/FDEL
+  command blocks, and explicit rejection of missing identity proof outside
+  loopback test mode.
 - Local interoperability-vector tests cover stable SMP command/broker/handshake,
   signed transmission, transport-block, agent-envelope, and XFTP fixture bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
   browser SMP transport profile without reintroducing a plaintext bridge.
 - Skipped-by-default live interop tests define the required non-loopback proof
-  for browser-profile SMP WebSocket PING/PONG and browser-profile XFTP HTTPS
-  encrypted chunk upload/download/delete.
+  for browser-profile SMP WebSocket PING/PONG and upstream-style XFTP web
+  HTTPS handshake, identity proof, and PING/PONG.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server
@@ -159,11 +166,12 @@ directly speak the existing raw TCP/TLS SMP transport.
 
 The repo now contains browser-native SMP primitives, agent envelope helpers,
 queue orchestration, contact state, durable ratchet storage, retry scheduling,
-XFTP-style chunks, an encrypted-chunk XFTP client, and reviewed browser
-SMP/XFTP server profile validators. It also contains a skipped-by-default live
-interop harness in `tests/live-interop.test.mjs`. It still needs that harness to
-pass against reviewed browser-profile SMP/XFTP servers and upstream-certified
-SimpleX fixture bytes before claiming production network interoperability.
+XFTP-style chunks, an encrypted-chunk XFTP client, an upstream-style XFTP web
+client, and reviewed browser SMP/XFTP server profile validators. It also
+contains a skipped-by-default live interop harness in
+`tests/live-interop.test.mjs`. It still needs that harness to pass against
+reviewed browser-profile SMP/XFTP servers and upstream-certified SimpleX
+fixture bytes before claiming production network interoperability.
 
 ## Executed Coverage
 

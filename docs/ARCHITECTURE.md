@@ -35,15 +35,18 @@ framework app:
    sequencing against a reviewed browser XFTP server boundary.
 12. `src/browser-xftp-server-profile.mjs` validates production browser XFTP
    server profiles before encrypted file chunks are uploaded or downloaded.
-13. `src/browser-smp-server-profile.mjs` validates production browser SMP server
+13. `src/browser-xftp-web-client.mjs` implements the upstream-style browser
+   XFTP web profile: binary fetch transport, web challenge, identity proof,
+   padded handshake, PING, and authenticated file-command wrappers.
+14. `src/browser-smp-server-profile.mjs` validates production browser SMP server
    profiles before a browser endpoint is trusted.
-14. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
+15. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
    transport profile. It sends and receives one padded binary SMP block per
    WebSocket frame for compatible SMP servers.
-15. `src/transport.js` is the public browser API. It is unavailable until an
+16. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-16. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+17. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -86,6 +89,7 @@ Safari automation, and wasm GHC without a bundler.
 - encrypted XFTP chunk upload/download sequencing over a reviewed server boundary
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
 - browser XFTP server profile validation for encrypted chunk storage endpoints
+- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, and authenticated FNEW/FPUT/FGET/FDEL command wrappers
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
@@ -153,6 +157,7 @@ server bridge:
 - contact request/accept lifecycle, file-transfer payloads, and retry scheduling
 - XFTP-style encrypted file chunks
 - an encrypted-chunk browser XFTP client and production XFTP server profile validation
+- an upstream-style browser XFTP web transport and command profile
 - production browser SMP server profile validation
 
 ## Integration contract
@@ -315,6 +320,15 @@ profile, lists allowed origins, requires encrypted chunks, and keeps retention
 bounded. This is a browser profile for encrypted XFTP storage, not direct raw
 TCP/TLS access to existing native XFTP servers.
 
+`src/browser-xftp-web-client.mjs` is the upstream-style browser XFTP web client
+profile. It sends binary blocks with `fetch`, starts with a padded web hello and
+32-byte challenge, verifies the server identity proof against the configured key
+hash, sends a padded client handshake, and then moves one padded XFTP command
+block per request. It now covers `PING` plus authenticated `FNEW`, `FPUT`,
+`FGET`, and `FDEL` command wrappers. The local loopback test exercises those
+commands through a real HTTP server; live non-loopback coverage is gated through
+`tests/live-interop.test.mjs`.
+
 ## Browser SMP Server Profile
 
 `src/browser-smp-server-profile.mjs` validates browser SMP server profiles. A
@@ -343,8 +357,8 @@ browser-profile SMP server interoperability result.
 `tests/live-interop.test.mjs` is the non-loopback contract. It is skipped unless
 `SIMPLEX_WEB_LIVE_ENABLE=1` and reviewed endpoint variables are present. When
 enabled, it checks a real browser-profile SMP WebSocket handshake plus PING/PONG
-and a real browser-profile XFTP HTTPS encrypted-chunk upload/download/delete
-cycle. See `docs/LIVE_INTEROP.md`.
+and a real upstream-style XFTP web HTTPS handshake, identity proof, and
+PING/PONG. See `docs/LIVE_INTEROP.md`.
 
 This profile is browser-native protocol transport, but it is not a claim that
 ordinary browser JavaScript can speak the upstream raw TCP/TLS transport. Browser
@@ -358,7 +372,10 @@ as part of the protocol, not as a website plaintext bridge.
 1. Point the live SMP/XFTP harness at reviewed browser-profile servers and keep
    the passing run metadata outside the repo unless it is scrubbed release
    evidence.
-2. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
-3. Review the browser-profile SMP/XFTP server specifications against upstream
+2. Extend the live XFTP web harness from non-destructive PING to disposable
+   FNEW/FPUT/FGET/FDEL file-command interoperability once a reviewed endpoint is
+   available.
+3. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
+4. Review the browser-profile SMP/XFTP server specifications against upstream
    SimpleX security goals before describing any deployment as production
    interoperable.

@@ -22,7 +22,7 @@ In practical website terms, `simplex-web` gives you three layers:
   transmissions, encrypted agent envelopes, contact setup, ratchets, retries,
   and encrypted XFTP-style file chunks.
 - Browser transport profiles for compatible servers: SMP over binary WebSocket
-  blocks and XFTP encrypted chunk storage over HTTPS/`fetch`.
+  blocks and upstream-style XFTP web blocks over HTTPS/`fetch`.
 
 It is independent of SimpleX while implementing the same protocol concepts.
 SimpleX, SimpleX Chat, and related marks belong to their respective owners.
@@ -49,6 +49,8 @@ What works locally today:
 - Browser-owned double-ratchet message encryption.
 - Encrypted XFTP-style file chunking, upload/download sequencing, verified
   reassembly, and an HTTPS/`fetch` encrypted chunk transport.
+- Upstream-style XFTP web hello, identity-proof verification, padded handshake,
+  binary command blocks, PING, and authenticated file-command wrappers.
 - Binary SMP-over-WebSocket transport for browser-compatible SMP servers.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
   tests, skipped-by-default live interop tests, fuzz/property tests, browser
@@ -72,7 +74,8 @@ The current tree includes a handwritten browser-native SMP protocol core in
 `src/browser-simplex-scheduler.mjs`, XFTP chunk/manifest helpers in
 `src/browser-xftp-core.mjs`, an encrypted-chunk XFTP client in
 `src/browser-xftp-client.mjs`, an HTTPS/fetch encrypted-chunk transport in
-`src/browser-xftp-http-transport.mjs`, reviewed browser SMP/XFTP server profile
+`src/browser-xftp-http-transport.mjs`, an upstream-style XFTP web client in
+`src/browser-xftp-web-client.mjs`, reviewed browser SMP/XFTP server profile
 validation in `src/browser-smp-server-profile.mjs` and
 `src/browser-xftp-server-profile.mjs`, and a binary SMP-over-WebSocket browser
 transport profile in `src/browser-smp-websocket-transport.mjs`.
@@ -114,6 +117,7 @@ ratcheted chat layer.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships a browser XFTP-over-HTTPS/fetch transport for encrypted chunk upload, download, and deletion.
+- Ships an upstream-style browser XFTP web client for binary HTTPS/fetch hello, identity proof verification, padded handshake, PING, and authenticated FNEW/FPUT/FGET/FDEL command wrappers.
 - Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
 - Ships production browser XFTP server profile validation for encrypted chunk storage endpoints.
 - Ships a binary SMP-over-WebSocket transport profile for browser-reachable SMP servers that expose one padded SMP block per WebSocket frame.
@@ -148,6 +152,7 @@ Not shipped:
 - `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
 - `src/browser-xftp-client.mjs`: browser XFTP encrypted chunk upload/download sequencing over a reviewed server boundary.
 - `src/browser-xftp-http-transport.mjs`: browser XFTP-over-HTTPS/fetch encrypted chunk transport.
+- `src/browser-xftp-web-client.mjs`: upstream-style browser XFTP web handshake, identity proof, binary command transport, and command wrappers.
 - `src/browser-xftp-server-profile.mjs`: production browser XFTP server profile validation.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/interop-vectors.test.mjs`: deterministic local interoperability-vector checks for SMP, agent envelopes, and XFTP chunks.
@@ -169,6 +174,7 @@ Not shipped:
 - `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
 - `tests/browser-xftp-client.test.mjs`: Node tests for encrypted XFTP upload/download, deletion, and tamper rejection.
 - `tests/browser-xftp-http-transport.test.mjs`: Node loopback HTTP/fetch test for encrypted XFTP chunk upload, download, and deletion.
+- `tests/browser-xftp-web-client.test.mjs`: Node loopback HTTP/fetch tests for XFTP web identity proof, PING, and authenticated file commands.
 - `tests/browser-xftp-server-profile.test.mjs`: Node tests for browser XFTP server profile downgrade rejection.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
@@ -395,6 +401,10 @@ claim of interoperability with existing raw TCP/TLS SimpleX servers.
 ```js
 import { createXftpUpload, assembleXftpDownload } from "simplex-web/browser-xftp-core";
 import { createBrowserXftpClient } from "simplex-web/browser-xftp-client";
+import {
+  connectBrowserXftpWebClient,
+  pingXftpWeb
+} from "simplex-web/browser-xftp-web-client";
 
 const upload = createXftpUpload(fileBytes, { name: "notes.txt" });
 const fileBytesAgain = assembleXftpDownload(upload.manifest, upload.chunks, upload.rootKey);
@@ -402,14 +412,22 @@ const fileBytesAgain = assembleXftpDownload(upload.manifest, upload.chunks, uplo
 const client = createBrowserXftpClient({ server, profile });
 const sent = await client.uploadFile(fileBytes, { name: "notes.txt" });
 const received = await client.downloadFile(sent.manifest, sent.rootKey);
+
+const xftpWeb = await connectBrowserXftpWebClient({
+  url: "https://xftp.example.test/",
+  keyHash
+});
+await pingXftpWeb(xftpWeb);
 ```
 
-The XFTP core encrypts each chunk with a per-file root key, records plaintext
-and ciphertext hashes in the manifest, and rejects tampered chunks during
-reassembly. The browser XFTP client only passes encrypted chunk packets to its
-server boundary; plaintext file bytes and the per-file root key remain in the
-browser/client side and should be delivered through the ratcheted chat layer, not
-stored by an XFTP server.
+The older `browser-xftp-core` and `browser-xftp-client` modules are local
+encrypted-chunk helpers used by the contact-file workbench and tests. They keep
+plaintext file bytes and root keys on the browser/client side.
+
+The newer `browser-xftp-web-client` module is the upstream-style browser XFTP
+web transport: binary fetch requests, web challenge, server identity proof,
+padded handshake, PING, and authenticated file-command wrappers. That is the
+path to use for real browser-profile XFTP server interoperability.
 
 ## Release Hygiene
 

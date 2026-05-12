@@ -13,15 +13,12 @@ import assert from 'node:assert/strict';
 import {
   asciiBytes,
   decodeBase64Url,
-  encodeBase64Url,
   encodeSignedTransmission,
   equalBytes,
-  hexToBytes,
-  utf8Bytes
+  hexToBytes
 } from '../src/browser-smp-core.mjs';
 import { connectBrowserSmpWebSocketTransport } from '../src/browser-smp-websocket-transport.mjs';
-import { createBrowserXftpClient } from '../src/browser-xftp-client.mjs';
-import { createBrowserXftpHttpTransport } from '../src/browser-xftp-http-transport.mjs';
+import { connectBrowserXftpWebClient, pingXftpWeb } from '../src/browser-xftp-web-client.mjs';
 
 const LIVE_ENABLED = process.env.SIMPLEX_WEB_LIVE_ENABLE === '1';
 
@@ -102,41 +99,24 @@ test('live browser SMP WebSocket profile handshakes and answers PING', async (t)
   }
 });
 
-test('live browser XFTP HTTPS profile stores encrypted chunks only', async (t) => {
+test('live browser XFTP web profile handshakes verifies identity and answers PING', async (t) => {
   if (!requireLiveEnv(t, [
-    'SIMPLEX_WEB_LIVE_XFTP_HTTP_URL',
-    'SIMPLEX_WEB_LIVE_XFTP_KEY_HASH',
-    'SIMPLEX_WEB_LIVE_XFTP_ADDRESS',
-    'SIMPLEX_WEB_LIVE_XFTP_ORIGIN'
+    'SIMPLEX_WEB_LIVE_XFTP_WEB_URL',
+    'SIMPLEX_WEB_LIVE_XFTP_KEY_HASH'
   ])) return;
 
-  const fileId = uniqueLiveId('simplex-web-live-xftp');
-  const plaintext = utf8Bytes('simplex-web live xftp interop ' + fileId);
-  const client = createBrowserXftpClient({
-    server: createBrowserXftpHttpTransport({
-      url: env('SIMPLEX_WEB_LIVE_XFTP_HTTP_URL')
-    }),
-    profile: {
-      version: 1,
-      transport: 'https',
-      url: env('SIMPLEX_WEB_LIVE_XFTP_HTTP_URL'),
-      allowedOrigins: [env('SIMPLEX_WEB_LIVE_XFTP_ORIGIN')],
-      keyHash: encodeBase64Url(decodeEnvBytes('SIMPLEX_WEB_LIVE_XFTP_KEY_HASH')),
-      xftpAddress: env('SIMPLEX_WEB_LIVE_XFTP_ADDRESS'),
-      encryptedChunksOnly: true,
-      retentionHours: Number(env('SIMPLEX_WEB_LIVE_XFTP_RETENTION_HOURS') || 24)
-    }
+  const keyHash = decodeEnvBytes('SIMPLEX_WEB_LIVE_XFTP_KEY_HASH');
+  const client = await connectBrowserXftpWebClient({
+    url: env('SIMPLEX_WEB_LIVE_XFTP_WEB_URL'),
+    keyHash,
+    timeoutMs: liveTimeoutMs()
   });
-
-  const upload = await client.uploadFile(plaintext, {
-    fileId,
-    name: 'simplex-web-live-interop.txt',
-    mime: 'text/plain',
-    chunkSize: 1024
-  });
-  assert.equal(upload.uploadedChunks, upload.manifest.chunkCount);
-  assert.equal(upload.manifest.chunks.every((chunk) => chunk.ciphertextSha256), true);
-  assert.equal(equalBytes(await client.downloadFile(upload.manifest, upload.rootKey), plaintext), true);
-  assert.deepEqual(await client.deleteFile(upload.manifest), { deleted: upload.manifest.chunkCount });
-  await assert.rejects(() => client.downloadFile(upload.manifest, upload.rootKey), /status 404/i);
+  assert.equal(client.profile, 'simplex-xftp-web-browser-v1');
+  assert.equal(client.security.plaintextBridge, false);
+  assert.equal(client.security.browserNativeProtocol, true);
+  assert.equal(client.security.binaryXftpBlocksOnly, true);
+  assert.equal(client.security.serverIdentityProof, true);
+  assert.equal(equalBytes(client.keyHash, keyHash), true);
+  const response = await pingXftpWeb(client);
+  assert.equal(response.response.type, 'PONG');
 });

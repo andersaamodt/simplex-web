@@ -19,13 +19,14 @@ When enabled, it checks:
 - Server identity hash bytes sent in the browser client handshake.
 - Optional session-id binding when the endpoint publishes an expected session.
 - One signed SMP `PING` transmission and matching broker `PONG` response.
-- XFTP HTTPS encrypted-chunk upload through `fetch`.
-- XFTP encrypted-chunk download, verification, and byte-for-byte reassembly.
-- XFTP chunk deletion, followed by a failed re-download.
+- XFTP web HTTPS/fetch hello with a 32-byte browser challenge.
+- XFTP web server identity proof verification against the configured key hash.
+- XFTP web padded client handshake and binary `PING`/`PONG`.
 
 It does not send chat plaintext through a website server. The SMP endpoint sees
-SMP protocol blocks. The XFTP endpoint sees encrypted chunks and metadata, not
-file plaintext or the file root key.
+SMP protocol blocks. The XFTP endpoint sees XFTP protocol blocks. File upload
+and download commands are covered by local loopback tests; live destructive file
+interop should be added only against a disposable reviewed endpoint.
 
 ## Required Endpoint Shape
 
@@ -39,17 +40,19 @@ The SMP server must expose the browser SMP WebSocket profile implemented by
 - Compatible SMP version 3 or 4.
 - Broker `PONG` response to an unauthenticated queue-empty `PING`.
 
-The XFTP server must expose the HTTPS/fetch encrypted-chunk profile implemented
-by `src/browser-xftp-http-transport.mjs`:
+The XFTP server must expose the upstream-style XFTP web profile implemented by
+`src/browser-xftp-web-client.mjs`:
 
 - `https://` endpoint outside local loopback development.
-- `POST {base}/chunks` for encrypted chunk packets.
-- `GET {base}/chunks/{fileId}/{index}` for encrypted chunk packets.
-- `DELETE {base}/chunks/{fileId}/{index}` for test cleanup.
-- JSON packets with base64url `ciphertext` and `tag` fields.
+- `POST {base}` with `xftp-web-hello: 1` for the padded browser hello.
+- Padded server handshake containing version range, session id, certificate
+  chain, signed server key, and web identity proof.
+- `POST {base}` with `xftp-handshake: 1` for the padded client handshake.
+- One padded 16384-byte XFTP command block per fetch request after handshake.
+- Broker `PONG` response to an unauthenticated XFTP `PING`.
 
-Point this harness only at a test profile or disposable namespace. The XFTP test
-creates and deletes a unique encrypted test object.
+Point this harness only at a reviewed browser-profile endpoint. The current live
+XFTP test is non-destructive.
 
 ## Run
 
@@ -65,10 +68,8 @@ To run against reviewed endpoints:
 SIMPLEX_WEB_LIVE_ENABLE=1 \
 SIMPLEX_WEB_LIVE_SMP_WS_URL='wss://smp.example.test/smp' \
 SIMPLEX_WEB_LIVE_SMP_KEY_HASH='BASE64URL_OR_HEX_HASH' \
-SIMPLEX_WEB_LIVE_XFTP_HTTP_URL='https://xftp.example.test/xftp' \
+SIMPLEX_WEB_LIVE_XFTP_WEB_URL='https://xftp.example.test/' \
 SIMPLEX_WEB_LIVE_XFTP_KEY_HASH='BASE64URL_OR_HEX_HASH' \
-SIMPLEX_WEB_LIVE_XFTP_ADDRESS='xftp://fingerprint@xftp.example.test' \
-SIMPLEX_WEB_LIVE_XFTP_ORIGIN='https://site.example.test' \
 npm run test:live
 ```
 
@@ -77,8 +78,6 @@ Optional variables:
 - `SIMPLEX_WEB_LIVE_SMP_EXPECTED_SESSION_ID`: base64url or hex session id that
   must match the server handshake.
 - `SIMPLEX_WEB_LIVE_TIMEOUT_MS`: per-step network timeout, default `15000`.
-- `SIMPLEX_WEB_LIVE_XFTP_RETENTION_HOURS`: advertised test profile retention,
-  default `24`.
 
 ## Release Meaning
 
