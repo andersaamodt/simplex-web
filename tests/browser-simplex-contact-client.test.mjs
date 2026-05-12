@@ -935,6 +935,7 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
     });
   }
   assert.equal(store.list('received').some((row) => row.id === 'rx:alice'), false);
+  store.storage.setItem('simplex-web-v1:contacts-delete:received:corrupt', 'not-json');
 
   const deleted = contacts.deleteContact('alice');
   assert.equal(deleted.state, 'active');
@@ -950,6 +951,7 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
   assert.deepEqual(store.listPending().map((task) => task.payload.contactId), ['bob']);
   assert.equal(store.load('received', 'rx:alice'), null);
   assert.equal(store.load('received', 'rx:bob').contactId, 'bob');
+  assert.equal(store.storage.getItem('simplex-web-v1:contacts-delete:received:corrupt'), null);
 });
 
 test('contact payload decoder preserves plain text and rejects malformed prefixed payloads', () => {

@@ -83,6 +83,29 @@ test('durable store deleteWhere ignores malformed storage keys and records', () 
   backing.setItem('simplex-web-v1:delete-scan-garbage:received:../bad', 'not-json');
   backing.setItem('simplex-web-v1:delete-scan-garbage:received:corrupt', 'not-json');
 
-  assert.equal(store.deleteWhere('received', (value) => value.contactId === 'alice'), 1);
+  assert.equal(store.deleteWhere('received', (value) => value.contactId === 'alice', { deleteMalformed: true }), 2);
   assert.equal(store.load('received', 'valid-alice'), null);
+  assert.equal(backing.getItem('simplex-web-v1:delete-scan-garbage:received:corrupt'), null);
+});
+
+test('durable store recovers from poisoned list metadata during writes and deletes', () => {
+  const backing = storage();
+  const store = createBrowserSimplexStore({ storage: backing, namespace: 'list-poison' });
+  backing.setItem('simplex-web-v1:list-poison:list:contact', 'not-json');
+
+  store.saveContact('alice', { state: 'active' });
+  assert.equal(store.listContacts().length, 1);
+  store.deleteContact('alice');
+  assert.equal(store.loadContact('alice'), null);
+});
+
+test('durable store deleteMalformed removes corrupt scanned records', () => {
+  const backing = storage();
+  const store = createBrowserSimplexStore({ storage: backing, namespace: 'delete-malformed' });
+  store.save('received', 'valid-bob', { contactId: 'bob' });
+  backing.setItem('simplex-web-v1:delete-malformed:received:corrupt', 'not-json');
+
+  assert.equal(store.deleteMalformed('received'), 1);
+  assert.equal(backing.getItem('simplex-web-v1:delete-malformed:received:corrupt'), null);
+  assert.equal(store.load('received', 'valid-bob').contactId, 'bob');
 });

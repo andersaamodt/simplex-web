@@ -116,8 +116,22 @@ function memoryStorage() {
 function readList(storage, namespace, type) {
   var raw = storage.getItem(listKey(namespace, type));
   if (!raw) return [];
-  var parsed = deserialize(raw);
-  return Array.isArray(parsed) ? parsed.map((item) => safePart(item, 'stored id')) : [];
+  var parsed;
+  try {
+    parsed = deserialize(raw);
+  } catch (_error) {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  var ids = [];
+  for (var item of parsed) {
+    try {
+      ids.push(safePart(item, 'stored id'));
+    } catch (_error) {
+      // A poisoned list index should not block access to valid records.
+    }
+  }
+  return ids;
 }
 
 function writeList(storage, namespace, type, ids) {
@@ -215,13 +229,38 @@ export class BrowserSimplexStore {
     writeList(this.storage, this.namespace, cleanType, readList(this.storage, this.namespace, cleanType).filter((item) => item !== cleanId));
   }
 
-  deleteWhere(type, predicate) {
+  deleteWhere(type, predicate, options = {}) {
     var cleanType = safePart(type, 'record type');
     var test = typeof predicate === 'function' ? predicate : () => false;
     var deleted = 0;
-    for (var row of this.scan(cleanType)) {
-      if (test(row.value, row.id, row)) {
-        this.delete(cleanType, row.id);
+    var ids = uniqueIds(readList(this.storage, this.namespace, cleanType).concat(scanStorageIds(this.storage, this.namespace, cleanType)));
+    for (var id of ids) {
+      try {
+        var value = this.load(cleanType, id);
+        var row = { id, value };
+        if (value && test(value, id, row)) {
+          this.delete(cleanType, id);
+          deleted += 1;
+        }
+      } catch (_error) {
+        if (options.deleteMalformed === true) {
+          this.delete(cleanType, id);
+          deleted += 1;
+        }
+      }
+    }
+    return deleted;
+  }
+
+  deleteMalformed(type) {
+    var cleanType = safePart(type, 'record type');
+    var deleted = 0;
+    var ids = uniqueIds(readList(this.storage, this.namespace, cleanType).concat(scanStorageIds(this.storage, this.namespace, cleanType)));
+    for (var id of ids) {
+      try {
+        this.load(cleanType, id);
+      } catch (_error) {
+        this.delete(cleanType, id);
         deleted += 1;
       }
     }

@@ -30,6 +30,7 @@
 - Changed failed-send retries to persist the already-ratcheted packet bytes instead of chat plaintext.
 - Changed capped durable-store record lists to keep newest saved IDs visible when the list reaches its retention limit.
 - Added full-scan durable-store deletion so privacy cleanup can scrub records that have fallen out of capped visible lists.
+- Hardened durable-store cleanup against poisoned list metadata and corrupt scanned records.
 - Added contact deletion scrubbing for durable queue records, ratchet state, received-message fingerprints, and contact-scoped retry payloads.
 - Expanded contact deletion fuzzing to cover received-message fingerprint cleanup.
 - Added contact-client XFTP file send/receive helpers that upload encrypted chunks, ratchet-send file descriptors/root keys, and verify received downloads.

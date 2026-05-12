@@ -131,6 +131,8 @@ Coverage added:
   out of capped visible lists by scanning the physical storage keyspace.
 - Durable store cleanup tests prove malformed same-origin storage keys and
   corrupt scanned records do not block cleanup of valid records.
+- Durable store cleanup tests prove poisoned list metadata can be recovered and
+  corrupt scanned records can be deleted intentionally during cleanup.
 - Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, encrypted-packet retry enqueueing after
@@ -138,7 +140,8 @@ Coverage added:
   durable queue records, ratchet secrets, received-message fingerprints, and
   contact-scoped pending retry payloads.
 - Contact deletion fuzzing now includes received-message fingerprint records so
-  hostile metadata cases exercise the same privacy cleanup path.
+  hostile metadata cases exercise the same privacy cleanup path, including
+  corrupt received-record cleanup.
 - Failed-send tests prove retry records contain the already-ratcheted packet
   bytes, do not contain the outbound plaintext, and resend the same encrypted
   packet during retry drain.

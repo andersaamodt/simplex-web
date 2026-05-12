@@ -441,7 +441,7 @@ export class BrowserSimplexContactClient {
       this.scheduler.removeWhere((task) => task && task.payload && task.payload.contactId === cleanId);
     }
     if (typeof this.store.deleteWhere === 'function') {
-      this.store.deleteWhere('received', (value) => value && String(value.contactId || '') === cleanId);
+      this.store.deleteWhere('received', (value) => value && String(value.contactId || '') === cleanId, { deleteMalformed: true });
     } else if (typeof this.store.list === 'function' && typeof this.store.delete === 'function') {
       for (var row of this.store.list('received')) {
         if (row && row.value && String(row.value.contactId || '') === cleanId) {

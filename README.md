@@ -123,7 +123,7 @@ ratcheted chat layer.
 - Ships browser-native SMP protocol primitives for binary encodings, queue URIs, command codecs, signed transmissions, transport blocks, handshakes, and browser-compatible cryptographic helpers.
 - Ships browser-native agent helpers for SimpleX client-message envelopes, queue creation state, queue-scoped recipient commands, and initial sender confirmation messages.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
-- Ships durable browser queue/contact/ratchet/pending-task storage with bounded visible lists and full-scan cleanup for privacy-sensitive deletes.
+- Ships durable browser queue/contact/ratchet/pending-task storage with bounded visible lists, poisoned-list recovery, and full-scan cleanup for privacy-sensitive deletes.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
 - Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, and scrubs contact queue/ratchet/received-fingerprint/retry records on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.

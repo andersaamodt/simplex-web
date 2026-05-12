@@ -312,6 +312,7 @@ test('browser contact deletion fuzzing scrubs secrets despite hostile stored met
       msgId: encodeBase64Url(new Uint8Array(24).fill(7)),
       bodyHash: encodeBase64Url(new Uint8Array(32).fill(8))
     });
+    store.storage.setItem('simplex-web-v1:delete-fuzz:received:corrupt', 'not-json');
     contacts.scheduler.enqueue('alice:send:fuzz', { type: 'sendPacket', contactId: 'alice', packet: encodeBase64Url(new Uint8Array(8).fill(5)) });
 
     contacts.deleteContact('alice');
@@ -325,6 +326,7 @@ test('browser contact deletion fuzzing scrubs secrets despite hostile stored met
     assert.equal(store.loadRatchet('alice'), null);
     assert.equal(store.load('received', 'rx:alice-fuzz'), null);
     assert.equal(store.load('received', 'rx:bob-fuzz').contactId, 'bob');
+    assert.equal(store.storage.getItem('simplex-web-v1:delete-fuzz:received:corrupt'), null);
     assert.equal(store.listPending().some((task) => task.payload && task.payload.contactId === 'alice'), false);
   }), { numRuns: 100, seed: FUZZ_SEED + 13 });
 });
