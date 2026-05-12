@@ -87,6 +87,7 @@ Safari automation, and wasm GHC without a bundler.
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
 - browser XFTP server profile validation for encrypted chunk storage endpoints
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
+- live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 
 It intentionally does **not** ship old or unsafe compatibility paths:
@@ -315,6 +316,13 @@ network transport profile:
 - `sendSignedTransmissions()` sends one fixed-size binary SMP transport block.
 - `receiveSignedTransmissions()` reads one fixed-size binary SMP transport block and parses the signed transmissions.
 - non-binary frames, short frames, long frames, bad sessions, and timeouts fail closed.
+
+`tests/browser-smp-websocket-live.test.mjs` also starts a real local WebSocket
+upgrade server and uses Node's browser-compatible `WebSocket` implementation to
+exercise the transport without the fake socket harness. This verifies actual
+client masking, server binary frames, handshake negotiation, block send, and
+broker response receive on loopback. It is still not a production
+browser-profile SMP server interoperability result.
 
 This profile is browser-native protocol transport, but it is not a claim that
 ordinary browser JavaScript can speak the upstream raw TCP/TLS transport. Browser

@@ -17,6 +17,7 @@
 - Added focused client tests for signed `NEW`, `SUB`, `ACK`, `KEY`, `DEL`, unsigned initial confirmation, broker errors, and hostile correlation IDs.
 - Added `src/browser-smp-websocket-transport.mjs`, a binary SMP-over-WebSocket browser transport profile for compatible SMP servers.
 - Added focused transport tests for URL policy, binary handshakes, block sending/receiving, malformed frames, and session mismatch handling.
+- Added live loopback WebSocket SMP transport coverage using a real local WebSocket upgrade server and Node's browser-compatible WebSocket client.
 - Added `src/browser-simplex-store.mjs` for durable browser queue, contact, ratchet, and pending-task state.
 - Added `src/browser-simplex-ratchet.mjs` for browser-owned double-ratchet message encryption, skipped-message keys, and tamper rejection.
 - Added `src/browser-simplex-contact-client.mjs` for contact lifecycle, active-contact sends, inbound decrypt-and-ack receive handling, ratchet persistence, and failed-send retry enqueueing/draining.

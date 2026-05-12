@@ -46,7 +46,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-simplex-client.test.mjs tests/browser-simplex-store.test.mjs tests/browser-simplex-ratchet.test.mjs tests/browser-simplex-scheduler.test.mjs tests/browser-simplex-contact-client.test.mjs tests/browser-simplex-e2e-broker.test.mjs tests/browser-xftp-core.test.mjs tests/browser-xftp-client.test.mjs tests/browser-xftp-server-profile.test.mjs tests/browser-smp-server-profile.test.mjs tests/browser-smp-websocket-transport.test.mjs",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-simplex-client.test.mjs tests/browser-simplex-store.test.mjs tests/browser-simplex-ratchet.test.mjs tests/browser-simplex-scheduler.test.mjs tests/browser-simplex-contact-client.test.mjs tests/browser-simplex-e2e-broker.test.mjs tests/browser-xftp-core.test.mjs tests/browser-xftp-client.test.mjs tests/browser-xftp-server-profile.test.mjs tests/browser-smp-server-profile.test.mjs tests/browser-smp-websocket-transport.test.mjs tests/browser-smp-websocket-live.test.mjs",
     "test:fuzz": "node --test tests/adversarial-fuzz.test.js",
     "test:browser": "node --test tests/browser-matrix.test.mjs",
     "test:runtime": "sh ./tests-simplex-web-runtime.sh",

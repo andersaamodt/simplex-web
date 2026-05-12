@@ -69,6 +69,8 @@ Primary attacker capabilities tested:
 - Downgrade production browser XFTP server profiles to plaintext, missing
   origins, long retention, unsafe XFTP addresses, or plaintext chunk storage.
 - Return malformed, short, long, text, wrong-session, or late WebSocket frames.
+- Exercise real loopback WebSocket upgrade, masked client frames, binary server
+  frames, SMP handshake, client block send, and broker response receive.
 - Force browser rendering/layout stress across desktop and mobile viewports.
 
 ## Findings
@@ -123,6 +125,8 @@ Coverage added:
 - XFTP tests cover encrypted chunk reassembly, encrypted server-bound upload,
   verified download, deletion, profile downgrade rejection, and tampered chunk
   rejection.
+- Live loopback WebSocket tests cover actual WebSocket framing around the
+  browser SMP transport profile without reintroducing a plaintext bridge.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server

@@ -100,7 +100,10 @@ function withTimeout(promise, timeoutMs, code, message) {
 }
 
 async function frameToBytes(frame) {
-  var data = frame && Object.prototype.hasOwnProperty.call(frame, 'data') ? frame.data : frame;
+  // Browser and Node-compatible WebSocket implementations expose message data
+  // through a prototype getter, not always as an own property. Use `in` so the
+  // real browser shape and the test harness shape both take the same path.
+  var data = frame && typeof frame === 'object' && 'data' in frame ? frame.data : frame;
   if (data instanceof ArrayBuffer) return new Uint8Array(data.slice(0));
   if (ArrayBuffer.isView(data)) {
     return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));

@@ -81,6 +81,7 @@ Not shipped:
 - `tests/browser-simplex-store.test.mjs`: Node tests for durable store serialization and hostile keys.
 - `tests/browser-smp-server-profile.test.mjs`: Node tests for browser SMP server profile downgrade rejection.
 - `tests/browser-smp-websocket-transport.test.mjs`: Node tests for the binary browser WebSocket SMP transport profile.
+- `tests/browser-smp-websocket-live.test.mjs`: Node loopback WebSocket server test for real browser transport framing, handshake, send, and receive.
 - `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
 - `tests/browser-xftp-client.test.mjs`: Node tests for encrypted XFTP upload/download, deletion, and tamper rejection.
 - `tests/browser-xftp-server-profile.test.mjs`: Node tests for browser XFTP server profile downgrade rejection.
