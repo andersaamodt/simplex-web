@@ -92,6 +92,10 @@ class BrowserProfileBroker {
     if (command.type === 'SEND') return this.sendMessage(transport, parsed, command);
     var queue = this.findByRecipientId(parsed.queueId);
     if (!queue || !this.verify(parsed, queue.rcvPublicVerifyKey)) return this.enqueueError(transport, parsed);
+    if (command.type === 'DEL') {
+      this.queues.delete(smp.encodeBase64Url(queue.rcvId));
+      return transport.enqueue({ corrId: parsed.corrId, queueId: queue.rcvId, message: { type: 'OK' } });
+    }
     if (command.type === 'KEY') {
       queue.senderVerifyKey = command.sndPublicVerifyKey;
       return transport.enqueue({ corrId: parsed.corrId, queueId: queue.rcvId, message: { type: 'OK' } });
@@ -183,6 +187,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   var sentText = [];
   var sentFiles = [];
   var acceptCalls = [];
+  var deleteCalls = [];
   var received = [{
     duplicate: true,
     payload: { type: 'duplicate' },
@@ -213,6 +218,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     receiveContactAccept(id, options) {
       acceptCalls.push({ id, options });
       return Promise.resolve({ contact: { id, state: 'active' } });
+    },
+    deleteContactEverywhere(id, options) {
+      deleteCalls.push({ id, options });
+      return Promise.resolve({ contact: { id, state: 'deleted' }, remoteDeletedQueues: [id + ':inbox'] });
     }
   };
   var adapter = createSimplexWebTransportAdapter({ contactClient });
@@ -241,6 +250,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
   assert.equal(acceptCalls[0].id, 'alice');
   assert.equal(acceptCalls[0].options.ackCorrId, 'accept-ack');
+  var deleted = await adapter.deleteContact({ contact_id: 'alice', corrId: 'delete-1' });
+  assert.deepEqual(deleted.remoteDeletedQueues, ['alice:inbox']);
+  assert.equal(deleteCalls[0].id, 'alice');
+  assert.equal(deleteCalls[0].options.corrId, 'delete-1');
 
   var registered = registerSimplexWebTransportAdapter({ contactClient }, {
     registerBrowserTransport(nextAdapter) {
@@ -272,4 +285,11 @@ test('SimplexWebTransport adapter sends and receives over the browser SimpleX co
     Array.from(queue.messages.values()).every((message) => message.acked)
   ));
   assert.equal(allAcked, true);
+
+  var bobInbox = bobStore.loadQueue('alice:inbox');
+  var deleted = await bob.deleteContact({ contact_id: 'alice', corrId: 'bob-del' });
+  assert.deepEqual(deleted.remoteDeletedQueues, ['alice:inbox']);
+  assert.equal(broker.findByRecipientId(bobInbox.rcvId), null);
+  assert.equal(bobStore.loadContact('alice').state, 'deleted');
+  assert.equal(bobStore.loadQueue('alice:inbox'), null);
 });

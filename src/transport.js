@@ -39,6 +39,9 @@
     var payload = message && typeof message === 'object' && !Array.isArray(message)
       ? message
       : { text: message };
+    var remoteDelete = payload.remote_delete !== undefined ? payload.remote_delete
+      : (payload.remoteDelete !== undefined ? payload.remoteDelete
+        : (opts.remote_delete !== undefined ? opts.remote_delete : opts.remoteDelete));
 
     return {
       contact_id: limitString(payload.contact_id || payload.contactId || opts.contact_id || opts.contactId || '', MAX_LABEL_LENGTH),
@@ -46,7 +49,11 @@
       text: limitString(payload.text || '', MAX_TEXT_LENGTH),
       client_message_id: limitString(payload.client_message_id || payload.clientMessageId || opts.client_message_id || opts.clientMessageId || '', MAX_LABEL_LENGTH),
       message_ref: limitString(payload.message_ref || payload.messageRef || opts.message_ref || opts.messageRef || '', MAX_LABEL_LENGTH),
+      corr_id: limitString(payload.corr_id || payload.corrId || opts.corr_id || opts.corrId || '', MAX_LABEL_LENGTH),
       user_id: limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || opts.user_id || opts.userId || opts.bridge_user_id || opts.bridgeUserId || '', MAX_LABEL_LENGTH),
+      hard_delete: payload.hard_delete === true || payload.hardDelete === true || opts.hard_delete === true || opts.hardDelete === true,
+      local_only: payload.local_only === true || payload.localOnly === true || opts.local_only === true || opts.localOnly === true,
+      remote_delete: remoteDelete === false ? false : (remoteDelete === true ? true : undefined),
       on_status: typeof payload.on_status === 'function'
         ? payload.on_status
         : (typeof payload.onStatus === 'function' ? payload.onStatus : null)
@@ -244,6 +251,18 @@
         return callAdapterMethod(target, 'getMessages', [normalized]).then(function (messages) {
           return (Array.isArray(messages) ? messages : []).map(normalizeIncomingMessage);
         });
+      },
+      deleteContact: function (message, options) {
+        var target;
+        try {
+          target = requireAdapter();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        if (typeof target.deleteContact !== 'function') {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_DELETE_UNAVAILABLE', 'contact deletion is not available in this browser SimpleX transport'));
+        }
+        return callAdapterMethod(target, 'deleteContact', [normalizeOutboundMessage(message, options)]);
       },
       disconnect: function () {
         var target;

@@ -954,6 +954,89 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
   assert.equal(store.storage.getItem('simplex-web-v1:contacts-delete:received:corrupt'), null);
 });
 
+test('contact client delete everywhere sends remote DEL before local scrub', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-delete-everywhere' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const customInbox = { rcvId: filled(24, 95), rcvSignKey: smp.generateEd25519KeyPair(filled(32, 96)) };
+  const fallbackInbox = { rcvId: filled(24, 97), rcvSignKey: smp.generateEd25519KeyPair(filled(32, 98)) };
+  store.saveContact('alice', {
+    id: 'alice',
+    state: 'active',
+    inboxQueueId: 'alice:custom-inbox',
+    outboxQueueId: 'alice:outbox',
+    outboundQueue: { sndId: filled(24, 99), senderSignKey: smp.generateEd25519KeyPair(filled(32, 100)) }
+  });
+  store.saveQueue('alice:custom-inbox', customInbox);
+  store.saveQueue('alice:inbox', fallbackInbox);
+  store.saveQueue('alice:outbox', { sndId: filled(24, 101), senderSignKey: smp.generateEd25519KeyPair(filled(32, 102)) });
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 103),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 104)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 105)).publicKey
+  });
+  transport.pushResponse('del-custom', { type: 'OK' }, customInbox.rcvId);
+  transport.pushResponse('del-fallback', { type: 'OK' }, fallbackInbox.rcvId);
+
+  const result = await contacts.deleteContactEverywhere('alice', { corrIds: ['del-custom', 'del-fallback'] });
+
+  assert.deepEqual(result.remoteDeletedQueues, ['alice:custom-inbox', 'alice:inbox']);
+  const commands = transport.sent.map((sent) => smp.parseSignedTransmission(4, sent.bytes).command.type);
+  assert.deepEqual(commands, ['DEL', 'DEL']);
+  const first = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  const second = smp.parseSignedTransmission(4, transport.sent[1].bytes);
+  assert.equal(smp.equalBytes(first.queueId, customInbox.rcvId), true);
+  assert.equal(smp.equalBytes(second.queueId, fallbackInbox.rcvId), true);
+  assert.equal(smp.ed25519Verify(customInbox.rcvSignKey.publicKey, first.signed, first.signature), true);
+  assert.equal(smp.ed25519Verify(fallbackInbox.rcvSignKey.publicKey, second.signed, second.signature), true);
+  assert.equal(store.loadContact('alice').state, 'deleted');
+  assert.equal(store.loadQueue('alice:custom-inbox'), null);
+  assert.equal(store.loadQueue('alice:inbox'), null);
+  assert.equal(store.loadRatchet('alice'), null);
+});
+
+test('contact client delete everywhere preserves local secrets when remote DEL fails', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-delete-everywhere-fail' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const inbox = { rcvId: filled(24, 106), rcvSignKey: smp.generateEd25519KeyPair(filled(32, 107)) };
+  store.saveContact('alice', { id: 'alice', state: 'active', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', inbox);
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 108),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 109)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 110)).publicKey
+  });
+
+  await assert.rejects(() => contacts.deleteContactEverywhere('alice', { corrId: 'del-missing' }), /no fake responses/);
+
+  assert.equal(store.loadContact('alice').state, 'active');
+  assert.equal(store.loadQueue('alice:inbox').rcvId.length, 24);
+  assert.equal(store.loadRatchet('alice').rootKey.length, 32);
+});
+
+test('contact client delete everywhere falls back from hostile stored inbox ids', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-delete-everywhere-hostile' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const inbox = { rcvId: filled(24, 111), rcvSignKey: smp.generateEd25519KeyPair(filled(32, 112)) };
+  store.saveContact('alice', { id: 'alice', state: 'active', inboxQueueId: '../alice' });
+  store.saveQueue('alice:inbox', inbox);
+  transport.pushResponse('del-fallback', { type: 'OK' }, inbox.rcvId);
+
+  const result = await contacts.deleteContactEverywhere('alice', { corrId: 'del-fallback' });
+
+  assert.deepEqual(result.remoteDeletedQueues, ['alice:inbox']);
+  const sent = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  assert.equal(sent.command.type, 'DEL');
+  assert.equal(smp.equalBytes(sent.queueId, inbox.rcvId), true);
+  assert.equal(store.loadContact('alice').state, 'deleted');
+  assert.equal(store.loadQueue('alice:inbox'), null);
+});
+
 test('contact payload decoder preserves plain text and rejects malformed prefixed payloads', () => {
   assert.deepEqual(decodeContactPayload('hello'), { type: 'text', text: 'hello' });
   assert.throws(() => decodeContactPayload(CONTACT_PAYLOAD_PREFIX + '{"type":"file"}'), /file payload/i);

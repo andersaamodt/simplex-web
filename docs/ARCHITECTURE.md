@@ -33,6 +33,8 @@ framework app:
    transient/offline work.
 10. `src/browser-simplex-web-transport-adapter.mjs` is the first-party adapter
    that registers the browser contact client with `window.SimplexWebTransport`.
+   It exposes send, receive, contact setup, retry drain, and remote-first
+   contact deletion operations.
 11. `src/browser-xftp-core.mjs` owns encrypted XFTP-style chunks, manifests, and
    reassembly verification.
 12. `src/browser-xftp-client.mjs` owns encrypted chunk upload/download
@@ -227,10 +229,12 @@ The transport facade exposed by `src/transport.js` is separate from the UI:
 - `window.SimplexWebTransport.getStatus()`
 - `window.SimplexWebTransport.connect(params)`
 - `window.SimplexWebTransport.sendText({ contact_id, text, client_message_id })`
+- `window.SimplexWebTransport.deleteContact({ contact_id })`
 - `window.SimplexWebTransport.disconnect()`
 - `window.SimplexWebTransport.registerBrowserTransport(adapter)`
 
-Without an adapter, `sendText` rejects with `SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`.
+Without an adapter, `sendText` and `deleteContact` reject with
+`SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`.
 This is the expected secure behavior; it keeps host sites from accidentally
 routing plaintext through a server bridge while still giving them a stable
 browser API to call. `src/browser-simplex-web-transport-adapter.mjs` supplies
@@ -314,8 +318,9 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   encrypted XFTP file chunks, ratchet-sends file descriptors and root keys,
   downloads received encrypted files, stores failed
   sends as already-ratcheted packet retry tasks instead of chat plaintext, and
-  scrubs queue, ratchet, received-message fingerprint, and retry records when a
-  contact is deleted.
+  can send remote SMP `DEL` for browser-owned inbox queues before scrubbing
+  queue, ratchet, received-message fingerprint, and retry records when a contact
+  is deleted.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

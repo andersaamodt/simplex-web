@@ -125,7 +125,7 @@ ratcheted chat layer.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage with bounded visible lists, poisoned-list recovery, and full-scan cleanup for privacy-sensitive deletes.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, and scrubs contact queue/ratchet/received-fingerprint/retry records on delete.
+- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, sends remote SMP `DEL` for browser-owned inbox queues before optional local deletion, and scrubs contact queue/ratchet/received-fingerprint/retry records on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
@@ -244,6 +244,9 @@ window.SimplexWebTransport.getStatus();
 
 await window.SimplexWebTransport.sendText({ contact_id: "contact-1", text: "hello" });
 // rejects with code SIMPLEX_WEB_TRANSPORT_UNAVAILABLE
+
+await window.SimplexWebTransport.deleteContact({ contact_id: "contact-1" });
+// rejects with code SIMPLEX_WEB_TRANSPORT_UNAVAILABLE until an adapter is registered
 ```
 
 The first-party adapter can register itself with the facade:
@@ -269,6 +272,10 @@ await window.SimplexWebTransport.sendText({
   text: "hello"
 });
 ```
+
+After registration, `deleteContact()` asks the adapter to remove the contact's
+browser-owned SMP inbox queue remotely before scrubbing local queue and ratchet
+state. Pass `{ local_only: true }` for an explicit local-only privacy scrub.
 
 Host pages may also register their own browser-native adapter with the same
 contract:
@@ -407,9 +414,13 @@ const received = await bobContacts.receiveNext("alice", { ackCorrId: "bob-msg-ac
 
 Failed sends are persisted as encrypted packet retry tasks, not chat plaintext
 retry tasks. Contact sends require active contact state, a ratchet, and an
-outbound queue; otherwise they fail closed. Deleting a contact removes its
-durable inbox/outbox queue records, ratchet state, and pending retry payloads
-before leaving only a small tombstone. File sends first upload encrypted XFTP
+outbound queue; otherwise they fail closed. `deleteContactEverywhere()` first
+sends authenticated SMP `DEL` commands for browser-owned inbox queues, then
+does the local scrub. If the remote delete fails, local queue credentials are
+preserved so the operation can be retried. `deleteContact()` is the local-only
+privacy scrub: it removes durable inbox/outbox queue records, ratchet state,
+received-message fingerprints, and pending retry payloads before leaving only a
+small tombstone. File sends first upload encrypted XFTP
 chunks, then ratchet-send the manifest and file root key as a contact payload:
 
 ```js

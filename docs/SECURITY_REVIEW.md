@@ -139,6 +139,12 @@ Coverage added:
   transport failure, explicit retry draining, and contact deletion that scrubs
   durable queue records, ratchet secrets, received-message fingerprints, and
   contact-scoped pending retry payloads.
+- Remote-first contact deletion tests prove browser-owned inbox queues receive
+  signed SMP `DEL` before local scrubbing, local secrets remain if the remote
+  delete fails, and hostile stored inbox IDs fall back to the safe default.
+- Facade and adapter tests prove `window.SimplexWebTransport.deleteContact()`
+  is unavailable without a browser adapter, normalizes deletion requests, and
+  reaches the contact client's remote-first deletion path.
 - Contact deletion fuzzing now includes received-message fingerprint records so
   hostile metadata cases exercise the same privacy cleanup path, including
   corrupt received-record cleanup.

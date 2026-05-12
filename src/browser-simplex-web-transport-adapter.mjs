@@ -375,6 +375,18 @@ export class SimplexWebTransportAdapter {
     );
   }
 
+  async deleteContact(params = {}) {
+    var contacts = await this.ensureReady();
+    var contactId = safeContactId(params.contact_id || params.contactId || params.id || this.options.defaultContactId);
+    if (params.local_only === true || params.localOnly === true || params.remote_delete === false || params.remoteDelete === false) {
+      return contacts.deleteContact(contactId, params);
+    }
+    if (typeof contacts.deleteContactEverywhere === 'function') {
+      return contacts.deleteContactEverywhere(contactId, params);
+    }
+    return contacts.deleteContact(contactId, params);
+  }
+
   activateContact(params = {}) {
     if (!this.contactClient) fail('SIMPLEX_WEB_ADAPTER_CONNECT', 'browser SimpleX contact client is not connected');
     return this.contactClient.activateContact(

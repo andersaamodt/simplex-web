@@ -20,6 +20,14 @@ test('default transport fails closed with stable unavailable error', async () =>
       return true;
     }
   );
+  await assert.rejects(
+    transportApi.deleteContact({ contact_id: 'contact-1' }),
+    error => {
+      assert.equal(error.name, 'SimplexWebTransportError');
+      assert.equal(error.code, transportApi.ERROR_UNAVAILABLE);
+      return true;
+    }
+  );
 });
 
 test('registered browser adapter receives normalized outbound text and returns normalized receipt', async () => {
@@ -220,6 +228,48 @@ test('registered browser adapter receives normalized file sends', async () => {
   assert.equal(calls[0].files[0], file);
   assert.equal(calls[0].max_file_bytes, transportApi.MAX_FILE_BYTES);
   assert.equal(receipts[0].attachment.name, 'probe-😀.txt');
+});
+
+test('registered browser adapter receives normalized contact deletion', async () => {
+  const calls = [];
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('unused');
+    },
+    deleteContact(message) {
+      calls.push(message);
+      return { deleted: true };
+    }
+  });
+
+  const result = await transport.deleteContact(
+    { contactId: 'c'.repeat(300), corrId: 'delete-1', localOnly: true },
+    { hardDelete: true, remoteDelete: false }
+  );
+
+  assert.deepEqual(result, { deleted: true });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].contact_id.length, transportApi.MAX_LABEL_LENGTH);
+  assert.equal(calls[0].corr_id, 'delete-1');
+  assert.equal(calls[0].local_only, true);
+  assert.equal(calls[0].hard_delete, true);
+  assert.equal(calls[0].remote_delete, false);
+});
+
+test('contact deletion is rejected when the adapter does not expose it', async () => {
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('unused');
+    }
+  });
+
+  await assert.rejects(
+    transport.deleteContact({ contact_id: 'contact-1' }),
+    error => {
+      assert.equal(error.code, 'SIMPLEX_WEB_TRANSPORT_DELETE_UNAVAILABLE');
+      return true;
+    }
+  );
 });
 
 test('invalid adapter registration is rejected', () => {

@@ -160,6 +160,31 @@ function outboxQueueId(contact) {
   return contact.outboxQueueId || (contact.id + ':outbox');
 }
 
+function uniqueIds(ids) {
+  var out = [];
+  for (var id of ids) {
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+function ownedInboxQueueIds(contact, cleanId) {
+  var fallback = cleanId + ':inbox';
+  return uniqueIds([
+    safeStoredId(contact && contact.inboxQueueId, fallback),
+    fallback
+  ]);
+}
+
+function deleteQueueOptions(options, queueId, index, client) {
+  var corrId = null;
+  if (Array.isArray(options.corrIds)) corrId = options.corrIds[index];
+  if (!corrId && options.corrIds && typeof options.corrIds === 'object') corrId = options.corrIds[queueId];
+  if (!corrId && index === 0) corrId = options.corrId;
+  if (!corrId) corrId = client.makeCorrId('del');
+  return { ...options, corrId };
+}
+
 export function createBrowserSimplexContactClient(options = {}) {
   return new BrowserSimplexContactClient(options);
 }
@@ -468,6 +493,30 @@ export class BrowserSimplexContactClient {
     this.store.deleteQueue(cleanId + ':outbox');
     if (typeof this.store.deleteRatchet === 'function') this.store.deleteRatchet(cleanId);
     return contact || null;
+  }
+
+  async deleteContactEverywhere(id, options = {}) {
+    var cleanId = safeId(id);
+    var contact = this.store.loadContact(cleanId);
+    if (!contact) fail('SIMPLEX_CONTACT_MISSING', 'contact does not exist');
+    var remoteDeletedQueues = [];
+    var queueIds = ownedInboxQueueIds(contact, cleanId);
+    for (var i = 0; i < queueIds.length; i += 1) {
+      var queueId = queueIds[i];
+      var queue = this.store.loadQueue(queueId);
+      if (!queue) continue;
+      // Broker-side deletion must happen before local scrubbing because the
+      // DEL command needs the browser-owned recipient queue signing key.
+      await this.client.deleteQueue(queue, deleteQueueOptions(options, queueId, i, this.client));
+      remoteDeletedQueues.push(queueId);
+    }
+    if (!remoteDeletedQueues.length && options.requireRemoteQueue !== false) {
+      fail('SIMPLEX_CONTACT_QUEUE', 'contact inbox queue is missing');
+    }
+    return {
+      contact: this.deleteContact(cleanId, options),
+      remoteDeletedQueues
+    };
   }
 
   async sendText(id, text, options = {}) {
