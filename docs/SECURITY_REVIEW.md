@@ -1,6 +1,6 @@
 # Security Review
 
-Date: 2026-05-11
+Date: 2026-05-12
 
 Reviewer posture: Codex Desktop external-review simulation. This is not an
 independent third-party human audit, but it was performed adversarially against
@@ -23,7 +23,9 @@ Reviewed release surface:
 - `src/browser-simplex-store.mjs`
 - `src/browser-smp-server-profile.mjs`
 - `src/browser-smp-websocket-transport.mjs`
+- `src/browser-xftp-client.mjs`
 - `src/browser-xftp-core.mjs`
+- `src/browser-xftp-server-profile.mjs`
 - Haskell/WASM scaffolds and runtime wrappers
 - Browser examples and release documentation
 
@@ -57,9 +59,11 @@ Primary attacker capabilities tested:
   handshakes, encrypted envelopes, and correlation IDs.
 - Feed hostile durable-storage keys and tamper with stored binary records.
 - Reorder ratchet messages and tamper with ratchet ciphertext.
-- Tamper with XFTP chunks, manifests, sizes, and hashes.
+- Tamper with XFTP chunks, manifests, sizes, hashes, and server chunk responses.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
+- Downgrade production browser XFTP server profiles to plaintext, missing
+  origins, long retention, unsafe XFTP addresses, or plaintext chunk storage.
 - Return malformed, short, long, text, wrong-session, or late WebSocket frames.
 - Force browser rendering/layout stress across desktop and mobile viewports.
 
@@ -92,8 +96,9 @@ messages, and timeout paths.
 
 The release now includes durable browser queue/contact/ratchet/pending-task
 storage, a browser double-ratchet state machine, a contact lifecycle client,
-bounded retry scheduling, XFTP-style encrypted chunk manifests, and production
-browser SMP server profile validation.
+bounded retry scheduling, XFTP-style encrypted chunk manifests, encrypted XFTP
+upload/download sequencing, and production browser SMP/XFTP server profile
+validation.
 
 Coverage added:
 
@@ -105,11 +110,14 @@ Coverage added:
 - E2E broker tests cover two browser clients exchanging ratcheted messages
   through queue creation, recipient `KEY`, signed `SEND`, encrypted received
   `MSG`, `ACK`, and forged-signature rejection.
-- XFTP tests cover encrypted chunk reassembly and tampered chunk rejection.
+- XFTP tests cover encrypted chunk reassembly, encrypted server-bound upload,
+  verified download, deletion, profile downgrade rejection, and tampered chunk
+  rejection.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
-  payload round trips with tamper rejection, and unsafe browser SMP server
-  profile downgrades.
+  payload round trips with tamper rejection, unsafe browser SMP/XFTP server
+  profile downgrades, hostile XFTP addresses, and encrypted XFTP client
+  boundary round trips.
 
 ### Accepted residual risk: browser WebSocket SMP profile is not raw TCP/TLS SMP
 
@@ -123,9 +131,10 @@ directly speak the existing raw TCP/TLS SMP transport.
 
 The repo now contains browser-native SMP primitives, agent envelope helpers,
 queue orchestration, contact state, durable ratchet storage, retry scheduling,
-XFTP-style chunks, and a reviewed browser server profile validator. It still
-needs live interoperability vectors against real browser-profile SMP/XFTP
-servers before claiming production network interoperability.
+XFTP-style chunks, an encrypted-chunk XFTP client, and reviewed browser
+SMP/XFTP server profile validators. It still needs live interoperability
+vectors against real browser-profile SMP/XFTP servers before claiming production
+network interoperability.
 
 ## Executed Coverage
 

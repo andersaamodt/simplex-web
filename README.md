@@ -11,8 +11,10 @@ The current tree includes a handwritten browser-native SMP protocol core in
 `src/browser-simplex-ratchet.mjs`, a contact client in
 `src/browser-simplex-contact-client.mjs`, retry scheduling in
 `src/browser-simplex-scheduler.mjs`, XFTP chunk/manifest helpers in
-`src/browser-xftp-core.mjs`, reviewed browser SMP server profile validation in
-`src/browser-smp-server-profile.mjs`, and a binary SMP-over-WebSocket browser
+`src/browser-xftp-core.mjs`, an encrypted-chunk XFTP client in
+`src/browser-xftp-client.mjs`, reviewed browser SMP/XFTP server profile
+validation in `src/browser-smp-server-profile.mjs` and
+`src/browser-xftp-server-profile.mjs`, and a binary SMP-over-WebSocket browser
 transport profile in `src/browser-smp-websocket-transport.mjs`.
 
 `simplex-web` was made by AI and was adversarially tested as much as
@@ -31,8 +33,9 @@ Current scope:
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
 - Ships a contact lifecycle client that persists contacts, sends and receives ratcheted messages, acknowledges received queue messages, and queues failed sends for retry.
 - Ships bounded retry scheduling for offline/transient transport failure.
-- Ships XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
+- Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
+- Ships production browser XFTP server profile validation for encrypted chunk storage endpoints.
 - Ships a binary SMP-over-WebSocket transport profile for browser-reachable SMP servers that expose one padded SMP block per WebSocket frame.
 - Includes Haskell-to-wasm validation slices so browser-targeted Haskell can be tested honestly.
 - Uses the Secure Chat interface from `nostr-blog` as the default/example presentation layer.
@@ -63,6 +66,8 @@ Not shipped:
 - `src/browser-smp-server-profile.mjs`: production browser SMP server profile validation.
 - `src/browser-smp-websocket-transport.mjs`: browser binary WebSocket transport profile for padded SMP blocks.
 - `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
+- `src/browser-xftp-client.mjs`: browser XFTP encrypted chunk upload/download sequencing over a reviewed server boundary.
+- `src/browser-xftp-server-profile.mjs`: production browser XFTP server profile validation.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
@@ -77,6 +82,8 @@ Not shipped:
 - `tests/browser-smp-server-profile.test.mjs`: Node tests for browser SMP server profile downgrade rejection.
 - `tests/browser-smp-websocket-transport.test.mjs`: Node tests for the binary browser WebSocket SMP transport profile.
 - `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
+- `tests/browser-xftp-client.test.mjs`: Node tests for encrypted XFTP upload/download, deletion, and tamper rejection.
+- `tests/browser-xftp-server-profile.test.mjs`: Node tests for browser XFTP server profile downgrade rejection.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.
@@ -283,14 +290,22 @@ claim of interoperability with existing raw TCP/TLS SimpleX servers.
 
 ```js
 import { createXftpUpload, assembleXftpDownload } from "simplex-web/browser-xftp-core";
+import { createBrowserXftpClient } from "simplex-web/browser-xftp-client";
 
 const upload = createXftpUpload(fileBytes, { name: "notes.txt" });
 const fileBytesAgain = assembleXftpDownload(upload.manifest, upload.chunks, upload.rootKey);
+
+const client = createBrowserXftpClient({ server, profile });
+const sent = await client.uploadFile(fileBytes, { name: "notes.txt" });
+const received = await client.downloadFile(sent.manifest, sent.rootKey);
 ```
 
 The XFTP core encrypts each chunk with a per-file root key, records plaintext
 and ciphertext hashes in the manifest, and rejects tampered chunks during
-reassembly.
+reassembly. The browser XFTP client only passes encrypted chunk packets to its
+server boundary; plaintext file bytes and the per-file root key remain in the
+browser/client side and should be delivered through the ratcheted chat layer, not
+stored by an XFTP server.
 
 ## Release Hygiene
 

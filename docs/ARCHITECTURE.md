@@ -31,15 +31,19 @@ framework app:
    transient/offline work.
 10. `src/browser-xftp-core.mjs` owns encrypted XFTP-style chunks, manifests, and
    reassembly verification.
-11. `src/browser-smp-server-profile.mjs` validates production browser SMP server
+11. `src/browser-xftp-client.mjs` owns encrypted chunk upload/download
+   sequencing against a reviewed browser XFTP server boundary.
+12. `src/browser-xftp-server-profile.mjs` validates production browser XFTP
+   server profiles before encrypted file chunks are uploaded or downloaded.
+13. `src/browser-smp-server-profile.mjs` validates production browser SMP server
    profiles before a browser endpoint is trusted.
-12. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
+14. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
    transport profile. It sends and receives one padded binary SMP block per
    WebSocket frame for compatible SMP servers.
-13. `src/transport.js` is the public browser API. It is unavailable until an
+15. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-14. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+16. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -76,7 +80,9 @@ Safari automation, and wasm GHC without a bundler.
 - in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
 - bounded retry scheduling with deterministic testable backoff
 - XFTP-style encrypted file chunk manifests, chunk authentication, and download assembly
+- encrypted XFTP chunk upload/download sequencing over a reviewed server boundary
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
+- browser XFTP server profile validation for encrypted chunk storage endpoints
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 
@@ -141,6 +147,7 @@ server bridge:
 - double-ratchet message packets
 - contact lifecycle and retry scheduling
 - XFTP-style encrypted file chunks
+- an encrypted-chunk browser XFTP client and production XFTP server profile validation
 - production browser SMP server profile validation
 
 ## Integration contract
@@ -271,8 +278,19 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
 
 `src/browser-xftp-core.mjs` chunks file bytes, encrypts every chunk with a
 per-file root key, records plaintext and ciphertext hashes, and verifies all
-chunks before reassembly. It is transport-agnostic; moving chunks to servers is
-left to a reviewed browser XFTP server profile.
+chunks before reassembly.
+
+`src/browser-xftp-client.mjs` sequences upload, download, and deletion through an
+abstract encrypted-chunk server boundary. The server receives manifest metadata,
+ciphertext, tags, and ciphertext hashes; it does not receive plaintext file
+bytes or the file root key. The root key and manifest are expected to move
+through the ratcheted chat layer, not through XFTP storage.
+
+`src/browser-xftp-server-profile.mjs` validates that a production browser XFTP
+server endpoint uses a browser-safe `https://`, `wss://`, or WebTransport-style
+profile, lists allowed origins, requires encrypted chunks, and keeps retention
+bounded. This is a browser profile for encrypted XFTP storage, not direct raw
+TCP/TLS access to existing native XFTP servers.
 
 ## Browser SMP Server Profile
 
@@ -303,4 +321,4 @@ as part of the protocol, not as a website plaintext bridge.
 
 1. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
 2. Add formal interoperability vectors against upstream SimpleX implementations for every encoded protocol layer.
-3. Add a browser XFTP server profile and live encrypted file-transfer tests.
+3. Add live encrypted file-transfer tests against reviewed browser-profile XFTP servers.

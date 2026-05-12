@@ -273,3 +273,76 @@ test('browser SMP server profile fuzzing rejects unsafe production downgrades', 
     }), /URL|wss|https|invalid/i);
   }), { numRuns: 120, seed: FUZZ_SEED + 6 });
 });
+
+test('browser XFTP server profile fuzzing rejects unsafe production downgrades', async () => {
+  const { assertProductionBrowserXftpServerProfile, parseXftpServerAddress } = await import('../src/browser-xftp-server-profile.mjs');
+  const { encodeBase64Url } = await import('../src/browser-smp-core.mjs');
+  const unsafeUrl = hostileString.filter((value) => !/^https:\/\/|^wss:\/\//i.test(String(value == null ? '' : value).trim()));
+  const unsafeAddress = hostileString.filter((value) => !/^xftp:\/\/[^:@,/?#]+(?::[^@,/?#]+)?@[^,/?#]+(?:,[^,/?#]+)?$/i.test(String(value == null ? '' : value).trim()));
+
+  await fc.assert(fc.asyncProperty(unsafeUrl, async (url) => {
+    assert.throws(() => assertProductionBrowserXftpServerProfile({
+      version: 1,
+      transport: 'websocket',
+      url,
+      allowedOrigins: ['https://app.example.test'],
+      keyHash: encodeBase64Url(new Uint8Array(32).fill(3)),
+      xftpAddress: 'xftp://fingerprint@xftp.example.test'
+    }), /URL|wss|https|invalid/i);
+  }), { numRuns: 120, seed: FUZZ_SEED + 7 });
+
+  await fc.assert(fc.asyncProperty(unsafeAddress, async (address) => {
+    assert.throws(() => parseXftpServerAddress(address), /address|xftp|control|whitespace/i);
+  }), { numRuns: 120, seed: FUZZ_SEED + 8 });
+});
+
+test('browser XFTP client fuzzing keeps arbitrary payloads encrypted at the server boundary', async () => {
+  const { createBrowserXftpClient } = await import('../src/browser-xftp-client.mjs');
+  const { encodeBase64Url, equalBytes } = await import('../src/browser-smp-core.mjs');
+  const bytesArb = fc.uint8Array({ maxLength: 2048 });
+
+  await fc.assert(fc.asyncProperty(bytesArb, async (bytes) => {
+    const chunks = new Map();
+    const server = {
+      sawPlaintext: false,
+      async putChunk(packet) {
+        if (bytes.length > 8 && Buffer.from(packet.ciphertext).includes(Buffer.from(bytes.slice(0, 8)))) this.sawPlaintext = true;
+        chunks.set(packet.fileId + ':' + packet.index, {
+          index: packet.index,
+          size: packet.size,
+          sha256: packet.sha256,
+          ciphertext: new Uint8Array(packet.ciphertext),
+          tag: new Uint8Array(packet.tag),
+          ciphertextSha256: packet.ciphertextSha256
+        });
+      },
+      async getChunk(fileId, index) {
+        const chunk = chunks.get(fileId + ':' + index);
+        if (!chunk) throw new Error('missing chunk');
+        return {
+          ...chunk,
+          ciphertext: new Uint8Array(chunk.ciphertext),
+          tag: new Uint8Array(chunk.tag)
+        };
+      }
+    };
+    const client = createBrowserXftpClient({
+      server,
+      profile: {
+        version: 1,
+        transport: 'websocket',
+        url: 'wss://xftp.example.test/upload',
+        allowedOrigins: ['https://app.example.test'],
+        keyHash: encodeBase64Url(new Uint8Array(32).fill(4)),
+        xftpAddress: 'xftp://fingerprint@xftp.example.test'
+      }
+    });
+    const upload = await client.uploadFile(bytes, {
+      rootKey: new Uint8Array(32).fill(21),
+      fileId: 'client-fuzz-file',
+      chunkSize: 1024
+    });
+    assert.equal(server.sawPlaintext, false);
+    assert.equal(equalBytes(await client.downloadFile(upload.manifest, upload.rootKey), bytes), true);
+  }), { numRuns: 80, seed: FUZZ_SEED + 9 });
+});
