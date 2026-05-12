@@ -102,6 +102,9 @@ Coverage added:
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, durable retry enqueueing after transport
   failure, and explicit retry draining.
+- E2E broker tests cover two browser clients exchanging ratcheted messages
+  through queue creation, recipient `KEY`, signed `SEND`, encrypted received
+  `MSG`, `ACK`, and forged-signature rejection.
 - XFTP tests cover encrypted chunk reassembly and tampered chunk rejection.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte

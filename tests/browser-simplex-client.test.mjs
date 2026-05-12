@@ -151,6 +151,64 @@ test('client fails closed on broker errors and unmatched correlation ids', async
   );
 });
 
+test('client buffers unmatched broker messages while waiting for a correlation id', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const queue = {
+    rcvId: filled(24, 34),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 35))
+  };
+  const msgId = filled(24, 36);
+  transport.responses.push(
+    { corrId: smp.asciiBytes('async-msg'), queueId: queue.rcvId, message: { type: 'MSG', msgId, body: filled(32, 37) } },
+    { corrId: smp.asciiBytes('sub-async'), queueId: queue.rcvId, message: { type: 'OK' } }
+  );
+
+  await client.subscribeQueue(queue, { corrId: 'sub-async', maxBatches: 2 });
+  assert.equal(client.status().pendingTransmissionCount, 1);
+  const received = await client.receiveQueueMessage(queue, { maxBatches: 1 });
+  assert.equal(smp.equalBytes(received.message.msgId, msgId), true);
+  assert.equal(client.status().pendingTransmissionCount, 0);
+});
+
+test('client buffers unmatched OK responses while receiving queue messages', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const queue = {
+    rcvId: filled(24, 38),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 39))
+  };
+  const msgId = filled(24, 40);
+  transport.responses.push(
+    { corrId: smp.asciiBytes('send-ok'), queueId: queue.rcvId, message: { type: 'OK' } },
+    { corrId: smp.asciiBytes('msg-async'), queueId: queue.rcvId, message: { type: 'MSG', msgId, body: filled(32, 41) } }
+  );
+
+  const received = await client.receiveQueueMessage(queue, { maxBatches: 2 });
+  assert.equal(smp.equalBytes(received.message.msgId, msgId), true);
+  const ok = await client.receiveForCorr(smp.asciiBytes('send-ok'), { maxBatches: 1 });
+  assert.equal(ok.message.type, 'OK');
+});
+
+test('client caps pending broker buffer under unsolicited traffic', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport, maxPendingTransmissions: 16 });
+  for (let i = 0; i < 40; i += 1) {
+    transport.responses.push({
+      corrId: smp.asciiBytes('noise-' + i),
+      queueId: filled(24, 42),
+      message: { type: 'OK' }
+    });
+  }
+  transport.responses.push({
+    corrId: smp.asciiBytes('wanted'),
+    queueId: filled(24, 42),
+    message: { type: 'OK' }
+  });
+  await client.receiveForCorr('wanted', { maxBatches: 41 });
+  assert.equal(client.status().pendingTransmissionCount, 16);
+});
+
 test('client rejects hostile correlation ids before transport side effects', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });

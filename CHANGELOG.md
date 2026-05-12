@@ -24,6 +24,7 @@
 - Added `src/browser-xftp-core.mjs` for XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
 - Added `src/browser-smp-server-profile.mjs` for reviewed production browser SMP server profile validation.
 - Added focused adversarial tests and fuzz/property coverage for storage keys, ratchet tampering, contact retries, inbound contact receive/ack, XFTP corruption, hostile XFTP byte payloads, scheduler bounds, and server-profile downgrade rejection.
+- Added an in-process browser-profile SMP broker E2E test for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection.
 
 ## 1.0.0 - 2026-05-11
 

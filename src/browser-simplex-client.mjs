@@ -86,6 +86,8 @@ export class BrowserSimplexClient {
     this.sessionId = options.sessionId || this.transport.sessionId || new Uint8Array();
     this.nextId = 1;
     this.queues = new Map();
+    this.pendingTransmissions = [];
+    this.maxPendingTransmissions = Math.max(16, Math.floor(Number(options.maxPendingTransmissions || 512) || 512));
   }
 
   makeCorrId(prefix = 'c') {
@@ -105,6 +107,23 @@ export class BrowserSimplexClient {
     return queue;
   }
 
+  rememberPending(transmission) {
+    if (!transmission) return;
+    this.pendingTransmissions.push(transmission);
+    if (this.pendingTransmissions.length > this.maxPendingTransmissions) {
+      this.pendingTransmissions.splice(0, this.pendingTransmissions.length - this.maxPendingTransmissions);
+    }
+  }
+
+  takePending(predicate) {
+    for (var i = 0; i < this.pendingTransmissions.length; i += 1) {
+      if (predicate(this.pendingTransmissions[i])) {
+        return this.pendingTransmissions.splice(i, 1)[0];
+      }
+    }
+    return null;
+  }
+
   async sendAndWait(transmission, corrId, options = {}) {
     this.transport.sendSignedTransmissions([transmission]);
     return this.receiveForCorr(corrId, options);
@@ -113,6 +132,11 @@ export class BrowserSimplexClient {
   async receiveForCorr(corrId, options = {}) {
     var expected = toBytes(corrId, 'correlation id');
     var maxBatches = Math.max(1, Math.floor(Number(options.maxBatches || 25) || 25));
+    var pending = this.takePending((tx) => tx && tx.corrId && equalBytes(tx.corrId, expected));
+    if (pending) {
+      if (brokerType(pending) === 'ERR') fail('SIMPLEX_CLIENT_BROKER_ERR', errorText(brokerMessage(pending)), brokerMessage(pending));
+      return pending;
+    }
     for (var i = 0; i < maxBatches; i += 1) {
       var transmissions = await this.transport.receiveSignedTransmissions({
         kind: 'broker',
@@ -127,6 +151,7 @@ export class BrowserSimplexClient {
           }
           return tx;
         }
+        this.rememberPending(tx);
       }
     }
     fail('SIMPLEX_CLIENT_TIMEOUT', 'no SMP response matched the correlation id');
@@ -135,6 +160,8 @@ export class BrowserSimplexClient {
   async receiveQueueMessage(queueOrLabel, options = {}) {
     var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
     var maxBatches = Math.max(1, Math.floor(Number(options.maxBatches || 25) || 25));
+    var pending = this.takePending((tx) => brokerType(tx) === 'MSG' && queueMatches(tx, queue));
+    if (pending) return { queue, transmission: pending, message: brokerMessage(pending) };
     for (var i = 0; i < maxBatches; i += 1) {
       var transmissions = await this.transport.receiveSignedTransmissions({
         kind: 'broker',
@@ -147,6 +174,7 @@ export class BrowserSimplexClient {
         if (type === 'MSG' && queueMatches(tx, queue)) {
           return { queue, transmission: tx, message };
         }
+        this.rememberPending(tx);
       }
     }
     fail('SIMPLEX_CLIENT_TIMEOUT', 'no SMP message matched the queue');
@@ -246,6 +274,7 @@ export class BrowserSimplexClient {
     return {
       version: this.version,
       queueCount: this.queues.size,
+      pendingTransmissionCount: this.pendingTransmissions.length,
       transport: typeof this.transport.getStatus === 'function' ? this.transport.getStatus() : null,
       queues: Array.from(this.queues.entries()).map(([label, queue]) => ({
         label,

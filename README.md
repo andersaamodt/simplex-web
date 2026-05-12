@@ -70,6 +70,7 @@ Not shipped:
 - `tests/browser-simplex-agent.test.mjs`: Node unit and fuzz tests for browser-native agent envelopes and queue lifecycle helpers.
 - `tests/browser-simplex-client.test.mjs`: Node tests for queue-level client orchestration and fail-closed response handling.
 - `tests/browser-simplex-contact-client.test.mjs`: Node tests for contact state, ratcheted sends, and retry enqueueing.
+- `tests/browser-simplex-e2e-broker.test.mjs`: in-process browser-profile SMP broker E2E for two clients, ratcheted messages, ACKs, and forged-signature rejection.
 - `tests/browser-simplex-ratchet.test.mjs`: Node tests for double-ratchet send/receive, skipped messages, and tamper rejection.
 - `tests/browser-simplex-scheduler.test.mjs`: Node tests for retry timing and completion.
 - `tests/browser-simplex-store.test.mjs`: Node tests for durable store serialization and hostile keys.
@@ -272,6 +273,11 @@ Retryable failed sends can be drained explicitly:
 ```js
 await contacts.drainDueRetries();
 ```
+
+The E2E broker test exercises two browser clients through queue creation,
+recipient `KEY`, signed `SEND`, encrypted server-wrapped `MSG`, ratchet
+decryption, and `ACK`. It is still an in-process browser-profile harness, not a
+claim of interoperability with existing raw TCP/TLS SimpleX servers.
 
 ## XFTP Core
 

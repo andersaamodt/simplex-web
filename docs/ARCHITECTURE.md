@@ -73,6 +73,7 @@ Safari automation, and wasm GHC without a bundler.
 - browser double-ratchet root/chain key progression, skipped-message keys, and AEAD packet encryption
 - contact lifecycle states for invited, requested, active, suspended, and deleted contacts
 - active-contact sends and receives with ratchet persistence, SMP ACKs, and failed-send retry enqueueing
+- in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
 - bounded retry scheduling with deterministic testable backoff
 - XFTP-style encrypted file chunk manifests, chunk authentication, and download assembly
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
