@@ -83,7 +83,9 @@ Safari automation, and wasm GHC without a bundler.
 - durable browser queue, contact, ratchet, and pending-task storage
 - browser double-ratchet root/chain key progression, skipped-message keys, and AEAD packet encryption
 - contact lifecycle states for invited, requested, active, suspended, and deleted contacts
-- browser invitation URI creation, encrypted sender contact requests, recipient confirmation-key verification, queue `KEY` securing, and request ACKs
+- browser invitation URI creation, requester reply queues, encrypted sender
+  contact requests, encrypted accept confirmations, recipient/requester
+  confirmation-key verification, queue `KEY` securing, and request/accept ACKs
 - active-contact sends and receives with ratchet persistence, SMP ACKs, and failed-send retry enqueueing
 - contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
 - contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
@@ -299,11 +301,13 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   packet encryption.
 - `src/browser-simplex-contact-client.mjs` creates invitations, activates
   contacts, sends encrypted contact requests from invitation URIs, verifies and
-  accepts incoming contact requests, persists ratchets, sends active-contact
-  messages, decrypts inbound queue messages, acknowledges received SMP messages,
-  uploads encrypted XFTP file chunks, ratchet-sends file descriptors and root
-  keys, downloads received encrypted files, stores failed sends as retry tasks,
-  and scrubs queue, ratchet, and retry secrets when a contact is deleted.
+  accepts incoming contact requests, creates requester reply queues, sends and
+  receives encrypted accept confirmations, persists ratchets, sends
+  active-contact messages, decrypts inbound queue messages, acknowledges
+  received SMP messages, uploads encrypted XFTP file chunks, ratchet-sends file
+  descriptors and root keys, downloads received encrypted files, stores failed
+  sends as retry tasks, and scrubs queue, ratchet, and retry secrets when a
+  contact is deleted.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

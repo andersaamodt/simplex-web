@@ -130,9 +130,16 @@ Coverage added:
   queue-message decrypt-and-ack, durable retry enqueueing after transport
   failure, explicit retry draining, and contact deletion that scrubs durable
   queue records, ratchet secrets, and contact-scoped pending retry payloads.
-- Contact request tests cover invitation URI generation, encrypted initial
+- Contact request tests cover invitation URI generation, requester reply-queue
+  creation, caller-supplied reply-queue persistence, encrypted initial
   confirmation sends, profile hiding from broker bodies, recipient confirmation
+  decrypt, encrypted accept-confirmation sends, requester accept-confirmation
   decrypt, queue `KEY` securing, ACK, and receiving-ratchet persistence.
+- Malformed reply-queue tests cover imported contact-request metadata before
+  queue `KEY`, ACK, accept-send, or contact-state side effects are allowed.
+- Full bootstrap regression covers request, accept, requester first ratcheted
+  message delivery, recipient decrypt, and ACK, so the recipient cannot persist
+  a half-initialized receiving ratchet after accepting a request.
 - Contact file-transfer tests cover encrypted XFTP upload, ratcheted descriptor
   send, root-key hiding from the SMP body, received descriptor parsing, verified
   XFTP download, and received-file byte equality.

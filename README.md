@@ -49,8 +49,9 @@ What works locally today:
 - Browser-native SMP encoding, signing, transport blocks, handshakes, and queue
   command helpers.
 - Browser contact creation, invitation URI creation, encrypted contact requests,
-  queue securing, ACKs, active contact messaging, retry scheduling, and durable
-  browser state.
+  reply queues, encrypted accept confirmations, queue securing, ACKs, active
+  contact messaging, requester-first post-accept delivery, retry scheduling,
+  and durable browser state.
 - Browser-owned double-ratchet message encryption.
 - Encrypted XFTP-style file chunking, upload/download sequencing, verified
   reassembly, and an HTTPS/`fetch` encrypted chunk transport.
@@ -124,7 +125,7 @@ ratcheted chat layer.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, queues failed sends for retry, and scrubs contact queue/ratchet/retry secrets on delete.
+- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, queues failed sends for retry, and scrubs contact queue/ratchet/retry secrets on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
@@ -387,21 +388,21 @@ and ratchet helpers:
 import { createBrowserSimplexContactClient } from "simplex-web/browser-simplex-contact-client";
 import { createBrowserSimplexStore } from "simplex-web/browser-simplex-store";
 
-const contacts = createBrowserSimplexContactClient({
-  client,
-  store: createBrowserSimplexStore({ namespace: "site-chat" })
+const aliceContacts = createBrowserSimplexContactClient({
+  client: aliceClient,
+  store: createBrowserSimplexStore({ namespace: "alice-site-chat" })
+});
+const bobContacts = createBrowserSimplexContactClient({
+  client: bobClient,
+  store: createBrowserSimplexStore({ namespace: "bob-site-chat" })
 });
 
-const invitation = await contacts.createInvitation({ id: "alice", corrId: "new-1" });
-const uri = contacts.invitationUri("alice");
-await contacts.requestContact("bob", uri, { corrId: "req-1" });
-await contacts.receiveContactRequest("alice", { keyCorrId: "key-1", ackCorrId: "ack-1" });
-contacts.activateContact("alice", {
-  rootKey,
-  remoteDhPublicKey,
-  outboundQueue
-});
-await contacts.sendText("alice", "hello");
+const invitation = await bobContacts.createInvitation({ id: "alice", corrId: "bob-new-1" });
+await aliceContacts.requestContact("bob", bobContacts.invitationUri("alice"), { corrId: "alice-req-1" });
+await bobContacts.receiveContactRequest("alice", { keyCorrId: "bob-key-1", ackCorrId: "bob-ack-1" });
+await aliceContacts.receiveContactAccept("bob", { keyCorrId: "alice-accept-key-1", ackCorrId: "alice-accept-ack-1" });
+await aliceContacts.sendText("bob", "hello");
+const received = await bobContacts.receiveNext("alice", { ackCorrId: "bob-msg-ack-1" });
 ```
 
 Failed sends are persisted as retry tasks. Contact sends require active contact

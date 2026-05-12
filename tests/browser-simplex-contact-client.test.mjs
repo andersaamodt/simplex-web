@@ -22,6 +22,14 @@ function packetBytes(packet) {
   }));
 }
 
+function lastParsedCommand(transport, type) {
+  for (let i = transport.sent.length - 1; i >= 0; i -= 1) {
+    const parsed = smp.parseSignedTransmission(4, transport.sent[i].bytes);
+    if (!type || parsed.command.type === type) return parsed;
+  }
+  throw new Error('no sent command found');
+}
+
 class FakeTransport {
   constructor() {
     this.version = 4;
@@ -142,9 +150,19 @@ test('contact client requests contact from invitation with encrypted initial con
     queueId: filled(24, 59),
     recipientDhPublicKey: recipientDh.publicKeyDer
   });
+  const replyServerDh = smp.generateX25519KeyPair(filled(32, 73));
 
+  transport.pushResponse('reply-new', {
+    type: 'IDS',
+    rcvId: filled(24, 74),
+    sndId: filled(24, 75),
+    rcvPublicDhKey: replyServerDh.publicKeyDer
+  });
   transport.pushResponse('req-1', { type: 'OK' }, filled(24, 59));
   const contact = await contacts.requestContact('bob', invitationUri, {
+    replyCorrId: 'reply-new',
+    replyRcvSignSeed: filled(32, 76),
+    replyRcvDhSeed: filled(32, 77),
     corrId: 'req-1',
     ownDhSeed: filled(32, 60),
     senderSignSeed: filled(32, 61),
@@ -155,11 +173,46 @@ test('contact client requests contact from invitation with encrypted initial con
   assert.equal(contact.state, 'requested');
   assert.equal(store.loadContact('bob').state, 'requested');
   assert.equal(store.loadQueue('bob:outbox').sndId.length, 24);
+  assert.equal(store.loadQueue('bob:inbox').rcvId.length, 24);
   assert.ok(store.loadRatchet('bob').rootKey instanceof Uint8Array);
-  const sent = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  const sent = smp.parseSignedTransmission(4, transport.sent[1].bytes);
   assert.equal(sent.command.type, 'SEND');
   assert.equal(sent.signature.length, 0);
   assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('Alice')), false);
+});
+
+test('contact client persists caller supplied requester reply queue', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-request-supplied-reply' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 136));
+  const invitationUri = smp.formatSmpQueueUri({
+    server: { scheme: 'smp', keyHash: filled(32, 137), host: 'smp.example.test', port: '5223' },
+    queueId: filled(24, 138),
+    recipientDhPublicKey: recipientDh.publicKeyDer
+  });
+  const replyQueue = {
+    server: { scheme: 'smp', keyHash: filled(32, 139), host: 'smp.example.test', port: '5223' },
+    rcvId: filled(24, 140),
+    sndId: filled(24, 141),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 142)),
+    rcvDhKey: smp.generateX25519KeyPair(filled(32, 143)),
+    serverDhSecret: filled(32, 144)
+  };
+
+  transport.pushResponse('req-supplied', { type: 'OK' }, filled(24, 138));
+  await contacts.requestContact('bob', invitationUri, {
+    replyQueue,
+    corrId: 'req-supplied',
+    ownDhSeed: filled(32, 145),
+    senderSignSeed: filled(32, 146),
+    nonce: filled(24, 147),
+    profile: { displayName: 'Alice' }
+  });
+
+  assert.equal(smp.equalBytes(store.loadQueue('bob:inbox').rcvId, replyQueue.rcvId), true);
+  assert.equal(store.loadContact('bob').inboxQueueId, 'bob:inbox');
 });
 
 test('contact client receives contact request secures queue and stores receiving ratchet', async () => {
@@ -169,6 +222,13 @@ test('contact client receives contact request secures queue and stores receiving
   const contacts = createBrowserSimplexContactClient({ client, store });
   const recipientDh = smp.generateX25519KeyPair(filled(32, 63));
   const senderDh = smp.generateX25519KeyPair(filled(32, 64));
+  const replyDh = smp.generateX25519KeyPair(filled(32, 73));
+  const replyQueueId = filled(24, 74);
+  const replyQueueUri = smp.formatSmpQueueUri({
+    server: { scheme: 'smp', keyHash: filled(32, 75), host: 'smp.example.test', port: '5223' },
+    queueId: replyQueueId,
+    recipientDhPublicKey: replyDh.publicKeyDer
+  });
   const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
   const queue = {
     rcvId: filled(24, 65),
@@ -189,7 +249,7 @@ test('contact client receives contact request secures queue and stores receiving
     e2eSharedSecret: shared,
     senderE2ePubDhKey: senderDh.publicKeyDer,
     nonce: filled(24, 70),
-    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-request', profile: { displayName: 'Bob' } }))
+    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-request', profile: { displayName: 'Bob' }, replyQueueUri }))
   });
   const msgId = filled(24, 71);
   const body = encryptRcvMessageBody({
@@ -201,21 +261,310 @@ test('contact client receives contact request secures queue and stores receiving
   transport.pushResponse('msg-request', { type: 'MSG', msgId, body }, queue.rcvId);
   transport.pushResponse('key-1', { type: 'OK' }, queue.rcvId);
   transport.pushResponse('ack-2', { type: 'OK' }, queue.rcvId);
+  transport.pushResponse('accept-1', { type: 'OK' }, replyQueueId);
 
   const accepted = await contacts.receiveContactRequest('alice', {
     keyCorrId: 'key-1',
-    ackCorrId: 'ack-2'
+    ackCorrId: 'ack-2',
+    acceptCorrId: 'accept-1',
+    acceptDhSeed: filled(32, 76),
+    acceptSenderSignSeed: filled(32, 77),
+    acceptNonce: filled(24, 78)
   });
   assert.equal(accepted.contact.state, 'active');
+  assert.equal(accepted.accept.response.message.type, 'OK');
   assert.equal(accepted.request.profile.displayName, 'Bob');
   assert.equal(accepted.timestamp, 789n);
   assert.equal(store.loadContact('alice').remoteProfile.displayName, 'Bob');
+  assert.equal(smp.equalBytes(store.loadContact('alice').outboundQueue.sndId, replyQueueId), true);
   assert.ok(store.loadRatchet('alice').rootKey instanceof Uint8Array);
+  const keyCommand = smp.parseSignedTransmission(4, transport.sent[0].bytes).command;
+  const ackCommand = smp.parseSignedTransmission(4, transport.sent[1].bytes).command;
+  const acceptCommand = smp.parseSignedTransmission(4, transport.sent[2].bytes).command;
+  assert.equal(keyCommand.type, 'KEY');
+  assert.equal(ackCommand.type, 'ACK');
+  assert.equal(acceptCommand.type, 'SEND');
+  assert.equal(smp.equalBytes(ackCommand.msgId, msgId), true);
+});
+
+test('contact client rejects malformed reply queue before request side effects', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-bad-reply-queue' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 148));
+  const senderDh = smp.generateX25519KeyPair(filled(32, 149));
+  const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
+  const queue = {
+    rcvId: filled(24, 150),
+    sndId: filled(24, 151),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 152)),
+    rcvDhKey: recipientDh,
+    serverDhSecret: filled(32, 153)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'invited', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+
+  const prepared = prepareInitialSenderMessage({
+    version: 4,
+    sessionId: transport.sessionId,
+    corrId: smp.asciiBytes('bad-reply'),
+    senderQueueId: queue.sndId,
+    senderSignSeed: filled(32, 154),
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderDh.publicKeyDer,
+    nonce: filled(24, 155),
+    body: smp.utf8Bytes(JSON.stringify({
+      type: 'contact-request',
+      profile: { displayName: 'Mallory' },
+      replyQueueUri: 'smp://not a valid reply queue'
+    }))
+  });
+  const msgId = filled(24, 156);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 222n,
+    body: prepared.envelope
+  });
+  transport.pushResponse('bad-reply-msg', { type: 'MSG', msgId, body }, queue.rcvId);
+
+  await assert.rejects(() => contacts.receiveContactRequest('alice', {
+    keyCorrId: 'bad-reply-key',
+    ackCorrId: 'bad-reply-ack',
+    acceptCorrId: 'bad-reply-accept'
+  }), /queue uri|unsupported/i);
+  assert.equal(transport.sent.length, 0);
+  assert.equal(store.loadContact('alice').state, 'invited');
+});
+
+test('contact client receives accept confirmation and secures requester reply queue', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-accept-confirmation' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 91));
+  const senderDh = smp.generateX25519KeyPair(filled(32, 92));
+  const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
+  const queue = {
+    rcvId: filled(24, 93),
+    sndId: filled(24, 94),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 95)),
+    rcvDhKey: recipientDh,
+    serverDhSecret: filled(32, 96)
+  };
+  const outbox = {
+    sndId: filled(24, 97),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 98))
+  };
+  store.saveContact('alice', {
+    id: 'alice',
+    state: 'requested',
+    inboxQueueId: 'alice:inbox',
+    outboundQueue: outbox
+  });
+  store.saveQueue('alice:inbox', queue);
+  store.saveQueue('alice:outbox', outbox);
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 99),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 100)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 101)).publicKey,
+    sendingChainKey: filled(32, 102)
+  });
+
+  const prepared = prepareInitialSenderMessage({
+    version: 4,
+    sessionId: transport.sessionId,
+    corrId: smp.asciiBytes('accept'),
+    senderQueueId: queue.sndId,
+    senderSignSeed: filled(32, 103),
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderDh.publicKeyDer,
+    nonce: filled(24, 104),
+    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-accept', profile: { displayName: 'Alice' } }))
+  });
+  const msgId = filled(24, 105);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 987n,
+    body: prepared.envelope
+  });
+  transport.pushResponse('accept-msg', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('accept-key', { type: 'OK' }, queue.rcvId);
+  transport.pushResponse('accept-ack', { type: 'OK' }, queue.rcvId);
+
+  const accepted = await contacts.receiveContactAccept('alice', {
+    keyCorrId: 'accept-key',
+    ackCorrId: 'accept-ack'
+  });
+  assert.equal(accepted.contact.state, 'active');
+  assert.equal(accepted.accept.profile.displayName, 'Alice');
+  assert.equal(accepted.timestamp, 987n);
+  assert.equal(store.loadContact('alice').remoteProfile.displayName, 'Alice');
+  assert.equal(store.loadQueue('alice:outbox').sndId.length, 24);
   const keyCommand = smp.parseSignedTransmission(4, transport.sent[0].bytes).command;
   const ackCommand = smp.parseSignedTransmission(4, transport.sent[1].bytes).command;
   assert.equal(keyCommand.type, 'KEY');
   assert.equal(ackCommand.type, 'ACK');
   assert.equal(smp.equalBytes(ackCommand.msgId, msgId), true);
+});
+
+test('accepted contact can receive the requester first ratcheted message', async () => {
+  const transport = new FakeTransport();
+  const aliceClient = createBrowserSimplexClient({ transport });
+  const bobClient = createBrowserSimplexClient({ transport });
+  const aliceStore = createBrowserSimplexStore({ namespace: 'contacts-full-handshake-alice' });
+  const bobStore = createBrowserSimplexStore({ namespace: 'contacts-full-handshake-bob' });
+  const aliceContacts = createBrowserSimplexContactClient({ client: aliceClient, store: aliceStore });
+  const bobContacts = createBrowserSimplexContactClient({ client: bobClient, store: bobStore });
+  const bobServerDh = smp.generateX25519KeyPair(filled(32, 115));
+
+  transport.pushResponse('bob-new', {
+    type: 'IDS',
+    rcvId: filled(24, 116),
+    sndId: filled(24, 117),
+    rcvPublicDhKey: bobServerDh.publicKeyDer
+  });
+  const bobInvite = await bobContacts.createInvitation({
+    id: 'alice',
+    corrId: 'bob-new',
+    server: { scheme: 'smp', keyHash: filled(32, 118), host: 'smp.example.test', port: '5223' },
+    rcvSignSeed: filled(32, 119),
+    rcvDhSeed: filled(32, 120)
+  });
+
+  const aliceReplyServerDh = smp.generateX25519KeyPair(filled(32, 121));
+  transport.pushResponse('alice-reply-new', {
+    type: 'IDS',
+    rcvId: filled(24, 122),
+    sndId: filled(24, 123),
+    rcvPublicDhKey: aliceReplyServerDh.publicKeyDer
+  });
+  transport.pushResponse('alice-request', { type: 'OK' }, filled(24, 117));
+  await aliceContacts.requestContact('bob', bobInvite.invitationUri, {
+    replyCorrId: 'alice-reply-new',
+    replyRcvSignSeed: filled(32, 124),
+    replyRcvDhSeed: filled(32, 125),
+    corrId: 'alice-request',
+    ownDhSeed: filled(32, 126),
+    senderSignSeed: filled(32, 127),
+    nonce: filled(24, 128),
+    profile: { displayName: 'Alice' }
+  });
+
+  const requestCommand = lastParsedCommand(transport, 'SEND').command;
+  const bobInbox = bobStore.loadQueue('alice:inbox');
+  const requestMsgId = filled(24, 129);
+  transport.pushResponse('request-msg', {
+    type: 'MSG',
+    msgId: requestMsgId,
+    body: encryptRcvMessageBody({
+      serverDhSecret: bobInbox.serverDhSecret,
+      msgId: requestMsgId,
+      timestamp: 111n,
+      body: requestCommand.body
+    })
+  }, bobInbox.rcvId);
+  transport.pushResponse('bob-key', { type: 'OK' }, bobInbox.rcvId);
+  transport.pushResponse('bob-ack', { type: 'OK' }, bobInbox.rcvId);
+  transport.pushResponse('bob-accept', { type: 'OK' }, aliceStore.loadQueue('bob:inbox').sndId);
+  await bobContacts.receiveContactRequest('alice', {
+    keyCorrId: 'bob-key',
+    ackCorrId: 'bob-ack',
+    acceptCorrId: 'bob-accept',
+    acceptDhSeed: filled(32, 130),
+    acceptSenderSignSeed: filled(32, 131),
+    acceptNonce: filled(24, 132)
+  });
+
+  const acceptCommand = lastParsedCommand(transport, 'SEND').command;
+  const aliceInbox = aliceStore.loadQueue('bob:inbox');
+  const acceptMsgId = filled(24, 133);
+  transport.pushResponse('accept-msg', {
+    type: 'MSG',
+    msgId: acceptMsgId,
+    body: encryptRcvMessageBody({
+      serverDhSecret: aliceInbox.serverDhSecret,
+      msgId: acceptMsgId,
+      timestamp: 222n,
+      body: acceptCommand.body
+    })
+  }, aliceInbox.rcvId);
+  transport.pushResponse('alice-accept-key', { type: 'OK' }, aliceInbox.rcvId);
+  transport.pushResponse('alice-accept-ack', { type: 'OK' }, aliceInbox.rcvId);
+  await aliceContacts.receiveContactAccept('bob', {
+    keyCorrId: 'alice-accept-key',
+    ackCorrId: 'alice-accept-ack'
+  });
+
+  transport.pushResponse('first-text', { type: 'OK' }, filled(24, 117));
+  await aliceContacts.sendText('bob', 'first encrypted hello', {
+    corrId: 'first-text',
+    nonce: filled(24, 134)
+  });
+  const firstTextCommand = lastParsedCommand(transport, 'SEND').command;
+  const firstMsgId = filled(24, 135);
+  transport.pushResponse('first-text-msg', {
+    type: 'MSG',
+    msgId: firstMsgId,
+    body: encryptRcvMessageBody({
+      serverDhSecret: bobInbox.serverDhSecret,
+      msgId: firstMsgId,
+      timestamp: 333n,
+      body: firstTextCommand.body
+    })
+  }, bobInbox.rcvId);
+  transport.pushResponse('first-text-ack', { type: 'OK' }, bobInbox.rcvId);
+
+  const received = await bobContacts.receiveNext('alice', { ackCorrId: 'first-text-ack' });
+  assert.equal(received.text, 'first encrypted hello');
+  assert.equal(received.timestamp, 333n);
+});
+
+test('contact client rejects malformed accept confirmation before queue side effects', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-bad-accept' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 106));
+  const senderDh = smp.generateX25519KeyPair(filled(32, 107));
+  const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
+  const queue = {
+    rcvId: filled(24, 108),
+    sndId: filled(24, 109),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 110)),
+    rcvDhKey: recipientDh,
+    serverDhSecret: filled(32, 111)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'requested', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+
+  const prepared = prepareInitialSenderMessage({
+    version: 4,
+    sessionId: transport.sessionId,
+    corrId: smp.asciiBytes('bad-accept'),
+    senderQueueId: queue.sndId,
+    senderSignSeed: filled(32, 112),
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderDh.publicKeyDer,
+    nonce: filled(24, 113),
+    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-request' }))
+  });
+  const msgId = filled(24, 114);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 654n,
+    body: prepared.envelope
+  });
+  transport.pushResponse('bad-accept-msg', { type: 'MSG', msgId, body }, queue.rcvId);
+
+  await assert.rejects(() => contacts.receiveContactAccept('alice', {
+    keyCorrId: 'bad-accept-key',
+    ackCorrId: 'bad-accept-ack'
+  }), /accept payload/i);
+  assert.equal(transport.sent.length, 0);
 });
 
 test('contact client schedules failed sends for retry', async () => {

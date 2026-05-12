@@ -182,6 +182,7 @@ async function activateAdapterPair(alice, bob, aliceStore, bobStore) {
 test('SimplexWebTransport adapter normalizes facade sends files receives and registration', async () => {
   var sentText = [];
   var sentFiles = [];
+  var acceptCalls = [];
   var received = [{
     text: 'reply',
     msgId: smp.asciiBytes('msg-1'),
@@ -204,6 +205,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     receiveNext() {
       if (received.length) return Promise.resolve(received.shift());
       return Promise.reject(timeout);
+    },
+    receiveContactAccept(id, options) {
+      acceptCalls.push({ id, options });
+      return Promise.resolve({ contact: { id, state: 'active' } });
     }
   };
   var adapter = createSimplexWebTransportAdapter({ contactClient });
@@ -228,6 +233,9 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(messages.length, 1);
   assert.equal(messages[0].text, 'reply');
   assert.equal(messages[0].delivery_status, 'received');
+  await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
+  assert.equal(acceptCalls[0].id, 'alice');
+  assert.equal(acceptCalls[0].options.ackCorrId, 'accept-ack');
 
   var registered = registerSimplexWebTransportAdapter({ contactClient }, {
     registerBrowserTransport(nextAdapter) {

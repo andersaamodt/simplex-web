@@ -186,11 +186,23 @@ export class BrowserSimplexContactClient {
     var parsed = parseSmpQueueUri(invitationUri);
     var recipientDh = decodePublicKeyDer(parsed.recipientDhPublicKey);
     if (recipientDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_INVITATION', 'contact invitation DH key must be X25519');
+    var replyQueue = options.replyQueue || null;
+    if (!replyQueue && options.createReplyQueue !== false) {
+      replyQueue = await this.client.createQueue({
+        label: cleanId + ':inbox',
+        corrId: options.replyCorrId || options.reply_corr_id || this.client.makeCorrId('reply'),
+        rcvSignSeed: options.replyRcvSignSeed,
+        rcvDhSeed: options.replyRcvDhSeed,
+        server: options.replyServer || parsed.server
+      });
+    }
+    if (replyQueue) this.store.saveQueue(cleanId + ':inbox', replyQueue);
     var ownDhKey = options.ownDhKey || generateX25519KeyPair(options.ownDhSeed);
     var shared = x25519SharedSecret(ownDhKey.secretKey, recipientDh.rawPublicKey);
     var body = utf8Bytes(JSON.stringify({
       type: 'contact-request',
       profile: options.profile || {},
+      replyQueueUri: replyQueue ? invitationUriFromQueue(replyQueue) : '',
       createdAt: nowIso()
     }));
     var confirmation = await this.client.sendInitialConfirmation({
@@ -210,6 +222,7 @@ export class BrowserSimplexContactClient {
       createdAt: nowIso(),
       updatedAt: nowIso(),
       invitationUri: String(invitationUri),
+      inboxQueueId: replyQueue ? cleanId + ':inbox' : '',
       profile: options.profile || {},
       outboundQueue: {
         server: parsed.server,
@@ -250,6 +263,13 @@ export class BrowserSimplexContactClient {
     if (decrypted.privateHeader.type !== 'confirmation') fail('SIMPLEX_CONTACT_REQUEST', 'contact request is missing confirmation key');
     var request = parseJsonBytes(decrypted.body, 'contact request');
     if (!request || request.type !== 'contact-request') fail('SIMPLEX_CONTACT_REQUEST', 'contact request payload is unsupported');
+    var acceptReply = null;
+    if (request.replyQueueUri && options.sendAccept !== false) {
+      var reply = parseSmpQueueUri(request.replyQueueUri);
+      var replyDh = decodePublicKeyDer(reply.recipientDhPublicKey);
+      if (replyDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_ACCEPT', 'contact accept reply queue DH key must be X25519');
+      acceptReply = { reply, replyDh };
+    }
     await this.client.secureQueue(queue, decrypted.privateHeader.senderPublicVerifyKey, {
       ...options,
       corrId: options.keyCorrId || options.corrId || ('key-' + Date.now())
@@ -264,16 +284,95 @@ export class BrowserSimplexContactClient {
     contact.updatedAt = nowIso();
     contact.remoteProfile = request.profile || {};
     contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
+    var accept = null;
+    if (acceptReply) {
+      var reply = acceptReply.reply;
+      var replyDh = acceptReply.replyDh;
+      var acceptDh = options.acceptDhKey || generateX25519KeyPair(options.acceptDhSeed);
+      var acceptShared = x25519SharedSecret(acceptDh.secretKey, replyDh.rawPublicKey);
+      var acceptBody = utf8Bytes(JSON.stringify({
+        type: 'contact-accept',
+        profile: options.acceptProfile || contact.profile || {},
+        createdAt: nowIso()
+      }));
+      accept = await this.client.sendInitialConfirmation({
+        corrId: options.acceptCorrId || options.replyCorrId || ('accept-' + Date.now()),
+        senderQueueId: reply.queueId,
+        senderSignKey: options.acceptSenderSignKey,
+        senderSignSeed: options.acceptSenderSignSeed,
+        e2eSharedSecret: acceptShared,
+        senderE2ePubDhKey: acceptDh.publicKeyDer,
+        nonce: options.acceptNonce,
+        body: acceptBody,
+        flags: options.flags
+      });
+      contact.outboundQueue = {
+        server: reply.server,
+        sndId: reply.queueId,
+        senderSignKey: accept.senderSignKey
+      };
+      contact.outboxQueueId = contact.id + ':outbox';
+      this.store.saveQueue(contact.outboxQueueId, contact.outboundQueue);
+    }
     this.store.saveContact(contact.id, contact);
     this.store.saveRatchet(contact.id, createRatchetState({
       rootKey: shared,
       ownDhKey: queue.rcvDhKey,
-      remoteDhPublicKey: senderDh.rawPublicKey,
+      // Do not pre-fill the remote ratchet key here. The first ordinary
+      // requester message carries that key in its ratchet header; leaving it
+      // unset makes the receiver derive the receiving chain on that message.
       initializeSending: false
     }));
     return {
       contact,
       request,
+      accept,
+      msgId: received.message.msgId,
+      timestamp: decryptedBody.timestamp
+    };
+  }
+
+  async receiveContactAccept(id, options = {}) {
+    var contact = this.store.loadContact(safeId(id));
+    requireState(contact, [CONTACT_STATE_REQUESTED, CONTACT_STATE_ACTIVE]);
+    var queue = options.queue || this.store.loadQueue(contact.inboxQueueId || (contact.id + ':inbox'));
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact accept queue is missing');
+    var received = await this.client.receiveQueueMessage(queue, options);
+    var decryptedBody = decryptRcvMessageBody({
+      serverDhSecret: queue.serverDhSecret,
+      msgId: received.message.msgId,
+      encryptedBody: received.message.body
+    });
+    var envelope = parseClientMessageEnvelope(decryptedBody.body);
+    if (!envelope.publicHeader.e2ePubDhKey) fail('SIMPLEX_CONTACT_ACCEPT', 'contact accept is missing sender E2E DH key');
+    var senderDh = decodePublicKeyDer(envelope.publicHeader.e2ePubDhKey);
+    if (senderDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_ACCEPT', 'contact accept sender DH key must be X25519');
+    var shared = x25519SharedSecret(queue.rcvDhKey.secretKey, senderDh.rawPublicKey);
+    var decrypted = decryptClientMessageEnvelope({
+      sharedSecret: shared,
+      envelope: decryptedBody.body
+    });
+    if (decrypted.privateHeader.type !== 'confirmation') fail('SIMPLEX_CONTACT_ACCEPT', 'contact accept is missing confirmation key');
+    var accept = parseJsonBytes(decrypted.body, 'contact accept');
+    if (!accept || accept.type !== 'contact-accept') fail('SIMPLEX_CONTACT_ACCEPT', 'contact accept payload is unsupported');
+    await this.client.secureQueue(queue, decrypted.privateHeader.senderPublicVerifyKey, {
+      ...options,
+      corrId: options.keyCorrId || options.corrId || ('accept-key-' + Date.now())
+    });
+    if (options.acknowledge !== false) {
+      await this.client.acknowledgeMessage(queue, received.message.msgId, {
+        ...options,
+        corrId: options.ackCorrId || ('accept-ack-' + Date.now())
+      });
+    }
+    contact.state = CONTACT_STATE_ACTIVE;
+    contact.updatedAt = nowIso();
+    contact.remoteProfile = accept.profile || {};
+    contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
+    this.store.saveContact(contact.id, contact);
+    return {
+      contact,
+      accept,
       msgId: received.message.msgId,
       timestamp: decryptedBody.timestamp
     };

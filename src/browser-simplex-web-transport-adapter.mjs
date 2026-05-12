@@ -364,6 +364,14 @@ export class SimplexWebTransportAdapter {
     );
   }
 
+  async receiveContactAccept(params = {}) {
+    var contacts = await this.ensureReady();
+    return contacts.receiveContactAccept(
+      safeContactId(params.contact_id || params.contactId || params.id || this.options.defaultContactId),
+      params
+    );
+  }
+
   activateContact(params = {}) {
     if (!this.contactClient) fail('SIMPLEX_WEB_ADAPTER_CONNECT', 'browser SimpleX contact client is not connected');
     return this.contactClient.activateContact(
