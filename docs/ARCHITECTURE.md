@@ -20,13 +20,26 @@ framework app:
 5. `src/browser-simplex-client.mjs` is a small queue-level client orchestrator
    over an abstract SMP transport. It performs create, subscribe, acknowledge,
    secure, delete, and initial confirmation protocol flows.
-6. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
+6. `src/browser-simplex-store.mjs` persists queue, contact, ratchet, and
+   pending-task records in a Storage-like browser backend.
+7. `src/browser-simplex-ratchet.mjs` owns the browser double-ratchet state:
+   root keys, DH steps, sending/receiving chains, skipped-message keys, and
+   message AEAD.
+8. `src/browser-simplex-contact-client.mjs` combines the queue client, store,
+   ratchet, and scheduler into a contact lifecycle client.
+9. `src/browser-simplex-scheduler.mjs` computes bounded retry schedules for
+   transient/offline work.
+10. `src/browser-xftp-core.mjs` owns encrypted XFTP-style chunks, manifests, and
+   reassembly verification.
+11. `src/browser-smp-server-profile.mjs` validates production browser SMP server
+   profiles before a browser endpoint is trusted.
+12. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
    transport profile. It sends and receives one padded binary SMP block per
    WebSocket frame for compatible SMP servers.
-7. `src/transport.js` is the public browser API. It is unavailable until an
+13. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-8. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+14. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -56,20 +69,22 @@ Safari automation, and wasm GHC without a bundler.
 - received-message body encryption/decryption with timestamp and notification flag metadata
 - queue creation helpers for signed `NEW`, `IDS` completion, signed `SUB`/`ACK`, and initial unsigned sender `SEND`
 - queue-level client orchestration over abstract SMP transports for create, subscribe, acknowledge, secure, delete, and initial confirmation
+- durable browser queue, contact, ratchet, and pending-task storage
+- browser double-ratchet root/chain key progression, skipped-message keys, and AEAD packet encryption
+- contact lifecycle states for invited, requested, active, suspended, and deleted contacts
+- active-contact sends with ratchet persistence and failed-send retry enqueueing
+- bounded retry scheduling with deterministic testable backoff
+- XFTP-style encrypted file chunk manifests, chunk authentication, and download assembly
+- browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 
-It does **not** yet own the complete SimpleX browser client:
+It intentionally does **not** ship old or unsafe compatibility paths:
 
 - no SimpleX Chat command API adapter
 - no loopback file bridge
 - no mock chat transport
 - no plaintext website/server bridge
-- no full agent/contact state machine yet
-- no integrated double-ratchet message state yet
-- no durable browser queue/contact store yet
-- no automatic retry/scheduler layer yet
-- no XFTP yet
 - no production direct browser transport to existing raw TCP/TLS SMP servers yet; the current browser transport is a WebSocket SMP profile for compatible servers
 
 ## Wizardry Ethos Fit
@@ -112,7 +127,8 @@ WebSocket/WebTransport profile with an explicit replacement for those security
 checks. That replacement must carry only encrypted SMP protocol blocks, never
 chat plaintext.
 
-Until the remaining layers exist, the safest thing this repo can ship honestly is:
+The repo now ships these browser-owned layers without introducing a plaintext
+server bridge:
 
 - the browser shell and integration boundary
 - browser-local chat continuity that does not require the server to retain plaintext history
@@ -120,6 +136,11 @@ Until the remaining layers exist, the safest thing this repo can ship honestly i
 - executable SMP protocol primitives in the browser runtime
 - a host contract that proves Haskell/browser interop is workable before transport is attempted
 - a transport API that refuses sends unless a browser-native adapter is explicitly registered
+- durable queue/contact/ratchet storage
+- double-ratchet message packets
+- contact lifecycle and retry scheduling
+- XFTP-style encrypted file chunks
+- production browser SMP server profile validation
 
 ## Integration contract
 
@@ -196,8 +217,8 @@ low-level:
 - `encodeTransportBlock()` and `decodeTransportBlock()` implement fixed-size SMP blocks and v4 batches.
 - `generateEd25519KeyPair()`, `generateX25519KeyPair()`, `ed25519Sign()`, `ed25519Verify()`, `x25519SharedSecret()`, `encryptSecretBox()`, and `encryptAesGcm()` provide browser-safe crypto building blocks.
 
-This layer is not a chat UX adapter by itself. The next layer has to own durable
-queues, contacts, ratchets, retries, receive loops, and browser storage.
+This layer is not a chat UX adapter by itself. The contact client and store own
+durable contacts, ratchets, retries, and browser storage.
 
 ## Browser Agent Helpers
 
@@ -224,11 +245,39 @@ flows while remaining transport-agnostic:
 - `createQueue()` sends signed `NEW`, waits for matching `IDS`, derives queue state, and remembers the queue under an optional label.
 - `subscribeQueue()`, `acknowledgeMessage()`, `secureQueue()`, and `deleteQueue()` sign queue-scoped recipient commands.
 - `sendInitialConfirmation()` sends the unsigned initial sender `SEND` and requires an `OK` response.
+- `sendQueueMessage()` sends encrypted payload bytes through a sender queue and requires an `OK` response.
 - broker `ERR` responses and unmatched correlation IDs fail closed before state is treated as successful.
 
-The orchestrator does not own UI, durable storage, socket construction, retry
-scheduling, profile semantics, or ratchet persistence. Those are the next
-browser-agent layers.
+The orchestrator still does not own UI or socket construction. Durable state,
+retry scheduling, profile semantics, and ratchet persistence live in the browser
+store, scheduler, server-profile, ratchet, and contact-client modules.
+
+## Browser Store, Ratchet, Contact, And Retry
+
+- `src/browser-simplex-store.mjs` serializes binary fields with tagged
+  base64url JSON records and rejects hostile storage keys before writes.
+- `src/browser-simplex-ratchet.mjs` implements root-key derivation,
+  sending/receiving chains, DH ratchet steps, skipped-message keys, and AES-GCM
+  packet encryption.
+- `src/browser-simplex-contact-client.mjs` creates invitations, activates
+  contacts, persists ratchets, sends active-contact messages, and stores failed
+  sends as retry tasks.
+- `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
+  backoff with deterministic tests.
+
+## Browser XFTP Core
+
+`src/browser-xftp-core.mjs` chunks file bytes, encrypts every chunk with a
+per-file root key, records plaintext and ciphertext hashes, and verifies all
+chunks before reassembly. It is transport-agnostic; moving chunks to servers is
+left to a reviewed browser XFTP server profile.
+
+## Browser SMP Server Profile
+
+`src/browser-smp-server-profile.mjs` validates browser SMP server profiles. A
+production profile must use `wss://` or `https://`, list allowed origins, require
+binary frames, keep 16 KiB SMP padding, carry a server identity hash, and define
+a reviewed session-binding replacement.
 
 ## Browser WebSocket Transport
 
@@ -250,9 +299,7 @@ as part of the protocol, not as a website plaintext bridge.
 
 ## Next protocol steps
 
-1. Add a browser agent state machine for queue creation, contact confirmation, queue securing, send, subscribe, receive, acknowledge, suspend, and delete.
-2. Add browser durable storage for keys, queue state, ratchet state, pending messages, and skipped-message keys.
-3. Port or reimplement the SimpleX agent message envelope and double-ratchet flow on top of the SMP core.
-4. Tighten the browser-compatible SMP server transport profile so server identity and session binding are preserved without exposing plaintext.
-5. Add XFTP protocol primitives and browser-safe file transfer state.
-6. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
+1. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
+2. Add browser receive-loop orchestration across subscribed queues.
+3. Add formal interoperability vectors against upstream SimpleX implementations for every encoded protocol layer.
+4. Add a browser XFTP server profile and live encrypted file-transfer tests.

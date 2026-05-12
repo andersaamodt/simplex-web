@@ -371,6 +371,27 @@ export function prepareInitialSenderMessage(options = {}) {
   return { senderSignKey, envelope, command, transmission };
 }
 
+export function prepareSenderMessage(queue, options = {}) {
+  // After contact confirmation, ordinary sender messages use the sender queue
+  // ID. If a sender signing key is present the SMP transmission is signed;
+  // otherwise it remains unsigned for pre-secure test and bootstrap flows.
+  var q = queue && typeof queue === 'object' ? queue : {};
+  if (!q.sndId) fail('SIMPLEX_AGENT_QUEUE', 'sender queue id is missing');
+  var command = {
+    type: 'SEND',
+    flags: options.flags || { notification: false },
+    body: toBytes(options.body || new Uint8Array(), 'sender message body')
+  };
+  var tx = {
+    corrId: options.corrId || new Uint8Array(),
+    queueId: q.sndId,
+    command
+  };
+  if (q.senderSignKey && q.senderSignKey.secretKey) tx.privateKey = q.senderSignKey.secretKey;
+  else tx.signature = new Uint8Array();
+  return encodeSignedTransmission(options.version || 4, options.sessionId || new Uint8Array(), tx);
+}
+
 export function inspectSignedCommand(version, signedTransmission) {
   var parsed = parseSignedTransmission(version || 4, signedTransmission.bytes || signedTransmission);
   return {
@@ -423,6 +444,7 @@ export default {
   prepareInitialSenderMessage,
   prepareNewQueueRequest,
   prepareRecipientCommand,
+  prepareSenderMessage,
   queueSummary,
   equalBytes,
   asciiText

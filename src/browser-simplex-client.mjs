@@ -19,6 +19,7 @@ import {
   prepareInitialSenderMessage,
   prepareNewQueueRequest,
   prepareRecipientCommand,
+  prepareSenderMessage,
   queueSummary
 } from './browser-simplex-agent.mjs';
 
@@ -199,6 +200,21 @@ export class BrowserSimplexClient {
       senderSignKey: prepared.senderSignKey,
       response
     };
+  }
+
+  async sendQueueMessage(queueOrLabel, body, options = {}) {
+    var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
+    var corrId = normalizeCorrId(options.corrId, this.makeCorrId('send'));
+    var transmission = prepareSenderMessage(queue, {
+      version: this.version,
+      sessionId: this.sessionId,
+      corrId,
+      body,
+      flags: options.flags || { notification: false }
+    });
+    var response = await this.sendAndWait(transmission, corrId, options);
+    if (brokerType(response) !== 'OK') fail('SIMPLEX_CLIENT_PROTOCOL', 'SEND expected OK response', response);
+    return response;
   }
 
   status() {

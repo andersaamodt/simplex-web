@@ -17,7 +17,13 @@ Reviewed release surface:
 - `src/browser-smp-core.mjs`
 - `src/browser-simplex-agent.mjs`
 - `src/browser-simplex-client.mjs`
+- `src/browser-simplex-contact-client.mjs`
+- `src/browser-simplex-ratchet.mjs`
+- `src/browser-simplex-scheduler.mjs`
+- `src/browser-simplex-store.mjs`
+- `src/browser-smp-server-profile.mjs`
 - `src/browser-smp-websocket-transport.mjs`
+- `src/browser-xftp-core.mjs`
 - Haskell/WASM scaffolds and runtime wrappers
 - Browser examples and release documentation
 
@@ -28,8 +34,7 @@ Explicitly not shipped or reviewed as a release feature:
 - A mock chat transport.
 - A plaintext website/server bridge.
 - Upstream SimpleX cryptographic protocol correctness.
-- Full contact state, double ratchet persistence, XFTP, and production browser
-  SMP server deployment.
+- Live production browser SMP/XFTP server deployment.
 
 ## Threat Model
 
@@ -38,6 +43,8 @@ Primary assets:
 - Browser-local chat history and draft state.
 - SMP queue IDs, correlation IDs, signed transmissions, and broker responses.
 - Browser-held signing, DH, and message encryption keys.
+- Durable contact, queue, ratchet, skipped-message-key, and pending-send state.
+- XFTP file root keys, manifests, ciphertext chunks, and plaintext file bytes.
 - Browser DOM integrity when rendering hostile imported messages or metadata.
 - Package integrity, so removed plaintext paths cannot be imported accidentally.
 
@@ -48,6 +55,11 @@ Primary attacker capabilities tested:
 - Poison browser storage and cached labels.
 - Feed malformed SMP queue URIs, commands, broker messages, transport blocks,
   handshakes, encrypted envelopes, and correlation IDs.
+- Feed hostile durable-storage keys and tamper with stored binary records.
+- Reorder ratchet messages and tamper with ratchet ciphertext.
+- Tamper with XFTP chunks, manifests, sizes, and hashes.
+- Downgrade production browser SMP server profiles to plaintext, wrong padding,
+  missing origins, or missing session binding.
 - Return malformed, short, long, text, wrong-session, or late WebSocket frames.
 - Force browser rendering/layout stress across desktop and mobile viewports.
 
@@ -76,6 +88,22 @@ send/receive side effects. The WebSocket SMP transport accepts only fixed-size
 binary SMP blocks and rejects malformed frames, text frames, wrong-session
 messages, and timeout paths.
 
+### Fixed: browser client layers now own durable state and ratchets
+
+The release now includes durable browser queue/contact/ratchet/pending-task
+storage, a browser double-ratchet state machine, a contact lifecycle client,
+bounded retry scheduling, XFTP-style encrypted chunk manifests, and production
+browser SMP server profile validation.
+
+Coverage added:
+
+- Durable store round trips binary records and rejects hostile storage keys.
+- Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
+- Contact tests cover invitation creation, active ratcheted sends, and durable
+  retry enqueueing after transport failure.
+- XFTP tests cover encrypted chunk reassembly and tampered chunk rejection.
+- Server-profile tests reject plaintext URLs and missing session binding.
+
 ### Accepted residual risk: browser WebSocket SMP profile is not raw TCP/TLS SMP
 
 Ordinary browser JavaScript cannot open raw TCP sockets, inspect TLS channel
@@ -84,12 +112,13 @@ can. The current network-facing module is therefore an explicit browser
 SMP-over-WebSocket profile for compatible servers, not a claim that browsers can
 directly speak the existing raw TCP/TLS SMP transport.
 
-### Accepted residual risk: full browser agent is still incomplete
+### Accepted residual risk: live interoperability still needs real servers
 
-The repo now contains real browser-native SMP primitives, agent envelope helpers,
-queue orchestration, and a WebSocket block transport profile. It does not yet
-contain the complete contact state machine, durable ratchet store, retry
-scheduler, XFTP implementation, or production server deployment profile.
+The repo now contains browser-native SMP primitives, agent envelope helpers,
+queue orchestration, contact state, durable ratchet storage, retry scheduling,
+XFTP-style chunks, and a reviewed browser server profile validator. It still
+needs live interoperability vectors against real browser-profile SMP/XFTP
+servers before claiming production network interoperability.
 
 ## Executed Coverage
 

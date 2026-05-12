@@ -17,7 +17,13 @@
 - Added focused client tests for signed `NEW`, `SUB`, `ACK`, `KEY`, `DEL`, unsigned initial confirmation, broker errors, and hostile correlation IDs.
 - Added `src/browser-smp-websocket-transport.mjs`, a binary SMP-over-WebSocket browser transport profile for compatible SMP servers.
 - Added focused transport tests for URL policy, binary handshakes, block sending/receiving, malformed frames, and session mismatch handling.
-- Documented the low-to-the-ground free-software design posture and distinguished the new SMP/agent helper layers from the still-missing full contact/double-ratchet/XFTP/browser-transport layers.
+- Added `src/browser-simplex-store.mjs` for durable browser queue, contact, ratchet, and pending-task state.
+- Added `src/browser-simplex-ratchet.mjs` for browser-owned double-ratchet message encryption, skipped-message keys, and tamper rejection.
+- Added `src/browser-simplex-contact-client.mjs` for contact lifecycle, active-contact sends, ratchet persistence, and failed-send retry enqueueing.
+- Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.
+- Added `src/browser-xftp-core.mjs` for XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
+- Added `src/browser-smp-server-profile.mjs` for reviewed production browser SMP server profile validation.
+- Added focused adversarial tests for storage keys, ratchet tampering, contact retries, XFTP corruption, scheduler bounds, and server-profile downgrade rejection.
 
 ## 1.0.0 - 2026-05-11
 
@@ -32,5 +38,5 @@
 
 Not included in `1.0.0`:
 
-- Direct browser SMP/XFTP transport.
+- Direct browser support for existing raw TCP/TLS SMP/XFTP servers.
 - Checked-in Haskell/WASM build artifacts.

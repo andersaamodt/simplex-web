@@ -3,14 +3,17 @@
 `simplex-web` is a browser-hosted chat client shell and browser-native SimpleX
 protocol workbench for SimpleX-facing websites.
 
-The current tree includes the first handwritten browser-native SMP protocol
-core slice in `src/browser-smp-core.mjs`, the first SimpleX
-agent-envelope/queue lifecycle helpers in `src/browser-simplex-agent.mjs`, a
-small queue-level client orchestrator in `src/browser-simplex-client.mjs`, and a
-binary SMP-over-WebSocket browser transport profile in
-`src/browser-smp-websocket-transport.mjs`. The complete contact state machine,
-XFTP, double ratchet integration, durable browser storage, and production
-browser server profile are still being built.
+The current tree includes a handwritten browser-native SMP protocol core in
+`src/browser-smp-core.mjs`, SimpleX agent-envelope/queue lifecycle helpers in
+`src/browser-simplex-agent.mjs`, a queue-level client orchestrator in
+`src/browser-simplex-client.mjs`, durable browser state in
+`src/browser-simplex-store.mjs`, browser-owned double-ratchet state in
+`src/browser-simplex-ratchet.mjs`, a contact client in
+`src/browser-simplex-contact-client.mjs`, retry scheduling in
+`src/browser-simplex-scheduler.mjs`, XFTP chunk/manifest helpers in
+`src/browser-xftp-core.mjs`, reviewed browser SMP server profile validation in
+`src/browser-smp-server-profile.mjs`, and a binary SMP-over-WebSocket browser
+transport profile in `src/browser-smp-websocket-transport.mjs`.
 
 `simplex-web` was made by AI and was adversarially tested as much as
 conceivably possible by Codex Desktop with ChatGPT 5.5 in the local environment
@@ -24,6 +27,12 @@ Current scope:
 - Ships browser-native SMP protocol primitives for binary encodings, queue URIs, command codecs, signed transmissions, transport blocks, handshakes, and browser-compatible cryptographic helpers.
 - Ships browser-native agent helpers for SimpleX client-message envelopes, queue creation state, queue-scoped recipient commands, and initial sender confirmation messages.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
+- Ships durable browser queue/contact/ratchet/pending-task storage.
+- Ships browser-owned double-ratchet encryption with skipped-message-key handling.
+- Ships a contact lifecycle client that persists contacts, sends ratcheted messages, and queues failed sends for retry.
+- Ships bounded retry scheduling for offline/transient transport failure.
+- Ships XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
+- Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
 - Ships a binary SMP-over-WebSocket transport profile for browser-reachable SMP servers that expose one padded SMP block per WebSocket frame.
 - Includes Haskell-to-wasm validation slices so browser-targeted Haskell can be tested honestly.
 - Uses the Secure Chat interface from `nostr-blog` as the default/example presentation layer.
@@ -35,9 +44,6 @@ Not shipped:
 - A loopback file bridge.
 - A mock chat transport.
 - A plaintext website/server bridge.
-- The full SimpleX agent/contact protocol on top of SMP queues.
-- XFTP.
-- Double-ratchet message state integrated into browser storage.
 - Direct JavaScript transport to existing raw TCP/TLS SMP/XFTP servers. Browsers do not expose raw TCP sockets, server certificate bytes for SimpleX server-identity pinning, or RFC5929 `tls-unique` channel binding to JavaScript, so a production browser transport needs a browser-compatible SMP server transport profile rather than a pretend downgrade.
 - Checked-in Haskell/WASM build output.
 
@@ -50,14 +56,26 @@ Not shipped:
 - `src/browser-smp-core.mjs`: browser-native SMP protocol primitives and crypto helpers.
 - `src/browser-simplex-agent.mjs`: browser-native SimpleX agent envelope and queue lifecycle helpers.
 - `src/browser-simplex-client.mjs`: queue-level browser SimpleX client orchestrator over an abstract SMP transport.
+- `src/browser-simplex-contact-client.mjs`: contact lifecycle, active contact sends, ratchet persistence, and retry enqueueing.
+- `src/browser-simplex-ratchet.mjs`: browser-owned double-ratchet state and message encryption.
+- `src/browser-simplex-scheduler.mjs`: bounded retry scheduling for pending browser work.
+- `src/browser-simplex-store.mjs`: durable browser queue, contact, ratchet, and pending-task records.
+- `src/browser-smp-server-profile.mjs`: production browser SMP server profile validation.
 - `src/browser-smp-websocket-transport.mjs`: browser binary WebSocket transport profile for padded SMP blocks.
+- `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
 - `tests/browser-smp-core.test.mjs`: Node unit and fuzz tests for the handwritten SMP protocol core.
 - `tests/browser-simplex-agent.test.mjs`: Node unit and fuzz tests for browser-native agent envelopes and queue lifecycle helpers.
 - `tests/browser-simplex-client.test.mjs`: Node tests for queue-level client orchestration and fail-closed response handling.
+- `tests/browser-simplex-contact-client.test.mjs`: Node tests for contact state, ratcheted sends, and retry enqueueing.
+- `tests/browser-simplex-ratchet.test.mjs`: Node tests for double-ratchet send/receive, skipped messages, and tamper rejection.
+- `tests/browser-simplex-scheduler.test.mjs`: Node tests for retry timing and completion.
+- `tests/browser-simplex-store.test.mjs`: Node tests for durable store serialization and hostile keys.
+- `tests/browser-smp-server-profile.test.mjs`: Node tests for browser SMP server profile downgrade rejection.
 - `tests/browser-smp-websocket-transport.test.mjs`: Node tests for the binary browser WebSocket SMP transport profile.
+- `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
 - `haskell/src/Simplex/Web/Core.hs`: first Haskell-owned chat-state core slice with browser-callable exports.
@@ -156,9 +174,8 @@ const tx = encodeSignedTransmission(4, sessionIdBytes, {
 const block = encodeTransportBlock(4, [tx]);
 ```
 
-This is protocol-core code, not yet a complete chat agent. It does not create
-contacts, manage ratchets, persist queue state, receive loops, or send XFTP
-files yet.
+This is protocol-core code. The higher-level modules own contacts, ratchets,
+durable state, retry scheduling, and XFTP-style file chunks.
 
 The next agent layer can be imported separately:
 
@@ -215,6 +232,45 @@ command API. Because browser JavaScript cannot inspect raw TLS channel binding,
 this module is explicitly a browser WebSocket profile for compatible SMP
 servers, not a claim that existing raw TCP/TLS SMP servers can be reached
 directly from ordinary browser JavaScript.
+
+## Browser Contact Client
+
+The contact client combines the queue client, durable store, retry scheduler,
+and ratchet helpers:
+
+```js
+import { createBrowserSimplexContactClient } from "simplex-web/browser-simplex-contact-client";
+import { createBrowserSimplexStore } from "simplex-web/browser-simplex-store";
+
+const contacts = createBrowserSimplexContactClient({
+  client,
+  store: createBrowserSimplexStore({ namespace: "site-chat" })
+});
+
+const invitation = await contacts.createInvitation({ id: "alice", corrId: "new-1" });
+contacts.activateContact("alice", {
+  rootKey,
+  remoteDhPublicKey,
+  outboundQueue
+});
+await contacts.sendText("alice", "hello");
+```
+
+Failed sends are persisted as retry tasks. Contact sends require active contact
+state, a ratchet, and an outbound queue; otherwise they fail closed.
+
+## XFTP Core
+
+```js
+import { createXftpUpload, assembleXftpDownload } from "simplex-web/browser-xftp-core";
+
+const upload = createXftpUpload(fileBytes, { name: "notes.txt" });
+const fileBytesAgain = assembleXftpDownload(upload.manifest, upload.chunks, upload.rootKey);
+```
+
+The XFTP core encrypts each chunk with a per-file root key, records plaintext
+and ciphertext hashes in the manifest, and rejects tampered chunks during
+reassembly.
 
 ## Release Hygiene
 
