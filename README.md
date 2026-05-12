@@ -31,7 +31,7 @@ Current scope:
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that persists contacts, sends and receives ratcheted messages, acknowledges received queue messages, and queues failed sends for retry.
+- Ships a contact lifecycle client that persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, and queues failed sends for retry.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
@@ -265,7 +265,13 @@ await contacts.sendText("alice", "hello");
 ```
 
 Failed sends are persisted as retry tasks. Contact sends require active contact
-state, a ratchet, and an outbound queue; otherwise they fail closed.
+state, a ratchet, and an outbound queue; otherwise they fail closed. File sends
+first upload encrypted XFTP chunks, then ratchet-send the manifest and file root
+key as a contact payload:
+
+```js
+const sent = await contacts.sendFile("alice", fileBytes, { name: "notes.txt" });
+```
 
 Inbound queue messages decrypt the server-wrapped received body, decrypt the
 contact ratchet packet, persist the updated ratchet, and acknowledge the SMP
@@ -273,6 +279,9 @@ message:
 
 ```js
 const received = await contacts.receiveNext("alice", { ackCorrId: "ack-1" });
+if (received.file) {
+  const fileBytes = await contacts.downloadReceivedFile(received);
+}
 ```
 
 Retryable failed sends can be drained explicitly:

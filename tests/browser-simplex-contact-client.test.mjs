@@ -4,9 +4,10 @@ import assert from 'node:assert/strict';
 import * as smp from '../src/browser-smp-core.mjs';
 import { encryptRcvMessageBody } from '../src/browser-simplex-agent.mjs';
 import { createBrowserSimplexClient } from '../src/browser-simplex-client.mjs';
-import { createBrowserSimplexContactClient } from '../src/browser-simplex-contact-client.mjs';
+import { CONTACT_PAYLOAD_PREFIX, createBrowserSimplexContactClient, decodeContactPayload, encodeContactPayload } from '../src/browser-simplex-contact-client.mjs';
 import { createBrowserSimplexStore } from '../src/browser-simplex-store.mjs';
 import { createRatchetState, encryptRatchetMessage } from '../src/browser-simplex-ratchet.mjs';
+import { createBrowserXftpClient } from '../src/browser-xftp-client.mjs';
 
 function filled(length, value) {
   return new Uint8Array(length).fill(value);
@@ -45,6 +46,45 @@ class FakeTransport {
       message
     });
   }
+}
+
+function xftpProfile() {
+  return {
+    version: 1,
+    transport: 'websocket',
+    url: 'wss://xftp.example.test/upload',
+    allowedOrigins: ['https://app.example.test'],
+    keyHash: smp.encodeBase64Url(filled(32, 40)),
+    xftpAddress: 'xftp://fingerprint@xftp.example.test'
+  };
+}
+
+function createMemoryXftpServer() {
+  const chunks = new Map();
+  const puts = [];
+  return {
+    puts,
+    async putChunk(packet) {
+      puts.push(packet);
+      chunks.set(packet.fileId + ':' + packet.index, {
+        index: packet.index,
+        size: packet.size,
+        sha256: packet.sha256,
+        ciphertext: new Uint8Array(packet.ciphertext),
+        tag: new Uint8Array(packet.tag),
+        ciphertextSha256: packet.ciphertextSha256
+      });
+    },
+    async getChunk(fileId, index) {
+      const chunk = chunks.get(fileId + ':' + index);
+      if (!chunk) throw new Error('missing chunk');
+      return {
+        ...chunk,
+        ciphertext: new Uint8Array(chunk.ciphertext),
+        tag: new Uint8Array(chunk.tag)
+      };
+    }
+  };
 }
 
 test('contact client creates invitation activates contact and sends ratcheted text', async () => {
@@ -144,6 +184,100 @@ test('contact client receives decrypts and acknowledges queue messages', async (
   assert.equal(smp.equalBytes(ack.command.msgId, msgId), true);
 });
 
+test('contact client uploads files through XFTP and sends only a ratcheted file descriptor', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-file-send' });
+  const xftpServer = createMemoryXftpServer();
+  const xftpClient = createBrowserXftpClient({ server: xftpServer, profile: xftpProfile() });
+  const contacts = createBrowserSimplexContactClient({ client, store, xftpClient });
+  const outbox = {
+    sndId: filled(24, 41),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 42))
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active', outboundQueue: outbox });
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 43),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 44)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 45)).publicKey,
+    sendingChainKey: filled(32, 46)
+  });
+
+  transport.pushResponse('file-send', { type: 'OK' }, outbox.sndId);
+  const fileBytes = smp.utf8Bytes('file secret '.repeat(80));
+  const result = await contacts.sendFile('alice', fileBytes, {
+    corrId: 'file-send',
+    name: '../notes.txt',
+    mime: 'text/plain',
+    fileId: 'contact-file-1',
+    chunkSize: 1024,
+    fileRootKey: filled(32, 47)
+  });
+
+  assert.equal(result.file.manifest.name, '.._notes.txt');
+  assert.equal(xftpServer.puts.length, result.file.manifest.chunkCount);
+  assert.equal(xftpServer.puts.some((packet) => Buffer.from(packet.ciphertext).includes(Buffer.from('file secret'))), false);
+  const sent = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  assert.equal(sent.command.type, 'SEND');
+  assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('file secret')), false);
+  assert.equal(Buffer.from(sent.command.body).includes(Buffer.from(result.file.rootKey)), false);
+});
+
+test('contact client receives XFTP file descriptors and downloads verified file bytes', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-file-receive' });
+  const xftpServer = createMemoryXftpServer();
+  const xftpClient = createBrowserXftpClient({ server: xftpServer, profile: xftpProfile() });
+  const contacts = createBrowserSimplexContactClient({ client, store, xftpClient });
+  const aliceDh = smp.generateX25519KeyPair(filled(32, 48));
+  const bobDh = smp.generateX25519KeyPair(filled(32, 49));
+  const root = filled(32, 50);
+  const senderRatchet = createRatchetState({ rootKey: root, ownDhKey: aliceDh, remoteDhPublicKey: bobDh.publicKey });
+  const receiverRatchet = createRatchetState({ rootKey: root, ownDhKey: bobDh, initializeSending: false });
+  const queue = {
+    rcvId: filled(24, 51),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 52)),
+    serverDhSecret: filled(32, 53)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active' });
+  store.saveQueue('alice:inbox', queue);
+  store.saveRatchet('alice', receiverRatchet);
+
+  const fileBytes = smp.utf8Bytes('download me '.repeat(90));
+  const upload = await xftpClient.uploadFile(fileBytes, {
+    name: 'remote.txt',
+    mime: 'text/plain',
+    fileId: 'contact-file-2',
+    rootKey: filled(32, 54),
+    chunkSize: 1024
+  });
+  const payloadText = encodeContactPayload({
+    type: 'file',
+    file: {
+      manifest: upload.manifest,
+      rootKey: smp.encodeBase64Url(upload.rootKey),
+      uploadedChunks: upload.uploadedChunks
+    }
+  });
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes(payloadText), { nonce: filled(24, 55) }).packet;
+  const msgId = filled(24, 56);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 456n,
+    body: packetBytes(packet)
+  });
+  transport.pushResponse('file-msg', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('file-ack', { type: 'OK' }, queue.rcvId);
+
+  const received = await contacts.receiveNext('alice', { ackCorrId: 'file-ack' });
+  assert.equal(received.text, '');
+  assert.equal(received.payload.type, 'file');
+  assert.equal(received.file.manifest.name, 'remote.txt');
+  assert.equal(smp.equalBytes(await contacts.downloadReceivedFile(received), fileBytes), true);
+});
+
 test('contact client drains due retry tasks through the queue client', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });
@@ -167,4 +301,10 @@ test('contact client drains due retry tasks through the queue client', async () 
   assert.equal(result.length, 1);
   assert.equal(result[0].ok, true);
   assert.equal(store.listPending()[0].completedAt > 0, true);
+});
+
+test('contact payload decoder preserves plain text and rejects malformed prefixed payloads', () => {
+  assert.deepEqual(decodeContactPayload('hello'), { type: 'text', text: 'hello' });
+  assert.throws(() => decodeContactPayload(CONTACT_PAYLOAD_PREFIX + '{"type":"file"}'), /file payload/i);
+  assert.throws(() => decodeContactPayload(CONTACT_PAYLOAD_PREFIX + '<script>bad()</script>'), /JSON/i);
 });

@@ -77,6 +77,8 @@ Safari automation, and wasm GHC without a bundler.
 - browser double-ratchet root/chain key progression, skipped-message keys, and AEAD packet encryption
 - contact lifecycle states for invited, requested, active, suspended, and deleted contacts
 - active-contact sends and receives with ratchet persistence, SMP ACKs, and failed-send retry enqueueing
+- contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
+- contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
 - in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
 - bounded retry scheduling with deterministic testable backoff
 - XFTP-style encrypted file chunk manifests, chunk authentication, and download assembly
@@ -145,7 +147,7 @@ server bridge:
 - a transport API that refuses sends unless a browser-native adapter is explicitly registered
 - durable queue/contact/ratchet storage
 - double-ratchet message packets
-- contact lifecycle and retry scheduling
+- contact lifecycle, file-transfer payloads, and retry scheduling
 - XFTP-style encrypted file chunks
 - an encrypted-chunk browser XFTP client and production XFTP server profile validation
 - production browser SMP server profile validation
@@ -269,8 +271,9 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   packet encryption.
 - `src/browser-simplex-contact-client.mjs` creates invitations, activates
   contacts, persists ratchets, sends active-contact messages, decrypts inbound
-  queue messages, acknowledges received SMP messages, and stores failed sends as
-  retry tasks.
+  queue messages, acknowledges received SMP messages, uploads encrypted XFTP
+  file chunks, ratchet-sends file descriptors and root keys, downloads received
+  encrypted files, and stores failed sends as retry tasks.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

@@ -101,6 +101,8 @@ assert_file_contains "$ROOT_DIR/src/browser-simplex-client.mjs" 'createQueue' 'b
 assert_file_contains "$ROOT_DIR/src/browser-simplex-client.mjs" 'pendingTransmissions' 'browser SimpleX client buffers unmatched broker transmissions'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'CONTACT_STATE_ACTIVE' 'browser SimpleX contact client owns active contact state'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'receiveNext' 'browser SimpleX contact client receives and acknowledges queue messages'
+assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'sendFile' 'browser SimpleX contact client sends encrypted XFTP file descriptors'
+assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'downloadReceivedFile' 'browser SimpleX contact client downloads received XFTP files'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'drainDueRetries' 'browser SimpleX contact client drains retry tasks'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-ratchet.mjs" 'decryptRatchetMessage' 'browser SimpleX ratchet decrypts message packets'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-scheduler.mjs" 'nextRetryDelay' 'browser SimpleX scheduler computes bounded backoff'

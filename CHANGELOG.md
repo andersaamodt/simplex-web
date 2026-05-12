@@ -20,6 +20,7 @@
 - Added `src/browser-simplex-store.mjs` for durable browser queue, contact, ratchet, and pending-task state.
 - Added `src/browser-simplex-ratchet.mjs` for browser-owned double-ratchet message encryption, skipped-message keys, and tamper rejection.
 - Added `src/browser-simplex-contact-client.mjs` for contact lifecycle, active-contact sends, inbound decrypt-and-ack receive handling, ratchet persistence, and failed-send retry enqueueing/draining.
+- Added contact-client XFTP file send/receive helpers that upload encrypted chunks, ratchet-send file descriptors/root keys, and verify received downloads.
 - Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.
 - Added `src/browser-xftp-core.mjs` for XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
 - Added `src/browser-smp-server-profile.mjs` for reviewed production browser SMP server profile validation.

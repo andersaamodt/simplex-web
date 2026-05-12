@@ -47,6 +47,8 @@ Primary assets:
 - Browser-held signing, DH, and message encryption keys.
 - Durable contact, queue, ratchet, skipped-message-key, and pending-send state.
 - XFTP file root keys, manifests, ciphertext chunks, and plaintext file bytes.
+- Ratcheted contact file descriptors that carry XFTP manifests and file root
+  keys to the recipient.
 - Browser DOM integrity when rendering hostile imported messages or metadata.
 - Package integrity, so removed plaintext paths cannot be imported accidentally.
 
@@ -107,6 +109,9 @@ Coverage added:
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, durable retry enqueueing after transport
   failure, and explicit retry draining.
+- Contact file-transfer tests cover encrypted XFTP upload, ratcheted descriptor
+  send, root-key hiding from the SMP body, received descriptor parsing, verified
+  XFTP download, and received-file byte equality.
 - E2E broker tests cover two browser clients exchanging ratcheted messages
   through queue creation, recipient `KEY`, signed `SEND`, encrypted received
   `MSG`, `ACK`, and forged-signature rejection.
