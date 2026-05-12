@@ -21,6 +21,7 @@
     "./transport": "./src/transport.js",
     "./browser-smp-core": "./src/browser-smp-core.mjs",
     "./browser-simplex-agent": "./src/browser-simplex-agent.mjs",
+    "./browser-smp-websocket-transport": "./src/browser-smp-websocket-transport.mjs",
     "./simplex-chat-websocket-adapter": "./src/simplex-chat-websocket-adapter.js",
     "./default-chat": "./src/default-chat.js",
     "./session-store": "./src/session-store.js",
@@ -39,7 +40,7 @@
   ],
   "scripts": {
     "file-bridge": "node scripts/simplex-web-file-bridge.mjs",
-    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/file-bridge.test.mjs",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-smp-websocket-transport.test.mjs tests/file-bridge.test.mjs",
     "test:fuzz": "node --test tests/adversarial-fuzz.test.js",
     "test:browser": "node --test tests/browser-matrix.test.mjs",
     "test:live": "node --test tests/simplex-live-e2e.test.mjs",

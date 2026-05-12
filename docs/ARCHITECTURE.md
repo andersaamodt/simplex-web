@@ -17,14 +17,17 @@ framework app:
    helper slice. It owns client-message envelopes, confirmation headers,
    received-message body encryption, queue creation state, queue-scoped
    recipient commands, and unsigned initial sender confirmation messages.
-5. `src/transport.js` is the public browser API. It is unavailable until an
+5. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
+   transport profile. It sends and receives one padded binary SMP block per
+   WebSocket frame for compatible SMP servers.
+6. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-6. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
+7. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
    to a browser-reachable SimpleX Chat command WebSocket, preferably loopback.
-7. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
+8. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
    stages browser `File` objects on disk for SimpleX file-send commands.
-8. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+9. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -53,6 +56,7 @@ Safari automation, live SimpleX daemons, and wasm GHC without a bundler.
 - SimpleX confirmation messages carrying the sender SMP signing key inside the encrypted body
 - received-message body encryption/decryption with timestamp and notification flag metadata
 - queue creation helpers for signed `NEW`, `IDS` completion, signed `SUB`/`ACK`, and initial unsigned sender `SEND`
+- SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 - a SimpleX Chat WebSocket adapter that can send through a browser-reachable SimpleX Chat command API
 
@@ -62,7 +66,7 @@ It does **not** yet own the complete SimpleX browser client:
 - no integrated double-ratchet message state yet
 - no durable browser queue/contact store yet
 - no XFTP yet
-- no production direct browser transport to existing raw TCP/TLS SMP servers yet
+- no production direct browser transport to existing raw TCP/TLS SMP servers yet; the current browser transport is a WebSocket SMP profile for compatible servers
 
 ## Wizardry Ethos Fit
 
@@ -216,11 +220,29 @@ The `src/browser-simplex-agent.mjs` module starts the layer above raw SMP:
 These helpers are deliberately transport-agnostic. They prepare protocol state
 and signed transmissions; they do not open sockets or call the daemon adapter.
 
+## Browser WebSocket Transport
+
+The `src/browser-smp-websocket-transport.mjs` module is the first browser
+network transport profile:
+
+- `normalizeSmpWebSocketUrl()` requires `ws://` or `wss://`, and rejects remote plaintext `ws://` by default.
+- `connectBrowserSmpWebSocketTransport()` opens a browser WebSocket, receives a padded server handshake block, chooses a compatible SMP version, and sends the padded client handshake.
+- `sendSignedTransmissions()` sends one fixed-size binary SMP transport block.
+- `receiveSignedTransmissions()` reads one fixed-size binary SMP transport block and parses the signed transmissions.
+- non-binary frames, short frames, long frames, bad sessions, and timeouts fail closed.
+
+This profile is browser-native protocol transport, but it is not a claim that
+ordinary browser JavaScript can speak the upstream raw TCP/TLS transport. Browser
+JavaScript still cannot read TLS channel-binding data or perform the same server
+certificate pinning as native simplexmq. Compatible servers need to expose an
+explicit WebSocket/WebTransport profile whose security properties are reviewed
+as part of the protocol, not as a website plaintext bridge.
+
 ## Next protocol steps
 
 1. Add a browser agent state machine for queue creation, contact confirmation, queue securing, send, subscribe, receive, acknowledge, suspend, and delete.
 2. Add browser durable storage for keys, queue state, ratchet state, pending messages, and skipped-message keys.
 3. Port or reimplement the SimpleX agent message envelope and double-ratchet flow on top of the SMP core.
-4. Define and test a browser-compatible SMP server transport profile that preserves SimpleX server identity and session binding without exposing plaintext.
+4. Tighten the browser-compatible SMP server transport profile so server identity and session binding are preserved without exposing plaintext.
 5. Add XFTP protocol primitives and browser-safe file transfer state.
 6. Keep the SimpleX Chat WebSocket adapter compatible for local daemon-backed comparison tests, but do not use it as the browser-native transport.
