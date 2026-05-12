@@ -17,17 +17,20 @@ framework app:
    helper slice. It owns client-message envelopes, confirmation headers,
    received-message body encryption, queue creation state, queue-scoped
    recipient commands, and unsigned initial sender confirmation messages.
-5. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
+5. `src/browser-simplex-client.mjs` is a small queue-level client orchestrator
+   over an abstract SMP transport. It performs create, subscribe, acknowledge,
+   secure, delete, and initial confirmation protocol flows.
+6. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
    transport profile. It sends and receives one padded binary SMP block per
    WebSocket frame for compatible SMP servers.
-6. `src/transport.js` is the public browser API. It is unavailable until an
+7. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-7. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
+8. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
    to a browser-reachable SimpleX Chat command WebSocket, preferably loopback.
-8. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
+9. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
    stages browser `File` objects on disk for SimpleX file-send commands.
-9. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+10. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -56,6 +59,7 @@ Safari automation, live SimpleX daemons, and wasm GHC without a bundler.
 - SimpleX confirmation messages carrying the sender SMP signing key inside the encrypted body
 - received-message body encryption/decryption with timestamp and notification flag metadata
 - queue creation helpers for signed `NEW`, `IDS` completion, signed `SUB`/`ACK`, and initial unsigned sender `SEND`
+- queue-level client orchestration over abstract SMP transports for create, subscribe, acknowledge, secure, delete, and initial confirmation
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 - a SimpleX Chat WebSocket adapter that can send through a browser-reachable SimpleX Chat command API
@@ -65,6 +69,7 @@ It does **not** yet own the complete SimpleX browser client:
 - no full agent/contact state machine yet
 - no integrated double-ratchet message state yet
 - no durable browser queue/contact store yet
+- no automatic retry/scheduler layer yet
 - no XFTP yet
 - no production direct browser transport to existing raw TCP/TLS SMP servers yet; the current browser transport is a WebSocket SMP profile for compatible servers
 
@@ -219,6 +224,21 @@ The `src/browser-simplex-agent.mjs` module starts the layer above raw SMP:
 
 These helpers are deliberately transport-agnostic. They prepare protocol state
 and signed transmissions; they do not open sockets or call the daemon adapter.
+
+## Browser Client Orchestrator
+
+The `src/browser-simplex-client.mjs` module turns primitives into queue-level
+flows while remaining transport-agnostic:
+
+- `createBrowserSimplexClient({ transport })` accepts any transport with `sendSignedTransmissions()` and `receiveSignedTransmissions()`.
+- `createQueue()` sends signed `NEW`, waits for matching `IDS`, derives queue state, and remembers the queue under an optional label.
+- `subscribeQueue()`, `acknowledgeMessage()`, `secureQueue()`, and `deleteQueue()` sign queue-scoped recipient commands.
+- `sendInitialConfirmation()` sends the unsigned initial sender `SEND` and requires an `OK` response.
+- broker `ERR` responses and unmatched correlation IDs fail closed before state is treated as successful.
+
+The orchestrator does not own UI, durable storage, socket construction, retry
+scheduling, profile semantics, or ratchet persistence. Those are the next
+browser-agent layers.
 
 ## Browser WebSocket Transport
 

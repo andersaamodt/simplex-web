@@ -8,6 +8,8 @@
 - Added focused unit and fuzz coverage for the SMP core.
 - Added `src/browser-simplex-agent.mjs`, the first browser-native SimpleX agent helper layer for encrypted client-message envelopes, queue creation, queue-scoped recipient commands, and initial sender confirmation messages.
 - Added focused unit and fuzz coverage for the browser agent helper layer.
+- Added `src/browser-simplex-client.mjs`, a queue-level browser SimpleX client orchestrator over abstract SMP transports.
+- Added focused client tests for signed `NEW`, `SUB`, `ACK`, `KEY`, `DEL`, unsigned initial confirmation, broker errors, and hostile correlation IDs.
 - Added `src/browser-smp-websocket-transport.mjs`, a binary SMP-over-WebSocket browser transport profile for compatible SMP servers.
 - Added focused transport tests for URL policy, binary handshakes, block sending/receiving, malformed frames, and session mismatch handling.
 - Documented the low-to-the-ground free-software design posture and distinguished the new SMP/agent helper layers from the still-missing full contact/double-ratchet/XFTP/browser-transport layers.
