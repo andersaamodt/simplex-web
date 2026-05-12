@@ -1,7 +1,66 @@
 # simplex-web
 
-`simplex-web` is a browser-hosted chat client shell and browser-native SimpleX
-protocol workbench for SimpleX-facing websites.
+`simplex-web` is a browser-side toolkit for putting SimpleX-style private chat
+inside a website without sending chat plaintext through the website's server.
+
+The goal is simple: a site should be able to mount a chat panel, keep local chat
+state in the visitor's browser, create SimpleX queues and contacts, encrypt
+messages and files in the browser, and talk to browser-compatible SimpleX relay
+profiles using ordinary web APIs such as WebSocket and `fetch`.
+
+This repository exists because the normal upstream SimpleX stack is built around
+native clients, native Haskell libraries, and raw TCP/TLS transports. Ordinary
+browser JavaScript cannot open raw TCP sockets or inspect the TLS channel-binding
+data that native SimpleX clients use. `simplex-web` therefore implements the
+browser-facing pieces directly and refuses to fall back to a website/server
+bridge that would see plaintext.
+
+In practical website terms, `simplex-web` gives you three layers:
+
+- A framework-free Secure Chat UI and local browser session store.
+- Browser-native SimpleX protocol building blocks: SMP queue commands, signed
+  transmissions, encrypted agent envelopes, contact setup, ratchets, retries,
+  and encrypted XFTP-style file chunks.
+- Browser transport profiles for compatible servers: SMP over binary WebSocket
+  blocks and XFTP encrypted chunk storage over HTTPS/`fetch`.
+
+It is independent of SimpleX while implementing the same protocol concepts.
+SimpleX, SimpleX Chat, and related marks belong to their respective owners.
+
+## Status
+
+This is the real browser-native `simplex-web` codebase, not the old placeholder
+bridge:
+
+- No SimpleX Chat command API adapter is shipped.
+- No loopback file bridge is shipped.
+- No mock chat transport is shipped.
+- No plaintext website/server bridge is shipped.
+- The default public transport facade fails closed until a browser-native
+  adapter is registered.
+
+What works locally today:
+
+- Browser-native SMP encoding, signing, transport blocks, handshakes, and queue
+  command helpers.
+- Browser contact creation, invitation URI creation, encrypted contact requests,
+  queue securing, ACKs, active contact messaging, retry scheduling, and durable
+  browser state.
+- Browser-owned double-ratchet message encryption.
+- Encrypted XFTP-style file chunking, upload/download sequencing, verified
+  reassembly, and an HTTPS/`fetch` encrypted chunk transport.
+- Binary SMP-over-WebSocket transport for browser-compatible SMP servers.
+- Local deterministic wire-format vectors, loopback WebSocket/fetch transport
+  tests, fuzz/property tests, browser rendering tests, and Haskell/WASM smoke
+  checks.
+
+What is still required before claiming full production SimpleX browser-client
+interoperability:
+
+- Reviewed non-loopback browser-profile SMP and XFTP servers.
+- Live compatibility tests against those servers.
+- Upstream-certified SimpleX protocol vectors for every encoded layer.
+- A security review outside this Codex Desktop environment.
 
 The current tree includes a handwritten browser-native SMP protocol core in
 `src/browser-smp-core.mjs`, SimpleX agent-envelope/queue lifecycle helpers in
@@ -22,7 +81,26 @@ transport profile in `src/browser-smp-websocket-transport.mjs`.
 conceivably possible by Codex Desktop with ChatGPT 5.5 in the local environment
 described in `docs/SECURITY_REVIEW.md`.
 
-Current scope:
+## How It Fits Into A Website
+
+A website can use `simplex-web` in the same way it would use any other
+front-end library:
+
+1. Mount the default chat UI, or build its own UI on top of the lower-level
+   modules.
+2. Store drafts, recent messages, contacts, queues, ratchets, and pending work
+   in browser-local storage.
+3. Register a real browser-native transport adapter with
+   `window.SimplexWebTransport`.
+4. Use browser-compatible SMP/XFTP server profiles for relay and file storage.
+
+The important boundary is that the website server should serve static assets and
+application pages. It should not receive chat plaintext, file plaintext, or file
+root keys. Messages are encrypted before they leave the browser. XFTP storage
+receives encrypted chunks only; the file root key is delivered through the
+ratcheted chat layer.
+
+## Current Scope
 
 - Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
 - Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
