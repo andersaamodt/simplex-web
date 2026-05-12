@@ -184,4 +184,4 @@ npm pack --dry-run --json
 
 `simplex-web` is licensed under the GNU Affero General Public License version 3 only (`AGPL-3.0-only`). See `LICENSE`.
 
-SimpleX, SimpleX Chat, and related marks belong to their respective owners. This project is independent unless explicitly stated otherwise.
+SimpleX, SimpleX Chat, and related marks belong to their respective owners. This project is independent of SimpleX while implementing the same protocol.
