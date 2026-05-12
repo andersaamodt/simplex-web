@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added `src/browser-smp-core.mjs`, the first handwritten browser-native SMP protocol core slice.
+- Added SMP queue URI parsing, command/broker-message codecs, signed transmission framing, fixed-size transport block padding, SMP v4 batching, and handshake helpers.
+- Added browser-compatible Ed25519, X25519, XSalsa20-Poly1305, AES-GCM, and SHA-256 helpers through audited Noble JavaScript crypto packages.
+- Added focused unit and fuzz coverage for the SMP core.
+- Updated architecture docs to distinguish the new SMP primitive layer from the still-missing full agent/contact/XFTP/browser-transport layers.
+
 ## 1.0.0 - 2026-05-11
 
 - Stabilized the framework-free Secure Chat UI renderer and mount contract.
