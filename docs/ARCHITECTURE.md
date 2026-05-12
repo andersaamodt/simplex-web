@@ -76,6 +76,7 @@ Safari automation, and wasm GHC without a bundler.
 - durable browser queue, contact, ratchet, and pending-task storage
 - browser double-ratchet root/chain key progression, skipped-message keys, and AEAD packet encryption
 - contact lifecycle states for invited, requested, active, suspended, and deleted contacts
+- browser invitation URI creation, encrypted sender contact requests, recipient confirmation-key verification, queue `KEY` securing, and request ACKs
 - active-contact sends and receives with ratchet persistence, SMP ACKs, and failed-send retry enqueueing
 - contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
 - contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
@@ -147,7 +148,7 @@ server bridge:
 - a transport API that refuses sends unless a browser-native adapter is explicitly registered
 - durable queue/contact/ratchet storage
 - double-ratchet message packets
-- contact lifecycle, file-transfer payloads, and retry scheduling
+- contact request/accept lifecycle, file-transfer payloads, and retry scheduling
 - XFTP-style encrypted file chunks
 - an encrypted-chunk browser XFTP client and production XFTP server profile validation
 - production browser SMP server profile validation
@@ -270,10 +271,12 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   sending/receiving chains, DH ratchet steps, skipped-message keys, and AES-GCM
   packet encryption.
 - `src/browser-simplex-contact-client.mjs` creates invitations, activates
-  contacts, persists ratchets, sends active-contact messages, decrypts inbound
-  queue messages, acknowledges received SMP messages, uploads encrypted XFTP
-  file chunks, ratchet-sends file descriptors and root keys, downloads received
-  encrypted files, and stores failed sends as retry tasks.
+  contacts, sends encrypted contact requests from invitation URIs, verifies and
+  accepts incoming contact requests, persists ratchets, sends active-contact
+  messages, decrypts inbound queue messages, acknowledges received SMP messages,
+  uploads encrypted XFTP file chunks, ratchet-sends file descriptors and root
+  keys, downloads received encrypted files, and stores failed sends as retry
+  tasks.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

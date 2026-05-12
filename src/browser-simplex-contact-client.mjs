@@ -7,11 +7,22 @@
 // policy visible: contacts have explicit states, sends require an active
 // ratchet, and failed sends become durable retry tasks instead of disappearing.
 
-import { decodeBase64Url, encodeBase64Url, toBytes, utf8Bytes, utf8Text } from './browser-smp-core.mjs';
+import {
+  decodeBase64Url,
+  decodePublicKeyDer,
+  encodeBase64Url,
+  formatSmpQueueUri,
+  generateX25519KeyPair,
+  parseSmpQueueUri,
+  toBytes,
+  utf8Bytes,
+  utf8Text,
+  x25519SharedSecret
+} from './browser-smp-core.mjs';
 import { createBrowserSimplexClient } from './browser-simplex-client.mjs';
 import { createBrowserSimplexStore } from './browser-simplex-store.mjs';
 import { createBrowserSimplexRetryScheduler } from './browser-simplex-scheduler.mjs';
-import { decryptRcvMessageBody } from './browser-simplex-agent.mjs';
+import { decryptClientMessageEnvelope, decryptRcvMessageBody, parseClientMessageEnvelope } from './browser-simplex-agent.mjs';
 import { createRatchetState, decryptRatchetMessage, encryptRatchetMessage } from './browser-simplex-ratchet.mjs';
 import { createBrowserXftpClient } from './browser-xftp-client.mjs';
 
@@ -96,6 +107,27 @@ function requireXftpClient(client) {
   return client;
 }
 
+function invitationUriFromQueue(queue) {
+  if (!queue || !queue.server) fail('SIMPLEX_CONTACT_INVITATION', 'contact invitation requires server identity');
+  return formatSmpQueueUri({
+    server: queue.server,
+    queueId: queue.sndId,
+    recipientDhPublicKey: queue.rcvDhKey.publicKeyDer
+  });
+}
+
+function maybeInvitationUriFromQueue(queue) {
+  return queue && queue.server ? invitationUriFromQueue(queue) : '';
+}
+
+function parseJsonBytes(bytes, label) {
+  try {
+    return JSON.parse(utf8Text(bytes));
+  } catch (_error) {
+    fail('SIMPLEX_CONTACT_JSON', label + ' JSON is invalid');
+  }
+}
+
 export function createBrowserSimplexContactClient(options = {}) {
   return new BrowserSimplexContactClient(options);
 }
@@ -124,11 +156,119 @@ export class BrowserSimplexContactClient {
       createdAt: nowIso(),
       updatedAt: nowIso(),
       inboxQueueId: id + ':inbox',
+      invitationUri: maybeInvitationUriFromQueue(queue),
       profile: options.profile || {},
       outboundQueue: null
     };
     this.store.saveContact(id, contact);
     return contact;
+  }
+
+  invitationUri(id) {
+    var contact = this.store.loadContact(safeId(id));
+    if (!contact) fail('SIMPLEX_CONTACT_MISSING', 'contact does not exist');
+    if (contact.invitationUri) return contact.invitationUri;
+    var queue = this.store.loadQueue(contact.inboxQueueId || (contact.id + ':inbox'));
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact inbox queue is missing');
+    return invitationUriFromQueue(queue);
+  }
+
+  async requestContact(id, invitationUri, options = {}) {
+    var cleanId = safeId(id);
+    var parsed = parseSmpQueueUri(invitationUri);
+    var recipientDh = decodePublicKeyDer(parsed.recipientDhPublicKey);
+    if (recipientDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_INVITATION', 'contact invitation DH key must be X25519');
+    var ownDhKey = options.ownDhKey || generateX25519KeyPair(options.ownDhSeed);
+    var shared = x25519SharedSecret(ownDhKey.secretKey, recipientDh.rawPublicKey);
+    var body = utf8Bytes(JSON.stringify({
+      type: 'contact-request',
+      profile: options.profile || {},
+      createdAt: nowIso()
+    }));
+    var confirmation = await this.client.sendInitialConfirmation({
+      corrId: options.corrId,
+      senderQueueId: parsed.queueId,
+      senderSignKey: options.senderSignKey,
+      senderSignSeed: options.senderSignSeed,
+      e2eSharedSecret: shared,
+      senderE2ePubDhKey: ownDhKey.publicKeyDer,
+      nonce: options.nonce,
+      body,
+      flags: options.flags
+    });
+    var contact = {
+      id: cleanId,
+      state: CONTACT_STATE_REQUESTED,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      invitationUri: String(invitationUri),
+      profile: options.profile || {},
+      outboundQueue: {
+        server: parsed.server,
+        sndId: parsed.queueId,
+        senderSignKey: confirmation.senderSignKey
+      }
+    };
+    this.store.saveContact(cleanId, contact);
+    this.store.saveQueue(cleanId + ':outbox', contact.outboundQueue);
+    this.store.saveRatchet(cleanId, createRatchetState({
+      rootKey: shared,
+      ownDhKey,
+      remoteDhPublicKey: recipientDh.rawPublicKey
+    }));
+    return contact;
+  }
+
+  async receiveContactRequest(id, options = {}) {
+    var contact = this.store.loadContact(safeId(id));
+    requireState(contact, [CONTACT_STATE_INVITED]);
+    var queue = options.queue || this.store.loadQueue(contact.inboxQueueId || (contact.id + ':inbox'));
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact inbox queue is missing');
+    var received = await this.client.receiveQueueMessage(queue, options);
+    var decryptedBody = decryptRcvMessageBody({
+      serverDhSecret: queue.serverDhSecret,
+      msgId: received.message.msgId,
+      encryptedBody: received.message.body
+    });
+    var envelope = parseClientMessageEnvelope(decryptedBody.body);
+    if (!envelope.publicHeader.e2ePubDhKey) fail('SIMPLEX_CONTACT_REQUEST', 'contact request is missing sender E2E DH key');
+    var senderDh = decodePublicKeyDer(envelope.publicHeader.e2ePubDhKey);
+    if (senderDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_REQUEST', 'contact request sender DH key must be X25519');
+    var shared = x25519SharedSecret(queue.rcvDhKey.secretKey, senderDh.rawPublicKey);
+    var decrypted = decryptClientMessageEnvelope({
+      sharedSecret: shared,
+      envelope: decryptedBody.body
+    });
+    if (decrypted.privateHeader.type !== 'confirmation') fail('SIMPLEX_CONTACT_REQUEST', 'contact request is missing confirmation key');
+    var request = parseJsonBytes(decrypted.body, 'contact request');
+    if (!request || request.type !== 'contact-request') fail('SIMPLEX_CONTACT_REQUEST', 'contact request payload is unsupported');
+    await this.client.secureQueue(queue, decrypted.privateHeader.senderPublicVerifyKey, {
+      ...options,
+      corrId: options.keyCorrId || options.corrId || ('key-' + Date.now())
+    });
+    if (options.acknowledge !== false) {
+      await this.client.acknowledgeMessage(queue, received.message.msgId, {
+        ...options,
+        corrId: options.ackCorrId || ('ack-' + Date.now())
+      });
+    }
+    contact.state = CONTACT_STATE_ACTIVE;
+    contact.updatedAt = nowIso();
+    contact.remoteProfile = request.profile || {};
+    contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
+    this.store.saveContact(contact.id, contact);
+    this.store.saveRatchet(contact.id, createRatchetState({
+      rootKey: shared,
+      ownDhKey: queue.rcvDhKey,
+      remoteDhPublicKey: senderDh.rawPublicKey,
+      initializeSending: false
+    }));
+    return {
+      contact,
+      request,
+      msgId: received.message.msgId,
+      timestamp: decryptedBody.timestamp
+    };
   }
 
   activateContact(id, options = {}) {

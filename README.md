@@ -31,7 +31,7 @@ Current scope:
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, and queues failed sends for retry.
+- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, and queues failed sends for retry.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
@@ -256,6 +256,9 @@ const contacts = createBrowserSimplexContactClient({
 });
 
 const invitation = await contacts.createInvitation({ id: "alice", corrId: "new-1" });
+const uri = contacts.invitationUri("alice");
+await contacts.requestContact("bob", uri, { corrId: "req-1" });
+await contacts.receiveContactRequest("alice", { keyCorrId: "key-1", ackCorrId: "ack-1" });
 contacts.activateContact("alice", {
   rootKey,
   remoteDhPublicKey,

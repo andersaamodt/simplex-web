@@ -49,6 +49,8 @@ Primary assets:
 - XFTP file root keys, manifests, ciphertext chunks, and plaintext file bytes.
 - Ratcheted contact file descriptors that carry XFTP manifests and file root
   keys to the recipient.
+- Contact invitation URIs, sender E2E DH keys, confirmation signing keys, and
+  queue-securing `KEY` commands.
 - Browser DOM integrity when rendering hostile imported messages or metadata.
 - Package integrity, so removed plaintext paths cannot be imported accidentally.
 
@@ -109,6 +111,9 @@ Coverage added:
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, durable retry enqueueing after transport
   failure, and explicit retry draining.
+- Contact request tests cover invitation URI generation, encrypted initial
+  confirmation sends, profile hiding from broker bodies, recipient confirmation
+  decrypt, queue `KEY` securing, ACK, and receiving-ratchet persistence.
 - Contact file-transfer tests cover encrypted XFTP upload, ratcheted descriptor
   send, root-key hiding from the SMP body, received descriptor parsing, verified
   XFTP download, and received-file byte equality.

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as smp from '../src/browser-smp-core.mjs';
-import { encryptRcvMessageBody } from '../src/browser-simplex-agent.mjs';
+import { encryptRcvMessageBody, prepareInitialSenderMessage } from '../src/browser-simplex-agent.mjs';
 import { createBrowserSimplexClient } from '../src/browser-simplex-client.mjs';
 import { CONTACT_PAYLOAD_PREFIX, createBrowserSimplexContactClient, decodeContactPayload, encodeContactPayload } from '../src/browser-simplex-contact-client.mjs';
 import { createBrowserSimplexStore } from '../src/browser-simplex-store.mjs';
@@ -103,10 +103,13 @@ test('contact client creates invitation activates contact and sends ratcheted te
   const invited = await contacts.createInvitation({
     id: 'alice',
     corrId: 'new-1',
+    server: { scheme: 'smp', keyHash: filled(32, 72), host: 'smp.example.test', port: '5223' },
     rcvSignSeed: filled(32, 5),
     rcvDhSeed: filled(32, 6)
   });
   assert.equal(invited.state, 'invited');
+  assert.equal(invited.invitationUri.startsWith('smp://'), true);
+  assert.equal(contacts.invitationUri('alice'), invited.invitationUri);
 
   const remoteDh = smp.generateX25519KeyPair(filled(32, 7));
   const outbox = {
@@ -126,6 +129,93 @@ test('contact client creates invitation activates contact and sends ratcheted te
   assert.equal(sent.command.type, 'SEND');
   assert.equal(smp.equalBytes(sent.queueId, outbox.sndId), true);
   assert.notEqual(smp.utf8Text(sent.command.body).includes('hello'), true);
+});
+
+test('contact client requests contact from invitation with encrypted initial confirmation', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-request' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 57));
+  const invitationUri = smp.formatSmpQueueUri({
+    server: { scheme: 'smp', keyHash: filled(32, 58), host: 'smp.example.test', port: '5223' },
+    queueId: filled(24, 59),
+    recipientDhPublicKey: recipientDh.publicKeyDer
+  });
+
+  transport.pushResponse('req-1', { type: 'OK' }, filled(24, 59));
+  const contact = await contacts.requestContact('bob', invitationUri, {
+    corrId: 'req-1',
+    ownDhSeed: filled(32, 60),
+    senderSignSeed: filled(32, 61),
+    nonce: filled(24, 62),
+    profile: { displayName: 'Alice' }
+  });
+
+  assert.equal(contact.state, 'requested');
+  assert.equal(store.loadContact('bob').state, 'requested');
+  assert.equal(store.loadQueue('bob:outbox').sndId.length, 24);
+  assert.ok(store.loadRatchet('bob').rootKey instanceof Uint8Array);
+  const sent = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  assert.equal(sent.command.type, 'SEND');
+  assert.equal(sent.signature.length, 0);
+  assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('Alice')), false);
+});
+
+test('contact client receives contact request secures queue and stores receiving ratchet', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-accept' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 63));
+  const senderDh = smp.generateX25519KeyPair(filled(32, 64));
+  const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
+  const queue = {
+    rcvId: filled(24, 65),
+    sndId: filled(24, 66),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 67)),
+    rcvDhKey: recipientDh,
+    serverDhSecret: filled(32, 68)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'invited', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+
+  const prepared = prepareInitialSenderMessage({
+    version: 4,
+    sessionId: transport.sessionId,
+    corrId: smp.asciiBytes('initial'),
+    senderQueueId: queue.sndId,
+    senderSignSeed: filled(32, 69),
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderDh.publicKeyDer,
+    nonce: filled(24, 70),
+    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-request', profile: { displayName: 'Bob' } }))
+  });
+  const msgId = filled(24, 71);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 789n,
+    body: prepared.envelope
+  });
+  transport.pushResponse('msg-request', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('key-1', { type: 'OK' }, queue.rcvId);
+  transport.pushResponse('ack-2', { type: 'OK' }, queue.rcvId);
+
+  const accepted = await contacts.receiveContactRequest('alice', {
+    keyCorrId: 'key-1',
+    ackCorrId: 'ack-2'
+  });
+  assert.equal(accepted.contact.state, 'active');
+  assert.equal(accepted.request.profile.displayName, 'Bob');
+  assert.equal(accepted.timestamp, 789n);
+  assert.equal(store.loadContact('alice').remoteProfile.displayName, 'Bob');
+  assert.ok(store.loadRatchet('alice').rootKey instanceof Uint8Array);
+  const keyCommand = smp.parseSignedTransmission(4, transport.sent[0].bytes).command;
+  const ackCommand = smp.parseSignedTransmission(4, transport.sent[1].bytes).command;
+  assert.equal(keyCommand.type, 'KEY');
+  assert.equal(ackCommand.type, 'ACK');
+  assert.equal(smp.equalBytes(ackCommand.msgId, msgId), true);
 });
 
 test('contact client schedules failed sends for retry', async () => {

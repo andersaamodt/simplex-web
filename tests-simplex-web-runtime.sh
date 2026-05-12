@@ -100,6 +100,8 @@ assert_file_contains "$ROOT_DIR/src/browser-simplex-agent.mjs" 'prepareNewQueueR
 assert_file_contains "$ROOT_DIR/src/browser-simplex-client.mjs" 'createQueue' 'browser SimpleX client orchestrates queue creation'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-client.mjs" 'pendingTransmissions' 'browser SimpleX client buffers unmatched broker transmissions'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'CONTACT_STATE_ACTIVE' 'browser SimpleX contact client owns active contact state'
+assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'requestContact' 'browser SimpleX contact client sends encrypted contact requests'
+assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'receiveContactRequest' 'browser SimpleX contact client receives and secures contact requests'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'receiveNext' 'browser SimpleX contact client receives and acknowledges queue messages'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'sendFile' 'browser SimpleX contact client sends encrypted XFTP file descriptors'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-contact-client.mjs" 'downloadReceivedFile' 'browser SimpleX contact client downloads received XFTP files'
