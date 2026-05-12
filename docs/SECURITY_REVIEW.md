@@ -21,6 +21,7 @@ Reviewed release surface:
 - `src/browser-simplex-ratchet.mjs`
 - `src/browser-simplex-scheduler.mjs`
 - `src/browser-simplex-store.mjs`
+- `src/browser-simplex-web-transport-adapter.mjs`
 - `src/browser-smp-server-profile.mjs`
 - `src/browser-smp-websocket-transport.mjs`
 - `src/browser-xftp-client.mjs`
@@ -72,6 +73,8 @@ Primary attacker capabilities tested:
 - Exercise upstream-style XFTP web binary fetch handshake, identity proof
   verification, PING, authenticated file-command wrappers, and
   transport-encrypted download chunk verification.
+- Exercise first-party `window.SimplexWebTransport` adapter sends, file sends,
+  receive polling, and in-process browser-contact E2E delivery.
 - Provide a skipped-by-default live interop harness for reviewed non-loopback
   SMP/XFTP browser-profile endpoints.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
@@ -132,6 +135,10 @@ Coverage added:
 - E2E broker tests cover two browser clients exchanging ratcheted messages
   through queue creation, recipient `KEY`, signed `SEND`, encrypted received
   `MSG`, `ACK`, and forged-signature rejection.
+- First-party facade-adapter tests cover `sendText`, `sendFiles`,
+  `getMessages`, registration with `window.SimplexWebTransport`, and an
+  in-process ratcheted contact send/receive over the browser SimpleX contact
+  client.
 - XFTP tests cover encrypted chunk reassembly, encrypted server-bound upload,
   verified download, deletion, profile downgrade rejection, and tampered chunk
   rejection.
@@ -157,8 +164,8 @@ Coverage added:
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server
-  profile downgrades, hostile XFTP addresses, and encrypted XFTP client
-  boundary round trips.
+  profile downgrades, hostile XFTP addresses, hostile facade adapter inputs
+  before contact side effects, and encrypted XFTP client boundary round trips.
 
 ### Accepted residual risk: browser WebSocket SMP profile is not raw TCP/TLS SMP
 

@@ -23,6 +23,8 @@ In practical website terms, `simplex-web` gives you three layers:
   and encrypted XFTP-style file chunks.
 - Browser transport profiles for compatible servers: SMP over binary WebSocket
   blocks and upstream-style XFTP web blocks over HTTPS/`fetch`.
+- A first-party adapter that registers those browser-native pieces with
+  `window.SimplexWebTransport` for website integration.
 
 It is independent of SimpleX while implementing the same protocol concepts.
 SimpleX, SimpleX Chat, and related marks belong to their respective owners.
@@ -38,6 +40,9 @@ bridge:
 - No plaintext website/server bridge is shipped.
 - The default public transport facade fails closed until a browser-native
   adapter is registered.
+- A first-party browser-native adapter is shipped for the public facade; it
+  wires SMP WebSocket, durable browser state, the contact client, and optional
+  XFTP web file transfer.
 
 What works locally today:
 
@@ -54,6 +59,8 @@ What works locally today:
   file-level envelope encryption, deterministic chunk planning, verified
   file upload/download assembly, and transport-encrypted download chunks.
 - Binary SMP-over-WebSocket transport for browser-compatible SMP servers.
+- A public website adapter that can register with `window.SimplexWebTransport`
+  and send/receive through the browser contact client.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
   tests, skipped-by-default live interop tests, fuzz/property tests, browser
   rendering tests, and Haskell/WASM smoke checks.
@@ -73,7 +80,8 @@ The current tree includes a handwritten browser-native SMP protocol core in
 `src/browser-simplex-store.mjs`, browser-owned double-ratchet state in
 `src/browser-simplex-ratchet.mjs`, a contact client in
 `src/browser-simplex-contact-client.mjs`, retry scheduling in
-`src/browser-simplex-scheduler.mjs`, XFTP chunk/manifest helpers in
+`src/browser-simplex-scheduler.mjs`, a first-party facade adapter in
+`src/browser-simplex-web-transport-adapter.mjs`, XFTP chunk/manifest helpers in
 `src/browser-xftp-core.mjs`, an encrypted-chunk XFTP client in
 `src/browser-xftp-client.mjs`, an HTTPS/fetch encrypted-chunk transport in
 `src/browser-xftp-http-transport.mjs`, an upstream-style XFTP web client in
@@ -95,7 +103,7 @@ front-end library:
    modules.
 2. Store drafts, recent messages, contacts, queues, ratchets, and pending work
    in browser-local storage.
-3. Register a real browser-native transport adapter with
+3. Register the first-party browser-native transport adapter with
    `window.SimplexWebTransport`.
 4. Use browser-compatible SMP/XFTP server profiles for relay and file storage.
 
@@ -117,6 +125,7 @@ ratcheted chat layer.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
 - Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, and queues failed sends for retry.
 - Ships bounded retry scheduling for offline/transient transport failure.
+- Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships a browser XFTP-over-HTTPS/fetch transport for encrypted chunk upload, download, and deletion.
 - Ships an upstream-style browser XFTP web client for binary HTTPS/fetch hello, identity proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, full encrypted file upload/download/delete helpers, and transport-encrypted FGET body decryption.
@@ -149,6 +158,7 @@ Not shipped:
 - `src/browser-simplex-ratchet.mjs`: browser-owned double-ratchet state and message encryption.
 - `src/browser-simplex-scheduler.mjs`: bounded retry scheduling for pending browser work.
 - `src/browser-simplex-store.mjs`: durable browser queue, contact, ratchet, and pending-task records.
+- `src/browser-simplex-web-transport-adapter.mjs`: first-party adapter that registers the browser contact client with `window.SimplexWebTransport`.
 - `src/browser-smp-server-profile.mjs`: production browser SMP server profile validation.
 - `src/browser-smp-websocket-transport.mjs`: browser binary WebSocket transport profile for padded SMP blocks.
 - `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
@@ -169,6 +179,7 @@ Not shipped:
 - `tests/browser-simplex-ratchet.test.mjs`: Node tests for double-ratchet send/receive, skipped messages, and tamper rejection.
 - `tests/browser-simplex-scheduler.test.mjs`: Node tests for retry timing and completion.
 - `tests/browser-simplex-store.test.mjs`: Node tests for durable store serialization and hostile keys.
+- `tests/browser-simplex-web-transport-adapter.test.mjs`: Node tests for the first-party facade adapter and in-process browser-contact E2E send/receive.
 - `tests/browser-smp-server-profile.test.mjs`: Node tests for browser SMP server profile downgrade rejection.
 - `tests/browser-smp-websocket-transport.test.mjs`: Node tests for the binary browser WebSocket SMP transport profile.
 - `tests/browser-smp-websocket-live.test.mjs`: Node loopback WebSocket server test for real browser transport framing, handshake, send, and receive.
@@ -233,7 +244,32 @@ await window.SimplexWebTransport.sendText({ contact_id: "contact-1", text: "hell
 // rejects with code SIMPLEX_WEB_TRANSPORT_UNAVAILABLE
 ```
 
-A browser-native adapter registers itself with:
+The first-party adapter can register itself with the facade:
+
+```js
+import { registerSimplexWebTransportAdapter } from "simplex-web/browser-simplex-web-transport-adapter";
+
+registerSimplexWebTransportAdapter({
+  namespace: "site-chat",
+  smp: {
+    url: "wss://smp.example.test/",
+    keyHash: "BASE64URL_OR_HEX_HASH"
+  },
+  xftp: {
+    url: "https://xftp.example.test/",
+    keyHash: "BASE64URL_OR_HEX_HASH"
+  }
+});
+
+await window.SimplexWebTransport.connect();
+await window.SimplexWebTransport.sendText({
+  contact_id: "alice",
+  text: "hello"
+});
+```
+
+Host pages may also register their own browser-native adapter with the same
+contract:
 
 ```js
 window.SimplexWebTransport.registerBrowserTransport({

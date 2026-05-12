@@ -24,6 +24,7 @@
 - Added contact-client invitation URI, encrypted contact request, request receive, queue secure, and ACK handling.
 - Added contact-client XFTP file send/receive helpers that upload encrypted chunks, ratchet-send file descriptors/root keys, and verify received downloads.
 - Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.
+- Added `src/browser-simplex-web-transport-adapter.mjs`, a first-party adapter that registers the browser contact client with `window.SimplexWebTransport` over SMP WebSocket and optional XFTP web file transfer.
 - Added `src/browser-xftp-core.mjs` for XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
 - Added `src/browser-smp-server-profile.mjs` for reviewed production browser SMP server profile validation.
 - Added `src/browser-xftp-client.mjs` and `src/browser-xftp-server-profile.mjs` for encrypted XFTP chunk upload/download sequencing and production browser XFTP server profile validation.

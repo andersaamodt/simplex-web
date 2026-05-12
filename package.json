@@ -1,7 +1,7 @@
 {
   "name": "simplex-web",
   "version": "1.0.0",
-  "description": "Browser-hosted SimpleX chat UI shell, local session store, transport facade, browser-native SMP primitives, agent envelope helpers, and XFTP web helpers.",
+  "description": "Browser-hosted SimpleX chat UI shell, local session store, transport facade adapter, browser-native SMP primitives, agent envelope helpers, and XFTP web helpers.",
   "private": true,
   "license": "AGPL-3.0-only",
   "main": "src/transport.js",
@@ -26,6 +26,7 @@
     "./browser-simplex-ratchet": "./src/browser-simplex-ratchet.mjs",
     "./browser-simplex-scheduler": "./src/browser-simplex-scheduler.mjs",
     "./browser-simplex-store": "./src/browser-simplex-store.mjs",
+    "./browser-simplex-web-transport-adapter": "./src/browser-simplex-web-transport-adapter.mjs",
     "./browser-smp-websocket-transport": "./src/browser-smp-websocket-transport.mjs",
     "./browser-smp-server-profile": "./src/browser-smp-server-profile.mjs",
     "./browser-xftp-client": "./src/browser-xftp-client.mjs",
@@ -48,7 +49,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/interop-vectors.test.mjs tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-simplex-client.test.mjs tests/browser-simplex-store.test.mjs tests/browser-simplex-ratchet.test.mjs tests/browser-simplex-scheduler.test.mjs tests/browser-simplex-contact-client.test.mjs tests/browser-simplex-e2e-broker.test.mjs tests/browser-xftp-core.test.mjs tests/browser-xftp-client.test.mjs tests/browser-xftp-http-transport.test.mjs tests/browser-xftp-web-client.test.mjs tests/browser-xftp-server-profile.test.mjs tests/browser-smp-server-profile.test.mjs tests/browser-smp-websocket-transport.test.mjs tests/browser-smp-websocket-live.test.mjs",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/interop-vectors.test.mjs tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-simplex-client.test.mjs tests/browser-simplex-store.test.mjs tests/browser-simplex-ratchet.test.mjs tests/browser-simplex-scheduler.test.mjs tests/browser-simplex-contact-client.test.mjs tests/browser-simplex-web-transport-adapter.test.mjs tests/browser-simplex-e2e-broker.test.mjs tests/browser-xftp-core.test.mjs tests/browser-xftp-client.test.mjs tests/browser-xftp-http-transport.test.mjs tests/browser-xftp-web-client.test.mjs tests/browser-xftp-server-profile.test.mjs tests/browser-smp-server-profile.test.mjs tests/browser-smp-websocket-transport.test.mjs tests/browser-smp-websocket-live.test.mjs",
     "test:fuzz": "node --test tests/adversarial-fuzz.test.js",
     "test:browser": "node --test tests/browser-matrix.test.mjs",
     "test:live": "node --test tests/live-interop.test.mjs",

@@ -29,26 +29,28 @@ framework app:
    ratchet, and scheduler into a contact lifecycle client.
 9. `src/browser-simplex-scheduler.mjs` computes bounded retry schedules for
    transient/offline work.
-10. `src/browser-xftp-core.mjs` owns encrypted XFTP-style chunks, manifests, and
+10. `src/browser-simplex-web-transport-adapter.mjs` is the first-party adapter
+   that registers the browser contact client with `window.SimplexWebTransport`.
+11. `src/browser-xftp-core.mjs` owns encrypted XFTP-style chunks, manifests, and
    reassembly verification.
-11. `src/browser-xftp-client.mjs` owns encrypted chunk upload/download
+12. `src/browser-xftp-client.mjs` owns encrypted chunk upload/download
    sequencing against a reviewed browser XFTP server boundary.
-12. `src/browser-xftp-server-profile.mjs` validates production browser XFTP
+13. `src/browser-xftp-server-profile.mjs` validates production browser XFTP
    server profiles before encrypted file chunks are uploaded or downloaded.
-13. `src/browser-xftp-web-client.mjs` implements the upstream-style browser
+14. `src/browser-xftp-web-client.mjs` implements the upstream-style browser
    XFTP web profile: binary fetch transport, web challenge, identity proof,
    padded handshake, PING, authenticated file-command wrappers, and
    file-level encrypted upload/download assembly with transport-encrypted
    download chunk verification.
-14. `src/browser-smp-server-profile.mjs` validates production browser SMP server
+15. `src/browser-smp-server-profile.mjs` validates production browser SMP server
    profiles before a browser endpoint is trusted.
-15. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
+16. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
    transport profile. It sends and receives one padded binary SMP block per
    WebSocket frame for compatible SMP servers.
-16. `src/transport.js` is the public browser API. It is unavailable until an
+17. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-17. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+18. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -96,6 +98,7 @@ Safari automation, and wasm GHC without a bundler.
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
+- a first-party facade adapter that wires the browser contact client to SMP WebSocket and optional XFTP web transport
 
 It intentionally does **not** ship old or unsafe compatibility paths:
 
@@ -157,6 +160,7 @@ server bridge:
 - durable queue/contact/ratchet storage
 - double-ratchet message packets
 - contact request/accept lifecycle, file-transfer payloads, and retry scheduling
+- first-party `window.SimplexWebTransport` adapter registration over the browser contact client
 - XFTP-style encrypted file chunks
 - an encrypted-chunk browser XFTP client and production XFTP server profile validation
 - an upstream-style browser XFTP web transport, command profile, and encrypted file envelope assembly
@@ -222,7 +226,13 @@ The transport facade exposed by `src/transport.js` is separate from the UI:
 - `window.SimplexWebTransport.disconnect()`
 - `window.SimplexWebTransport.registerBrowserTransport(adapter)`
 
-Without an adapter, `sendText` rejects with `SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`. This is the expected secure behavior; it keeps host sites from accidentally routing plaintext through a server bridge while still giving them a stable browser API to call.
+Without an adapter, `sendText` rejects with `SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`.
+This is the expected secure behavior; it keeps host sites from accidentally
+routing plaintext through a server bridge while still giving them a stable
+browser API to call. `src/browser-simplex-web-transport-adapter.mjs` supplies
+the first-party adapter for real browser-native use: it connects the SMP
+WebSocket profile, durable store, contact client, and optional XFTP web file
+client, then registers that object with the facade.
 
 ## Browser SMP core
 

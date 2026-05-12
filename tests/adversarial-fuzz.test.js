@@ -215,6 +215,54 @@ test('browser simplex client fuzzing rejects hostile correlation ids before tran
   }), { numRuns: 120, seed: FUZZ_SEED + 3 });
 });
 
+test('browser SimplexWebTransport adapter fuzzing rejects hostile facade inputs before contact side effects', async () => {
+  const { createSimplexWebTransportAdapter } = await import('../src/browser-simplex-web-transport-adapter.mjs');
+  const invalidContactId = hostileString.filter((value) => {
+    const raw = String(value == null ? '' : value).trim();
+    return !raw || raw.length > 160 || /[^A-Za-z0-9_.:-]/.test(raw);
+  });
+
+  await fc.assert(fc.asyncProperty(invalidContactId, hostileString, async (contactId, text) => {
+    let sendCount = 0;
+    const adapter = createSimplexWebTransportAdapter({
+      contactClient: {
+        listContacts() {
+          return [];
+        },
+        sendText() {
+          sendCount += 1;
+          return Promise.resolve();
+        }
+      }
+    });
+    await assert.rejects(
+      adapter.sendText({ contact_id: contactId, text: text || 'hello' }),
+      /contact id/
+    );
+    assert.equal(sendCount, 0);
+  }), { numRuns: 120, seed: FUZZ_SEED + 10 });
+
+  await fc.assert(fc.asyncProperty(fc.constantFrom('', ' ', '\n\t'), async (text) => {
+    let sendCount = 0;
+    const adapter = createSimplexWebTransportAdapter({
+      contactClient: {
+        listContacts() {
+          return [];
+        },
+        sendText() {
+          sendCount += 1;
+          return Promise.resolve();
+        }
+      }
+    });
+    await assert.rejects(
+      adapter.sendText({ contact_id: 'alice', text }),
+      /message text/
+    );
+    assert.equal(sendCount, 0);
+  }), { numRuns: 40, seed: FUZZ_SEED + 11 });
+});
+
 test('browser simplex durable store fuzzing rejects hostile record ids before writes', async () => {
   const { createBrowserSimplexStore } = await import('../src/browser-simplex-store.mjs');
   const invalidId = hostileString.filter((value) => {
