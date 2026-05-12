@@ -99,18 +99,12 @@
       value.indexOf('audio/') === 0;
   }
 
-  function isLoopbackHost(hostname) {
-    var host = String(hostname || '').toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-  }
-
   function safeAttachmentUrl(value, kind) {
-    // Only data/blob URLs and loopback bridge URLs are allowed to auto-load.
-    // Remote URLs are rendered as inert labels so imported history cannot leak
-    // a viewer's IP address by forcing the browser to fetch arbitrary media.
+    // Only inline data URLs with safe media MIME types and local blob URLs are
+    // allowed to auto-load. Network URLs, including loopback URLs, are rendered
+    // as inert labels so imported history cannot force browser fetches.
     var raw = String(value || '').trim();
     var match;
-    var parsed;
     if (!raw || /[\x00-\x20\x7f]/.test(raw)) return '';
     match = raw.match(/^data:([^;,]+);base64,[A-Za-z0-9+/=]+$/i);
     if (match) {
@@ -118,15 +112,6 @@
     }
     if (/^data:/i.test(raw)) return '';
     if (/^blob:/i.test(raw)) return raw;
-    if (!/^https?:\/\//i.test(raw)) return '';
-    try {
-      parsed = new URL(raw);
-    } catch (_err) {
-      return '';
-    }
-    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopbackHost(parsed.hostname)) {
-      return parsed.href;
-    }
     return '';
   }
 

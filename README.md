@@ -117,7 +117,7 @@ ratcheted chat layer.
 
 ## Current Scope
 
-- Ships a plain-JavaScript default chat UI that can be embedded into a hosted site.
+- Ships a plain-JavaScript default chat UI that can be embedded into a hosted site and refuses network attachment autoloads from imported history.
 - Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
 - Ships a closed-by-default browser transport API boundary at `window.SimplexWebTransport`, so host sites can call a stable API without silently falling back to a plaintext website bridge.
 - Ships browser-native SMP protocol primitives for binary encodings, queue URIs, command codecs, signed transmissions, transport blocks, handshakes, and browser-compatible cryptographic helpers.

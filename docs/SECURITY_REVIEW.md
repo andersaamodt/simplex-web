@@ -224,7 +224,8 @@ Automated:
 Manual/browser:
 
 - Safari automation probe using hostile message text, attachment metadata,
-  textarea content, remote attachment URL, and viewport overflow check.
+  textarea content, remote/loopback attachment URLs, and viewport overflow
+  check.
 
 Toolchain:
 

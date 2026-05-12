@@ -225,7 +225,7 @@ test('render drops unsafe attachment URLs before placing them in HTML attributes
   assert.equal((html.match(/href="#"/g) || []).length, 2);
 });
 
-test('render refuses remote and relative attachment URL autoloads but keeps loopback bridge URLs', () => {
+test('render refuses remote relative and loopback attachment URL autoloads', () => {
   const html = ui.renderPanel({
     loggedIn: true,
     hasSigner: true,
@@ -250,8 +250,9 @@ test('render refuses remote and relative attachment URL autoloads but keeps loop
 
   assert.doesNotMatch(html, /evil\.example/);
   assert.doesNotMatch(html, /\/files\?path=\/tmp\/secret\.png/);
-  assert.match(html, /http:\/\/127\.0\.0\.1:5226\/files\?path=%2Ftmp%2Fok\.png/);
-  assert.equal((html.match(/<img class="secure-chat-attachment-media"/g) || []).length, 1);
+  assert.doesNotMatch(html, /127\.0\.0\.1:5226/);
+  assert.equal((html.match(/<img class="secure-chat-attachment-media"/g) || []).length, 0);
+  assert.equal((html.match(/href="#"/g) || []).length, 3);
 });
 
 test('render clamps hostile upload progress and ignores oversized history', () => {

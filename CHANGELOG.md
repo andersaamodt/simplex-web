@@ -5,6 +5,8 @@
 - Removed the previous SimpleX Chat command API adapter, loopback file bridge,
   mock chat example, and live adapter tests so the package no longer ships a
   daemon-backed or plaintext compatibility path.
+- Removed loopback attachment URL autoloading from the default chat renderer so
+  imported history cannot force browser fetches to local services.
 - Removed package exports, scripts, runtime checks, and README instructions for
   that deleted compatibility path.
 - Added `src/browser-smp-core.mjs`, the first handwritten browser-native SMP protocol core slice.
