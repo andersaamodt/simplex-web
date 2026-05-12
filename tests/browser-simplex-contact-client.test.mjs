@@ -2,12 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as smp from '../src/browser-smp-core.mjs';
+import { encryptRcvMessageBody } from '../src/browser-simplex-agent.mjs';
 import { createBrowserSimplexClient } from '../src/browser-simplex-client.mjs';
 import { createBrowserSimplexContactClient } from '../src/browser-simplex-contact-client.mjs';
 import { createBrowserSimplexStore } from '../src/browser-simplex-store.mjs';
+import { createRatchetState, encryptRatchetMessage } from '../src/browser-simplex-ratchet.mjs';
 
 function filled(length, value) {
   return new Uint8Array(length).fill(value);
+}
+
+function packetBytes(packet) {
+  return smp.utf8Bytes(JSON.stringify({
+    h: Array.from(packet.header),
+    n: Array.from(packet.nonce),
+    c: Array.from(packet.ciphertext),
+    t: Array.from(packet.tag)
+  }));
 }
 
 class FakeTransport {
@@ -93,4 +104,67 @@ test('contact client schedules failed sends for retry', async () => {
   await assert.rejects(() => contacts.sendText('alice', 'retry me', { corrId: 'send-2', clientMessageId: 'm1' }), /no fake responses/);
   assert.equal(store.listPending().length, 1);
   assert.equal(store.listPending()[0].payload.contactId, 'alice');
+});
+
+test('contact client receives decrypts and acknowledges queue messages', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-receive' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const aliceDh = smp.generateX25519KeyPair(filled(32, 20));
+  const bobDh = smp.generateX25519KeyPair(filled(32, 21));
+  const root = filled(32, 22);
+  const senderRatchet = createRatchetState({ rootKey: root, ownDhKey: aliceDh, remoteDhPublicKey: bobDh.publicKey });
+  const receiverRatchet = createRatchetState({ rootKey: root, ownDhKey: bobDh, initializeSending: false });
+  const queue = {
+    rcvId: filled(24, 23),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 24)),
+    serverDhSecret: filled(32, 25)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active' });
+  store.saveQueue('alice:inbox', queue);
+  store.saveRatchet('alice', receiverRatchet);
+
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes('hello from queue'), { nonce: filled(24, 26) }).packet;
+  const msgId = filled(24, 27);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 123n,
+    body: packetBytes(packet)
+  });
+  transport.pushResponse('msg-1', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('ack-1', { type: 'OK' }, queue.rcvId);
+
+  const received = await contacts.receiveNext('alice', { ackCorrId: 'ack-1' });
+  assert.equal(received.text, 'hello from queue');
+  assert.equal(received.timestamp, 123n);
+  const ack = smp.parseSignedTransmission(4, transport.sent[0].bytes);
+  assert.equal(ack.command.type, 'ACK');
+  assert.equal(smp.equalBytes(ack.command.msgId, msgId), true);
+});
+
+test('contact client drains due retry tasks through the queue client', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-retry-drain' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const outbox = {
+    sndId: filled(24, 28),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 29))
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active', outboundQueue: outbox });
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 30),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 31)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 32)).publicKey,
+    sendingChainKey: filled(32, 33)
+  });
+
+  await assert.rejects(() => contacts.sendText('alice', 'retry drain', { corrId: 'send-miss', clientMessageId: 'm2' }), /no fake responses/);
+  transport.pushResponse('retry-ok', { type: 'OK' }, outbox.sndId);
+  const result = await contacts.drainDueRetries({ now: Date.now() + 60000, sendOptions: { corrId: 'retry-ok' } });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].ok, true);
+  assert.equal(store.listPending()[0].completedAt > 0, true);
 });

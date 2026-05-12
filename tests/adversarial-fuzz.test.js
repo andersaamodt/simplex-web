@@ -214,3 +214,62 @@ test('browser simplex client fuzzing rejects hostile correlation ids before tran
     assert.equal(sentCount, 0);
   }), { numRuns: 120, seed: FUZZ_SEED + 3 });
 });
+
+test('browser simplex durable store fuzzing rejects hostile record ids before writes', async () => {
+  const { createBrowserSimplexStore } = await import('../src/browser-simplex-store.mjs');
+  const invalidId = hostileString.filter((value) => {
+    const raw = String(value == null ? '' : value).trim();
+    return !raw || raw.length > 160 || /[^A-Za-z0-9_.:-]/.test(raw);
+  });
+
+  await fc.assert(fc.asyncProperty(invalidId, async (recordId) => {
+    const backing = new Map();
+    const storage = {
+      getItem(key) { return backing.get(key) || null; },
+      setItem(key, value) { backing.set(key, value); },
+      removeItem(key) { backing.delete(key); }
+    };
+    const store = createBrowserSimplexStore({ storage, namespace: 'fuzz' });
+    assert.throws(() => store.saveContact(recordId, { state: 'active' }), /record id/);
+    assert.equal(backing.size, 0);
+  }), { numRuns: 160, seed: FUZZ_SEED + 4 });
+});
+
+test('browser XFTP fuzzing round-trips hostile byte payloads and rejects tampering', async () => {
+  const { createXftpUpload, assembleXftpDownload } = await import('../src/browser-xftp-core.mjs');
+  const { equalBytes } = await import('../src/browser-smp-core.mjs');
+  const bytesArb = fc.uint8Array({ maxLength: 4096 });
+
+  await fc.assert(fc.asyncProperty(bytesArb, async (bytes) => {
+    const upload = createXftpUpload(bytes, {
+      rootKey: new Uint8Array(32).fill(19),
+      fileId: 'fuzz-file',
+      name: '../fuzz.bin',
+      chunkSize: 1024
+    });
+    assert.equal(equalBytes(assembleXftpDownload(upload.manifest, upload.chunks, upload.rootKey), bytes), true);
+
+    const tampered = upload.chunks.map((chunk, index) => index === 0
+      ? { ...chunk, ciphertext: new Uint8Array(chunk.ciphertext) }
+      : chunk);
+    tampered[0].ciphertext[0] ^= 1;
+    assert.throws(() => assembleXftpDownload(upload.manifest, tampered, upload.rootKey), /decryption failed|hash/i);
+  }), { numRuns: 120, seed: FUZZ_SEED + 5 });
+});
+
+test('browser SMP server profile fuzzing rejects unsafe production downgrades', async () => {
+  const { assertProductionBrowserSmpServerProfile } = await import('../src/browser-smp-server-profile.mjs');
+  const { encodeBase64Url } = await import('../src/browser-smp-core.mjs');
+  const unsafeUrl = hostileString.filter((value) => !/^https:\/\/|^wss:\/\//i.test(String(value == null ? '' : value).trim()));
+
+  await fc.assert(fc.asyncProperty(unsafeUrl, async (url) => {
+    assert.throws(() => assertProductionBrowserSmpServerProfile({
+      version: 1,
+      transport: 'websocket',
+      url,
+      allowedOrigins: ['https://app.example.test'],
+      keyHash: encodeBase64Url(new Uint8Array(32).fill(2)),
+      sessionBinding: { type: 'signed-handshake' }
+    }), /URL|wss|https|invalid/i);
+  }), { numRuns: 120, seed: FUZZ_SEED + 6 });
+});

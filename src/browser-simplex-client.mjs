@@ -69,6 +69,11 @@ function errorText(message) {
   return String(err.type || 'SMP server error');
 }
 
+function queueMatches(transmission, queue) {
+  if (!queue || !queue.rcvId || !transmission || !transmission.queueId) return true;
+  return equalBytes(transmission.queueId, queue.rcvId);
+}
+
 export function createBrowserSimplexClient(options = {}) {
   return new BrowserSimplexClient(options);
 }
@@ -125,6 +130,26 @@ export class BrowserSimplexClient {
       }
     }
     fail('SIMPLEX_CLIENT_TIMEOUT', 'no SMP response matched the correlation id');
+  }
+
+  async receiveQueueMessage(queueOrLabel, options = {}) {
+    var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
+    var maxBatches = Math.max(1, Math.floor(Number(options.maxBatches || 25) || 25));
+    for (var i = 0; i < maxBatches; i += 1) {
+      var transmissions = await this.transport.receiveSignedTransmissions({
+        kind: 'broker',
+        timeoutMs: options.timeoutMs
+      });
+      for (var tx of transmissions || []) {
+        var message = brokerMessage(tx);
+        var type = brokerType(tx);
+        if (type === 'ERR') fail('SIMPLEX_CLIENT_BROKER_ERR', errorText(message), message);
+        if (type === 'MSG' && queueMatches(tx, queue)) {
+          return { queue, transmission: tx, message };
+        }
+      }
+    }
+    fail('SIMPLEX_CLIENT_TIMEOUT', 'no SMP message matched the queue');
   }
 
   async createQueue(options = {}) {

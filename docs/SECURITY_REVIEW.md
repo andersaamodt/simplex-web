@@ -99,10 +99,14 @@ Coverage added:
 
 - Durable store round trips binary records and rejects hostile storage keys.
 - Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
-- Contact tests cover invitation creation, active ratcheted sends, and durable
-  retry enqueueing after transport failure.
+- Contact tests cover invitation creation, active ratcheted sends, inbound
+  queue-message decrypt-and-ack, durable retry enqueueing after transport
+  failure, and explicit retry draining.
 - XFTP tests cover encrypted chunk reassembly and tampered chunk rejection.
 - Server-profile tests reject plaintext URLs and missing session binding.
+- Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
+  payload round trips with tamper rejection, and unsafe browser SMP server
+  profile downgrades.
 
 ### Accepted residual risk: browser WebSocket SMP profile is not raw TCP/TLS SMP
 

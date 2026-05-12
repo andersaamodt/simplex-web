@@ -19,11 +19,11 @@
 - Added focused transport tests for URL policy, binary handshakes, block sending/receiving, malformed frames, and session mismatch handling.
 - Added `src/browser-simplex-store.mjs` for durable browser queue, contact, ratchet, and pending-task state.
 - Added `src/browser-simplex-ratchet.mjs` for browser-owned double-ratchet message encryption, skipped-message keys, and tamper rejection.
-- Added `src/browser-simplex-contact-client.mjs` for contact lifecycle, active-contact sends, ratchet persistence, and failed-send retry enqueueing.
+- Added `src/browser-simplex-contact-client.mjs` for contact lifecycle, active-contact sends, inbound decrypt-and-ack receive handling, ratchet persistence, and failed-send retry enqueueing/draining.
 - Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.
 - Added `src/browser-xftp-core.mjs` for XFTP-style encrypted chunk manifests, tamper detection, and download assembly.
 - Added `src/browser-smp-server-profile.mjs` for reviewed production browser SMP server profile validation.
-- Added focused adversarial tests for storage keys, ratchet tampering, contact retries, XFTP corruption, scheduler bounds, and server-profile downgrade rejection.
+- Added focused adversarial tests and fuzz/property coverage for storage keys, ratchet tampering, contact retries, inbound contact receive/ack, XFTP corruption, hostile XFTP byte payloads, scheduler bounds, and server-profile downgrade rejection.
 
 ## 1.0.0 - 2026-05-11
 

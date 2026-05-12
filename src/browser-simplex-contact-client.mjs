@@ -11,6 +11,7 @@ import { toBytes, utf8Bytes, utf8Text } from './browser-smp-core.mjs';
 import { createBrowserSimplexClient } from './browser-simplex-client.mjs';
 import { createBrowserSimplexStore } from './browser-simplex-store.mjs';
 import { createBrowserSimplexRetryScheduler } from './browser-simplex-scheduler.mjs';
+import { decryptRcvMessageBody } from './browser-simplex-agent.mjs';
 import { createRatchetState, decryptRatchetMessage, encryptRatchetMessage } from './browser-simplex-ratchet.mjs';
 
 export const CONTACT_STATE_INVITED = 'invited';
@@ -158,8 +159,10 @@ export class BrowserSimplexContactClient {
       this.scheduler.complete(taskId);
       return response;
     } catch (error) {
-      this.scheduler.enqueue(taskId, { type: 'sendText', contactId: contact.id, text: String(text), options: { clientMessageId: options.clientMessageId || '' } });
-      this.scheduler.fail(taskId, error);
+      if (options.retryOnFailure !== false) {
+        this.scheduler.enqueue(taskId, { type: 'sendText', contactId: contact.id, text: String(text), options: { clientMessageId: options.clientMessageId || '' } });
+        this.scheduler.fail(taskId, error);
+      }
       throw error;
     }
   }
@@ -172,6 +175,54 @@ export class BrowserSimplexContactClient {
     var decrypted = decryptRatchetMessage(ratchet, parsePacketBytes(toBytes(packetBytesValue, 'ratchet packet')));
     this.store.saveRatchet(contact.id, decrypted.state);
     return utf8Text(decrypted.plaintext);
+  }
+
+  async receiveNext(id, options = {}) {
+    var contact = this.store.loadContact(safeId(id));
+    requireState(contact, [CONTACT_STATE_ACTIVE]);
+    var queue = options.queue || this.store.loadQueue(contact.id + ':inbox');
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact inbox queue is missing');
+    var received = await this.client.receiveQueueMessage(queue, options);
+    var decryptedBody = decryptRcvMessageBody({
+      serverDhSecret: queue.serverDhSecret,
+      msgId: received.message.msgId,
+      encryptedBody: received.message.body
+    });
+    var text = this.receiveText(contact.id, decryptedBody.body);
+    if (options.acknowledge !== false) {
+      await this.client.acknowledgeMessage(queue, received.message.msgId, {
+        ...options,
+        corrId: options.ackCorrId || options.corrId || ('ack-' + Date.now())
+      });
+    }
+    return {
+      contactId: contact.id,
+      text,
+      msgId: received.message.msgId,
+      timestamp: decryptedBody.timestamp,
+      flags: decryptedBody.flags
+    };
+  }
+
+  async drainDueRetries(options = {}) {
+    var due = this.scheduler.due(options.now).slice(0, Math.max(1, Math.floor(Number(options.limit || 25) || 25)));
+    var results = [];
+    for (var task of due) {
+      if (!task || !task.payload || task.payload.type !== 'sendText') continue;
+      try {
+        var response = await this.sendText(task.payload.contactId, task.payload.text, {
+          ...(task.payload.options || {}),
+          ...(options.sendOptions || {}),
+          retryOnFailure: false
+        });
+        this.scheduler.complete(task.id);
+        results.push({ id: task.id, ok: true, response });
+      } catch (error) {
+        this.scheduler.fail(task.id, error);
+        results.push({ id: task.id, ok: false, error });
+      }
+    }
+    return results;
   }
 
   listContacts() {

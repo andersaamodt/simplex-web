@@ -72,7 +72,7 @@ Safari automation, and wasm GHC without a bundler.
 - durable browser queue, contact, ratchet, and pending-task storage
 - browser double-ratchet root/chain key progression, skipped-message keys, and AEAD packet encryption
 - contact lifecycle states for invited, requested, active, suspended, and deleted contacts
-- active-contact sends with ratchet persistence and failed-send retry enqueueing
+- active-contact sends and receives with ratchet persistence, SMP ACKs, and failed-send retry enqueueing
 - bounded retry scheduling with deterministic testable backoff
 - XFTP-style encrypted file chunk manifests, chunk authentication, and download assembly
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
@@ -260,8 +260,9 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   sending/receiving chains, DH ratchet steps, skipped-message keys, and AES-GCM
   packet encryption.
 - `src/browser-simplex-contact-client.mjs` creates invitations, activates
-  contacts, persists ratchets, sends active-contact messages, and stores failed
-  sends as retry tasks.
+  contacts, persists ratchets, sends active-contact messages, decrypts inbound
+  queue messages, acknowledges received SMP messages, and stores failed sends as
+  retry tasks.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 
@@ -300,6 +301,5 @@ as part of the protocol, not as a website plaintext bridge.
 ## Next protocol steps
 
 1. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
-2. Add browser receive-loop orchestration across subscribed queues.
-3. Add formal interoperability vectors against upstream SimpleX implementations for every encoded protocol layer.
-4. Add a browser XFTP server profile and live encrypted file-transfer tests.
+2. Add formal interoperability vectors against upstream SimpleX implementations for every encoded protocol layer.
+3. Add a browser XFTP server profile and live encrypted file-transfer tests.
