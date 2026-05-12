@@ -38,7 +38,7 @@
     "src",
     "docs",
     "examples",
-    "haskell",
+    "haskell/**/*.hs",
     "LICENSE",
     "README.md",
     "CHANGELOG.md"
