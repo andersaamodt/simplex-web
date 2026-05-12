@@ -13,7 +13,7 @@
 - Added focused adversarial input coverage for UI rendering, session storage, transport normalization, WebSocket failure paths, file bridge boundaries, and Safari/WebKit rendering behavior.
 - Added live two-daemon SimpleX E2E coverage for the WebSocket adapter using temporary profiles.
 - Added the 2026-05-11 external-review-style security review notes in `docs/SECURITY_REVIEW.md`.
-- Kept Haskell/WASM smoke and chat-core checks as explicit toolchain-dependent validation scripts.
+- Proved the Haskell/WASM smoke and chat-core checks against `ghc-wasm-meta`'s `wasm32-wasi-ghc`.
 
 Not included in `1.0.0`:
 

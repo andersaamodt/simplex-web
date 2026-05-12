@@ -169,14 +169,11 @@ The repository intentionally does not track generated outputs such as `build/`, 
 npm test
 npm run test:browser
 npm run test:live
+npm run test:haskell
 npm audit --audit-level=moderate
 npm pack --dry-run --json
 ```
 
 `npm run test:live` requires a `simplex-chat` binary. It uses `~/.local/bin/simplex-chat` when present, or `SIMPLEX_CHAT_BIN=/path/to/simplex-chat`.
 
-If `wasm32-wasi-ghc` is installed, also run:
-
-```sh
-npm run test:haskell
-```
+`npm run test:haskell` requires `wasm32-wasi-ghc`; source the `ghc-wasm-meta` env first when it is installed outside the default shell path.

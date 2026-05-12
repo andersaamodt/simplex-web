@@ -78,7 +78,8 @@ assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'realpath(f
 assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'function safeLogValue' 'file bridge sanitizes startup output values'
 assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'X-Content-Type-Options' 'file bridge sends nosniff headers'
 assert_file_contains "$ROOT_DIR/src/transport.js" 'transport.registerBrowserTransport = registerBrowserTransport' 'registered transport remains replaceable'
-assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" 'no `ghc`' 'repo documents missing Haskell browser toolchain'
+assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" 'official `ghc-wasm-meta` toolchain' 'repo documents completed Haskell browser toolchain validation'
+assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" '`npm run test:haskell` passes' 'repo documents passing Haskell browser checks'
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
   printf 'FAIL: %s tests failed; %s passed\n' "$FAIL_COUNT" "$PASS_COUNT" >&2

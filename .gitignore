@@ -7,6 +7,9 @@ coverage/
 playwright-report/
 test-results/
 build/
+*.hi
+*.o
+*_stub.h
 dist-newstyle/
 .ghc.environment.*
 .stack-work/

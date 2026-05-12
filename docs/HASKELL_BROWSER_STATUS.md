@@ -1,46 +1,53 @@
 # Haskell Browser Status
 
-Goal: make `simplex-web` Haskell-first, ideally with GHC's browser-targeting path.
+Goal: keep `simplex-web` Haskell-first where browser tooling supports it, while
+not overstating the parts of SimpleX that this package does not implement.
 
-Current status in this workspace:
+## Current Status
 
-- no `ghc`
-- no `cabal`
-- no `stack`
-- no `wasm32-wasi-ghc`
-- no `ghc-wasm-meta`
-- a Haskell/WASM smoke scaffold now exists in `haskell/src/Simplex/Web/Smoke.hs` and `tests-haskell-wasm-runtime.sh`
+The repository ships two Haskell/WASM validation slices:
 
-Because of that, this repo currently ships the browser shell first.
+- `haskell/src/Simplex/Web/Smoke.hs`: minimal reactor exports for browser/WASI
+  instantiation.
+- `haskell/src/Simplex/Web/Core.hs`: Haskell-owned chat-state transitions with
+  JS-string exports for the browser host.
 
-That is not a rejection of Haskell. It is a sequencing choice:
+During the 1.0 release hardening pass, the official `ghc-wasm-meta` toolchain
+bootstrap completed in this Codex Desktop environment:
 
-- keep the browser UI and integration boundary moving
-- avoid pretending a browser-native protocol core already exists
-- leave a clean place to drop the Haskell core once the toolchain is available
+- install root: `/tmp/simplex-web-ghc-wasm`
+- env file: `/tmp/simplex-web-ghc-wasm/env`
+- `wasm32-wasi-ghc`: `9.14.1.20260330`
+- `wasm32-wasi-cabal`: `3.14.2.0`
 
-If the Haskell browser toolchain becomes available, the intended direction is:
+With that env sourced, `npm run test:haskell` passes:
 
-- Haskell owns protocol/core state transitions
-- JavaScript remains a thin browser host layer
-- this default UI can stay as the example renderer
+- Haskell smoke reactor compile and WASI runtime checks: 2 tests passed.
+- Haskell chat core compile, post-link JSFFI generation, and runtime checks:
+  5 tests passed.
 
-## 2026-05-02 installation attempt
+Generated wasm and JSFFI glue are test artifacts under `build/`; they are
+ignored and not checked into the package.
 
-I attempted the current official wasm toolchain path on this Apple Silicon machine using upstream `ghc-wasm-meta`.
+## What This Proves
 
-Observed facts:
+- The repo's Haskell browser-target scaffolds compile with the official wasm
+  GHC toolchain.
+- The compiled smoke reactor can be instantiated from Node/WASI.
+- The compiled chat core exports are callable from JavaScript through the
+  generated JSFFI glue.
+- Hostile text, status strings, oversize values, missing identifiers, retained
+  history bounds, and upload progress bounds are covered at the Haskell state
+  layer.
 
-- the installer first downloads a `wasi-sdk` bindist of roughly `132 MB`
-- after that, the actual `wasm32-wasi-ghc-gmp-aarch64-darwin-9.14` bindist is roughly `510 MB`
-- the available download rate in this environment was only about `75-80 KB/s`
+## What This Does Not Prove
 
-That makes the official wasm bootstrap path a multi-hour install here before any compile/test cycle can even begin.
+- A browser-native SimpleX SMP/XFTP transport exists in this package.
+- Upstream SimpleX protocol, cryptography, broker behavior, or queue semantics
+  are verified by the Haskell scaffolds.
+- Browser support for the future full protocol core is complete across every
+  engine.
 
-I also probed the Homebrew `ghc` bottle as a possible fallback path, but it downloaded at the same constrained rate and does not by itself prove availability of the browser-targeted cross backend we need.
-
-So the honest current state is:
-
-- the browser-facing Haskell smoke scaffold is ready
-- the toolchain install path has been identified and tested
-- the remaining blocker on this machine is bindist download throughput, not project structure
+The release remains honest: Haskell owns the current state-core slice, while
+actual network transport is still provided by the SimpleX Chat WebSocket adapter
+or by a future browser-native transport adapter.

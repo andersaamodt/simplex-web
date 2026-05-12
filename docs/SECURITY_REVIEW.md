@@ -95,6 +95,7 @@ Automated:
 - `npm run test:fuzz`
 - `npm run test:browser`
 - `npm run test:live`
+- `npm run test:haskell`
 - `npm audit --audit-level=moderate`
 - `npm pack --dry-run --json`
 
@@ -103,20 +104,22 @@ Manual/browser:
 - Safari automation probe using hostile message text, attachment metadata,
   textarea content, remote attachment URL, and viewport overflow check.
 
-Toolchain-dependent:
+Toolchain:
 
-- `npm run test:haskell` when `wasm32-wasi-ghc` is installed.
-- Official `ghc-wasm-meta` bootstrap attempted into `/tmp/simplex-web-ghc-wasm`
-  during this review; see `docs/HASKELL_BROWSER_STATUS.md` for the current
-  result.
+- Official `ghc-wasm-meta` bootstrap completed into
+  `/tmp/simplex-web-ghc-wasm`.
+- `wasm32-wasi-ghc 9.14.1.20260330` and `wasm32-wasi-cabal 3.14.2.0` were
+  verified from that environment.
+- Haskell smoke and chat-core WASM runtime checks passed; see
+  `docs/HASKELL_BROWSER_STATUS.md`.
 
 ## Release Posture
 
 The release is suitable to describe as:
 
 > adversarially tested by Codex Desktop across unit, integration, property/fuzz,
-> browser, Safari automation, live SimpleX daemon E2E, packaging, and dependency
-> audit coverage available in this environment.
+> browser, Safari automation, Haskell/WASM compile/runtime, live SimpleX daemon
+> E2E, packaging, and dependency audit coverage available in this environment.
 
 Do not describe it as:
 
