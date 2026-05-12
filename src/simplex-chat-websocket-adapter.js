@@ -7,6 +7,8 @@
   var DEFAULT_STATUS_TIMEOUT_MS = 15000;
   var DEFAULT_RETRIES = 10;
   var DEFAULT_RETRY_DELAY_MS = 1000;
+  var DEFAULT_RECEIVE_FILE_BYTES = 25 * 1024 * 1024;
+  var DEFAULT_RECEIVE_REQUERY_DELAY_MS = 700;
   var ERROR_CONFIG = 'SIMPLEX_CHAT_WS_CONFIG';
   var ERROR_TIMEOUT = 'SIMPLEX_CHAT_WS_TIMEOUT';
   var ERROR_RESPONSE = 'SIMPLEX_CHAT_WS_RESPONSE';
@@ -50,6 +52,15 @@
   function isAbsoluteLocalPath(path) {
     var value = String(path || '').trim();
     return /^[A-Za-z]:[\\/]/.test(value) || value.charAt(0) === '/';
+  }
+
+  function isSafeRelativeFilePath(path) {
+    var value = String(path || '').trim();
+    if (!value || isAbsoluteLocalPath(value)) return false;
+    if (/[\x00-\x1f\x7f]/.test(value)) return false;
+    if (/[\\/]/.test(value)) return false;
+    if (value === '.' || value === '..') return false;
+    return true;
   }
 
   function safeMimeHeader(value) {
@@ -150,6 +161,8 @@
       status_timeout_ms: Math.max(1000, Math.floor(Number(opts.status_timeout_ms || opts.statusTimeoutMs || DEFAULT_STATUS_TIMEOUT_MS) || DEFAULT_STATUS_TIMEOUT_MS)),
       retries: Math.max(1, Math.floor(Number(opts.retries || DEFAULT_RETRIES) || DEFAULT_RETRIES)),
       retry_delay_ms: Math.max(100, Math.floor(Number(opts.retry_delay_ms || opts.retryDelayMs || DEFAULT_RETRY_DELAY_MS) || DEFAULT_RETRY_DELAY_MS)),
+      max_receive_file_bytes: Math.max(1, Math.floor(Number(opts.max_receive_file_bytes || opts.maxReceiveFileBytes || DEFAULT_RECEIVE_FILE_BYTES) || DEFAULT_RECEIVE_FILE_BYTES)),
+      receive_requery_delay_ms: Math.max(100, Math.floor(Number(opts.receive_requery_delay_ms || opts.receiveRequeryDelayMs || DEFAULT_RECEIVE_REQUERY_DELAY_MS) || DEFAULT_RECEIVE_REQUERY_DELAY_MS)),
       storage: opts.storage || null,
       fetchImpl: fetchImpl,
       WebSocketImpl: opts.WebSocketImpl || global.WebSocket
@@ -300,7 +313,36 @@
       status.path
     );
     raw = raw ? limitString(raw, MAX_TEXT_LENGTH) : '';
-    return isAbsoluteLocalPath(raw) ? raw : '';
+    if (isAbsoluteLocalPath(raw)) return raw;
+    return isSafeRelativeFilePath(raw) ? raw : '';
+  }
+
+  function chatFileStatusType(file) {
+    var status = file && file.fileStatus && typeof file.fileStatus === 'object' ? file.fileStatus : {};
+    return String(status.type || '');
+  }
+
+  function chatFileId(file) {
+    var raw = file && file.fileId != null ? String(file.fileId) : '';
+    return /^[1-9][0-9]*$/.test(raw) ? raw : '';
+  }
+
+  function chatItemNeedsFileReceive(config, chatItem) {
+    if (chatItemDirection(chatItem) !== 'incoming') return false;
+    var file = chatItem && chatItem.file ? chatItem.file : null;
+    if (!file || !chatFileId(file)) return false;
+    if (chatFileLocalPath(file)) return false;
+    if (Number(file.fileSize || 0) > config.max_receive_file_bytes) return false;
+    return chatFileStatusType(file) === 'rcvInvitation';
+  }
+
+  function chatItemHasPendingFileReceive(config, chatItem) {
+    if (chatItemDirection(chatItem) !== 'incoming') return false;
+    var file = chatItem && chatItem.file ? chatItem.file : null;
+    if (!file || !chatFileId(file)) return false;
+    if (Number(file.fileSize || 0) > config.max_receive_file_bytes) return false;
+    var statusType = chatFileStatusType(file);
+    return statusType === 'rcvAccepted' || statusType === 'rcvTransfer';
   }
 
   function bridgedFileUrl(config, filePath) {
@@ -1202,6 +1244,9 @@
       var step = 0;
       var commandSeq = 0;
       var pendingCorrId = '';
+      var receiveQueue = [];
+      var receiveIndex = 0;
+      var receivePasses = 0;
       var timer = global.setTimeout(function () {
         finish(reject, makeError(ERROR_TIMEOUT, 'SimpleX Chat WebSocket receive query timed out'));
       }, config.timeout_ms);
@@ -1229,6 +1274,33 @@
         } catch (error) {
           finish(reject, error);
         }
+      }
+
+      function normalizedMessages(items) {
+        return items.map(function (item) {
+          return messageFromChatItem(config, item);
+        }).filter(function (message) {
+          return !!(message.message_ref && (String(message.text || '').trim() || message.attachment));
+        });
+      }
+
+      function scheduleChatRequery() {
+        global.setTimeout(function () {
+          if (!settled) {
+            step = 1;
+            send('/_get chat @' + contactId + ' count=' + String(count));
+          }
+        }, config.receive_requery_delay_ms);
+      }
+
+      function receiveNextFile() {
+        if (receiveIndex >= receiveQueue.length) {
+          scheduleChatRequery();
+          return;
+        }
+        var file = receiveQueue[receiveIndex] && receiveQueue[receiveIndex].file;
+        receiveIndex += 1;
+        send('/freceive ' + chatFileId(file));
       }
 
       function onOpen() {
@@ -1283,11 +1355,26 @@
             return;
           }
           if (type === 'apiChat') {
-            finish(resolve, responseChatItems(resp).map(function (item) {
-              return messageFromChatItem(config, item);
-            }).filter(function (message) {
-              return !!(message.message_ref && (String(message.text || '').trim() || message.attachment));
-            }));
+            var items = responseChatItems(resp);
+            var needsReceive = items.filter(function (item) {
+              return chatItemNeedsFileReceive(config, item);
+            });
+            var pendingReceive = items.filter(function (item) {
+              return chatItemHasPendingFileReceive(config, item);
+            });
+            if ((needsReceive.length || pendingReceive.length) && receivePasses < 6) {
+              receivePasses += 1;
+              if (needsReceive.length) {
+                receiveQueue = needsReceive;
+                receiveIndex = 0;
+                step = 2;
+                receiveNextFile();
+              } else {
+                scheduleChatRequery();
+              }
+              return;
+            }
+            finish(resolve, normalizedMessages(items));
             return;
           }
           if (type === 'chatCmdError') {
@@ -1295,6 +1382,20 @@
             return;
           }
           finish(reject, makeError(ERROR_RESPONSE, 'Unexpected SimpleX Chat receive response: ' + (type || 'unknown')));
+          return;
+        }
+        if (step === 2) {
+          if (corrId && corrId !== pendingCorrId) {
+            return;
+          }
+          if (!corrId) {
+            return;
+          }
+          if (type === 'rcvFileAccepted' || type === 'chatCmdError') {
+            receiveNextFile();
+            return;
+          }
+          receiveNextFile();
         }
       }
 

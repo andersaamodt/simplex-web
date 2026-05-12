@@ -1100,7 +1100,7 @@ test('websocket adapter turns synchronous file bridge fetch failures into reject
   );
 });
 
-test('websocket adapter does not create bridge URLs for relative history file paths', async () => {
+test('websocket adapter creates bridge URLs for safe relative receive paths and rejects traversal paths', async () => {
   const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
     if (count === 1) {
       queueMicrotask(() => socket.emit('message', {
@@ -1114,12 +1114,20 @@ test('websocket adapter does not create bridge URLs for relative history file pa
         resp: {
           type: 'apiChat',
           chat: {
-            chatItems: [{
-              chatDir: { type: 'directRcv' },
-              meta: { itemId: 501, itemStatus: { type: 'rcvNew' } },
-              content: { msgContent: { type: 'text', text: 'unsafe path' } },
-              file: { fileName: 'secret.png', fileSize: 12, filePath: '../../secret.png' }
-            }]
+            chatItems: [
+              {
+                chatDir: { type: 'directRcv' },
+                meta: { itemId: 501, itemStatus: { type: 'rcvNew' } },
+                content: { msgContent: { type: 'text', text: 'safe path' } },
+                file: { fileName: 'received.png', fileSize: 12, fileSource: { filePath: 'received.png' }, fileStatus: { type: 'rcvComplete' } }
+              },
+              {
+                chatDir: { type: 'directRcv' },
+                meta: { itemId: 502, itemStatus: { type: 'rcvNew' } },
+                content: { msgContent: { type: 'text', text: 'unsafe path' } },
+                file: { fileName: 'secret.png', fileSize: 12, filePath: '../../secret.png', fileStatus: { type: 'rcvComplete' } }
+              }
+            ]
           }
         }
       })
@@ -1134,9 +1142,103 @@ test('websocket adapter does not create bridge URLs for relative history file pa
   });
 
   const messages = await adapter.getMessages({ contact_id: '77' });
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].attachment.file_path, 'received.png');
+  assert.equal(messages[0].attachment.url, 'http://127.0.0.1:5226/files?path=received.png');
+  assert.equal(messages[1].attachment.file_path, '');
+  assert.equal(messages[1].attachment.url, '');
+});
+
+test('websocket adapter accepts incoming SimpleX file invitations before returning messages', async () => {
+  const commands = [];
+  const FakeWebSocket = makeFakeWebSocket((socket, outbound, count) => {
+    commands.push(outbound.cmd);
+    if (count === 1) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({ corrId: outbound.corrId, resp: { type: 'activeUser', user: { userId: 9 } } })
+      }));
+      return;
+    }
+    if (count === 2) {
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({
+          corrId: outbound.corrId,
+          resp: {
+            type: 'apiChat',
+            chat: {
+              chatItems: [{
+                chatDir: { type: 'directRcv' },
+                meta: { itemId: 601, itemStatus: { type: 'rcvNew' } },
+                content: { msgContent: { type: 'file', text: 'incoming image' } },
+                file: { fileId: 44, fileName: 'incoming.png', fileSize: 12, fileStatus: { type: 'rcvInvitation' } }
+              }]
+            }
+          }
+        })
+      }));
+      return;
+    }
+    if (count === 3) {
+      assert.equal(outbound.cmd, '/freceive 44');
+      queueMicrotask(() => socket.emit('message', {
+        data: JSON.stringify({
+          corrId: outbound.corrId,
+          resp: {
+            type: 'rcvFileAccepted',
+            chatItem: {
+              file: {
+                fileId: 44,
+                fileName: 'incoming.png',
+                fileSize: 12,
+                fileSource: { filePath: 'incoming.png' },
+                fileStatus: { type: 'rcvAccepted' }
+              }
+            }
+          }
+        })
+      }));
+      return;
+    }
+    assert.equal(outbound.cmd, '/_get chat @77 count=50');
+    queueMicrotask(() => socket.emit('message', {
+      data: JSON.stringify({
+        corrId: outbound.corrId,
+        resp: {
+          type: 'apiChat',
+          chat: {
+            chatItems: [{
+              chatDir: { type: 'directRcv' },
+              meta: { itemId: 601, itemStatus: { type: 'rcvNew' } },
+              content: { msgContent: { type: 'file', text: 'incoming image' } },
+              file: {
+                fileId: 44,
+                fileName: 'incoming.png',
+                fileSize: 12,
+                fileSource: { filePath: 'incoming.png' },
+                fileStatus: { type: 'rcvComplete' }
+              }
+            }]
+          }
+        }
+      })
+    }));
+  });
+
+  const adapter = adapterApi.createSimplexChatWebSocketAdapter({
+    url: 'ws://127.0.0.1:5225',
+    fileBridgeUrl: 'http://127.0.0.1:5226',
+    user_id: '9',
+    receive_requery_delay_ms: 100,
+    WebSocketImpl: FakeWebSocket
+  });
+
+  const messages = await adapter.getMessages({ contact_id: '77' });
+  assert.deepEqual(commands, ['/_user 9', '/_get chat @77 count=50', '/freceive 44', '/_get chat @77 count=50']);
   assert.equal(messages.length, 1);
-  assert.equal(messages[0].attachment.file_path, '');
-  assert.equal(messages[0].attachment.url, '');
+  assert.equal(messages[0].attachment.name, 'incoming.png');
+  assert.equal(messages[0].attachment.mime, 'image/png');
+  assert.equal(messages[0].attachment.file_path, 'incoming.png');
+  assert.equal(messages[0].attachment.url, 'http://127.0.0.1:5226/files?path=incoming.png');
 });
 
 test('websocket adapter rejects cleanly when a WebSocket send throws', async () => {

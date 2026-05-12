@@ -2,7 +2,7 @@
 import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdir, realpath, stat, writeFile } from 'node:fs/promises';
-import { basename, delimiter, extname, join, relative, resolve } from 'node:path';
+import { basename, delimiter, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 
@@ -71,7 +71,27 @@ async function realPathOrResolved(filePath) {
 }
 
 async function allowedReadPath(filePath) {
-  const resolved = await realPathOrResolved(filePath);
+  const raw = String(filePath || '').trim();
+  if (!raw) return '';
+  if (!isAbsolute(raw)) {
+    const fileName = safeName(raw);
+    for (const root of allowedReadRoots) {
+      const candidate = join(root, fileName);
+      const resolvedCandidate = await realPathOrResolved(candidate);
+      const resolvedRoot = await realPathOrResolved(root);
+      const rel = relative(resolvedRoot, resolvedCandidate);
+      if (rel === '' || (!!rel && !rel.startsWith('..') && !rel.startsWith('/') && !rel.startsWith('\\'))) {
+        try {
+          const info = await stat(resolvedCandidate);
+          if (info.isFile()) return resolvedCandidate;
+        } catch (_err) {
+          // Try the next allowed root; relative file names may belong to any configured SimpleX file root.
+        }
+      }
+    }
+    return '';
+  }
+  const resolved = await realPathOrResolved(raw);
   for (const root of allowedReadRoots) {
     const resolvedRoot = await realPathOrResolved(root);
     const rel = relative(resolvedRoot, resolved);

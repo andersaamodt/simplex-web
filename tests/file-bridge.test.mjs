@@ -185,3 +185,40 @@ test('file bridge rejects symlink escapes and oversized uploads without staging 
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('file bridge resolves safe relative SimpleX receive filenames under allowed roots', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'simplex-web-file-bridge-relative-test-'));
+  const storageRoot = join(tempRoot, 'staging');
+  const allowedRoot = join(tempRoot, 'allowed');
+  const outsideRoot = join(tempRoot, 'outside');
+  await mkdir(storageRoot, { recursive: true });
+  await mkdir(allowedRoot, { recursive: true });
+  await mkdir(outsideRoot, { recursive: true });
+  await writeFile(join(allowedRoot, 'received.png'), 'image-bytes');
+  await writeFile(join(outsideRoot, 'secret.png'), 'secret');
+
+  const bridge = await startBridge({
+    SIMPLEX_WEB_FILE_BRIDGE_HOST: '127.0.0.1',
+    SIMPLEX_WEB_FILE_BRIDGE_PORT: '0',
+    SIMPLEX_WEB_FILE_BRIDGE_ROOT: storageRoot,
+    SIMPLEX_WEB_FILE_BRIDGE_ALLOWED_ROOTS: allowedRoot,
+    SIMPLEX_WEB_FILE_BRIDGE_ORIGIN: 'https://allowed.example'
+  });
+
+  try {
+    const resolved = await fetch(`${bridge.baseUrl}/files?path=${encodeURIComponent('received.png')}`, {
+      headers: { Origin: 'https://allowed.example' }
+    });
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.headers.get('content-type'), 'image/png');
+    assert.equal(await resolved.text(), 'image-bytes');
+
+    const traversal = await requestJson(`${bridge.baseUrl}/files?path=${encodeURIComponent('../outside/secret.png')}`, {
+      headers: { Origin: 'https://allowed.example' }
+    });
+    assert.equal(traversal.resp.status, 403);
+  } finally {
+    await bridge.stop();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
