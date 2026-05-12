@@ -293,6 +293,13 @@ ciphertext, tags, and ciphertext hashes; it does not receive plaintext file
 bytes or the file root key. The root key and manifest are expected to move
 through the ratcheted chat layer, not through XFTP storage.
 
+`src/browser-xftp-http-transport.mjs` implements that encrypted-chunk server
+boundary over browser `fetch`: `POST /chunks`, `GET /chunks/:fileId/:index`, and
+`DELETE /chunks/:fileId/:index`. Production URLs must be HTTPS; explicit
+loopback HTTP is only allowed for local tests. The loopback test starts a real
+HTTP server and verifies that uploaded request bodies contain ciphertext/tag
+fields rather than plaintext file bytes.
+
 `src/browser-xftp-server-profile.mjs` validates that a production browser XFTP
 server endpoint uses a browser-safe `https://`, `wss://`, or WebTransport-style
 profile, lists allowed origins, requires encrypted chunks, and keeps retention
@@ -335,4 +342,4 @@ as part of the protocol, not as a website plaintext bridge.
 
 1. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
 2. Add formal interoperability vectors against upstream SimpleX implementations for every encoded protocol layer.
-3. Add live encrypted file-transfer tests against reviewed browser-profile XFTP servers.
+3. Add live encrypted file-transfer tests against reviewed non-loopback browser-profile XFTP servers.

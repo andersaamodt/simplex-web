@@ -64,6 +64,8 @@ Primary attacker capabilities tested:
 - Feed hostile durable-storage keys and tamper with stored binary records.
 - Reorder ratchet messages and tamper with ratchet ciphertext.
 - Tamper with XFTP chunks, manifests, sizes, hashes, and server chunk responses.
+- Exercise real loopback `fetch` upload, download, and deletion for encrypted
+  XFTP chunks without exposing plaintext bytes to request bodies.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
 - Downgrade production browser XFTP server profiles to plaintext, missing
@@ -125,6 +127,9 @@ Coverage added:
 - XFTP tests cover encrypted chunk reassembly, encrypted server-bound upload,
   verified download, deletion, profile downgrade rejection, and tampered chunk
   rejection.
+- Live loopback XFTP HTTP tests cover actual `fetch` transport behavior and
+  verify server request bodies contain encrypted chunk packets, not plaintext
+  file bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
   browser SMP transport profile without reintroducing a plaintext bridge.
 - Server-profile tests reject plaintext URLs and missing session binding.

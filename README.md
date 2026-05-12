@@ -12,7 +12,8 @@ The current tree includes a handwritten browser-native SMP protocol core in
 `src/browser-simplex-contact-client.mjs`, retry scheduling in
 `src/browser-simplex-scheduler.mjs`, XFTP chunk/manifest helpers in
 `src/browser-xftp-core.mjs`, an encrypted-chunk XFTP client in
-`src/browser-xftp-client.mjs`, reviewed browser SMP/XFTP server profile
+`src/browser-xftp-client.mjs`, an HTTPS/fetch encrypted-chunk transport in
+`src/browser-xftp-http-transport.mjs`, reviewed browser SMP/XFTP server profile
 validation in `src/browser-smp-server-profile.mjs` and
 `src/browser-xftp-server-profile.mjs`, and a binary SMP-over-WebSocket browser
 transport profile in `src/browser-smp-websocket-transport.mjs`.
@@ -34,6 +35,7 @@ Current scope:
 - Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages, downloads received encrypted files, and queues failed sends for retry.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
+- Ships a browser XFTP-over-HTTPS/fetch transport for encrypted chunk upload, download, and deletion.
 - Ships production browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements.
 - Ships production browser XFTP server profile validation for encrypted chunk storage endpoints.
 - Ships a binary SMP-over-WebSocket transport profile for browser-reachable SMP servers that expose one padded SMP block per WebSocket frame.
@@ -67,6 +69,7 @@ Not shipped:
 - `src/browser-smp-websocket-transport.mjs`: browser binary WebSocket transport profile for padded SMP blocks.
 - `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
 - `src/browser-xftp-client.mjs`: browser XFTP encrypted chunk upload/download sequencing over a reviewed server boundary.
+- `src/browser-xftp-http-transport.mjs`: browser XFTP-over-HTTPS/fetch encrypted chunk transport.
 - `src/browser-xftp-server-profile.mjs`: production browser XFTP server profile validation.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
@@ -84,6 +87,7 @@ Not shipped:
 - `tests/browser-smp-websocket-live.test.mjs`: Node loopback WebSocket server test for real browser transport framing, handshake, send, and receive.
 - `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
 - `tests/browser-xftp-client.test.mjs`: Node tests for encrypted XFTP upload/download, deletion, and tamper rejection.
+- `tests/browser-xftp-http-transport.test.mjs`: Node loopback HTTP/fetch test for encrypted XFTP chunk upload, download, and deletion.
 - `tests/browser-xftp-server-profile.test.mjs`: Node tests for browser XFTP server profile downgrade rejection.
 - `tests-simplex-web-runtime.sh`: Wizardry-style shell wrapper around the focused runtime checks.
 - `haskell/src/Simplex/Web/Smoke.hs`: first Haskell/WASM smoke module exported as a reactor.
