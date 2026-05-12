@@ -13,14 +13,18 @@ framework app:
    protocol slice. It owns binary encodings, queue URI parsing, command codecs,
    signed transmissions, 16384-byte transport blocks, v4 batching, handshakes,
    and browser-compatible crypto primitives.
-4. `src/transport.js` is the public browser API. It is unavailable until an
+4. `src/browser-simplex-agent.mjs` is the first browser-native SimpleX agent
+   helper slice. It owns client-message envelopes, confirmation headers,
+   received-message body encryption, queue creation state, queue-scoped
+   recipient commands, and unsigned initial sender confirmation messages.
+5. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-5. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
+6. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
    to a browser-reachable SimpleX Chat command WebSocket, preferably loopback.
-6. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
+7. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
    stages browser `File` objects on disk for SimpleX file-send commands.
-7. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+8. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
@@ -45,6 +49,10 @@ Safari automation, live SimpleX daemons, and wasm GHC without a bundler.
 - SMP v3/v4 transport block padding, unpadding, and v4 batched transmission framing
 - SMP handshake encoders/decoders and compatible-version selection
 - Browser-compatible Ed25519, X25519, XSalsa20-Poly1305, AES-GCM, and SHA-256 helpers
+- SimpleX client-message public/private headers and encrypted envelopes
+- SimpleX confirmation messages carrying the sender SMP signing key inside the encrypted body
+- received-message body encryption/decryption with timestamp and notification flag metadata
+- queue creation helpers for signed `NEW`, `IDS` completion, signed `SUB`/`ACK`, and initial unsigned sender `SEND`
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 - a SimpleX Chat WebSocket adapter that can send through a browser-reachable SimpleX Chat command API
 
@@ -52,8 +60,24 @@ It does **not** yet own the complete SimpleX browser client:
 
 - no full agent/contact state machine yet
 - no integrated double-ratchet message state yet
+- no durable browser queue/contact store yet
 - no XFTP yet
 - no production direct browser transport to existing raw TCP/TLS SMP servers yet
+
+## Wizardry Ethos Fit
+
+The project is intentionally low to the ground:
+
+- source is plain JavaScript/ESM and Haskell source, not a framework app
+- protocol code works directly with bytes and documented wire shapes
+- browser storage and transport boundaries are explicit instead of hidden behind a hosted service
+- runtime dependencies are limited to audited free-software crypto packages where hand-rolling would be a security downgrade
+- project code is `AGPL-3.0-only`, and current runtime/test dependencies are MIT, Apache-2.0, or MIT/Apache-2.0
+- generated build outputs, logs, and local runtime state stay out of the repo
+
+The design rule is that `simplex-web` should remain inspectable by reading a few
+small files. New abstractions should earn their place by removing real protocol
+complexity or isolating a trust boundary.
 
 ## Why
 
@@ -175,6 +199,22 @@ low-level:
 
 This layer is not a chat UX adapter by itself. The next layer has to own durable
 queues, contacts, ratchets, retries, receive loops, and browser storage.
+
+## Browser Agent Helpers
+
+The `src/browser-simplex-agent.mjs` module starts the layer above raw SMP:
+
+- `encodePublicHeader()` and `parsePublicHeader()` implement the SimpleX client-message public header.
+- `encodePrivateHeader()` and `parsePrivateHeader()` implement empty and confirmation private headers.
+- `encryptClientMessage()` and `decryptClientMessageEnvelope()` wrap and unwrap encrypted client-message envelopes.
+- `encryptRcvMessageBody()` and `decryptRcvMessageBody()` handle server-to-recipient message body encryption around timestamp, flags, and client envelope bytes.
+- `prepareNewQueueRequest()` signs a browser-generated `NEW` command.
+- `completeNewQueueRequest()` converts an `IDS` response into browser queue state with the derived server DH secret.
+- `prepareRecipientCommand()` signs queue-scoped recipient commands such as `SUB` and `ACK`.
+- `prepareInitialSenderMessage()` prepares the initial unsigned SMP `SEND` that carries the sender signing key in the encrypted confirmation body.
+
+These helpers are deliberately transport-agnostic. They prepare protocol state
+and signed transmissions; they do not open sockets or call the daemon adapter.
 
 ## Next protocol steps
 

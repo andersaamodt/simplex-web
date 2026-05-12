@@ -2,7 +2,7 @@
 
 `simplex-web` is a browser-hosted chat client shell and browser-native SimpleX protocol workbench for SimpleX-facing websites.
 
-The current tree now includes the first handwritten browser-native SMP protocol core slice in `src/browser-smp-core.mjs`. That code implements the low-level SimpleX Messaging Protocol byte encodings, queue URI parsing, command/response codecs, signed transmissions, fixed-size transport blocks, v4 batching, handshakes, and browser-compatible cryptographic primitives. The higher-level SimpleX agent/contact layer, XFTP, and a production browser network transport are still being built.
+The current tree now includes the first handwritten browser-native SMP protocol core slice in `src/browser-smp-core.mjs` and the first SimpleX agent-envelope/queue lifecycle helpers in `src/browser-simplex-agent.mjs`. The core implements low-level SimpleX Messaging Protocol byte encodings, queue URI parsing, command/response codecs, signed transmissions, fixed-size transport blocks, v4 batching, handshakes, and browser-compatible cryptographic primitives. The agent helper layer implements client-message envelopes, confirmation headers, received-message body encryption, `NEW` queue request preparation, `IDS` queue completion, signed recipient commands, and initial unsigned sender confirmation messages. The complete contact state machine, XFTP, and a production browser network transport are still being built.
 
 `simplex-web` was made by AI and was adversarially tested as much as conceivably possible by Codex Desktop with ChatGPT 5.5 in the local environment described in `docs/SECURITY_REVIEW.md`.
 
@@ -11,6 +11,7 @@ Current scope:
 - Ships a plain-JavaScript browser session store so hosted sites can preserve a chat thread locally without pushing plaintext history back into a server database.
 - Ships a closed-by-default browser transport API boundary at `window.SimplexWebTransport`, so host sites can call a stable API without silently falling back to a plaintext website bridge.
 - Ships `src/browser-smp-core.mjs`, a handwritten browser-native SMP protocol primitive layer with executable tests for binary encodings, queue URIs, command codecs, signed transmissions, transport blocks, handshakes, and Ed25519/X25519/XSalsa20-Poly1305/AES-GCM/SHA-256 helpers.
+- Ships `src/browser-simplex-agent.mjs`, the first browser-native agent helper layer for SimpleX client-message envelopes, queue creation state, queue-scoped recipient commands, and initial sender confirmation messages.
 - Ships `src/simplex-chat-websocket-adapter.js`, an adapter for a browser-reachable official SimpleX Chat WebSocket command API, intended for loopback/local SimpleX first.
 - Includes a minimal Haskell-to-wasm reactor smoke test so browser-targeted Haskell can be validated honestly instead of hand-waved.
 - Includes a Haskell-owned browser chat-state core with JS-string exports and a browser demo mounted on the default Secure Chat UI.
@@ -33,6 +34,7 @@ The browser SMP core is intentionally separate from the SimpleX Chat WebSocket a
 - `src/default-chat.css`: default/example chat styles extracted from the current `nostr-blog` contact chat.
 - `src/session-store.js`: bounded browser-local persistence helpers for per-user secure-chat session state.
 - `src/browser-smp-core.mjs`: browser-native SMP protocol primitives and crypto helpers.
+- `src/browser-simplex-agent.mjs`: browser-native SimpleX agent envelope and queue lifecycle helpers.
 - `src/transport.js`: browser transport facade that fails closed until a real browser-native adapter is registered.
 - `src/simplex-chat-websocket-adapter.js`: transport adapter that registers with the facade and sends text/files through a browser-reachable SimpleX Chat WebSocket command API.
 - `scripts/simplex-web-file-bridge.mjs`: optional loopback file bridge for staging browser-selected files for a local SimpleX Chat API.
@@ -41,6 +43,7 @@ The browser SMP core is intentionally separate from the SimpleX Chat WebSocket a
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
 - `tests/browser-smp-core.test.mjs`: Node unit and fuzz tests for the handwritten SMP protocol core.
+- `tests/browser-simplex-agent.test.mjs`: Node unit and fuzz tests for browser-native agent envelopes and queue lifecycle helpers.
 - `tests/simplex-chat-websocket-adapter.test.js`: Node unit tests for the SimpleX Chat WebSocket adapter.
 - `tests/file-bridge.test.mjs`: Node integration tests for file bridge origin, path, symlink, size, and output-shape boundaries.
 - `tests/simplex-live-e2e.test.mjs`: optional two-daemon live SimpleX E2E test for the WebSocket adapter, using temporary profiles.
@@ -154,6 +157,34 @@ const block = encodeTransportBlock(4, [tx]);
 ```
 
 This is protocol-core code, not yet a complete chat agent. It does not create contacts, manage ratchets, persist queue state, receive loops, or send XFTP files yet.
+
+The next agent layer can be imported separately:
+
+```js
+import {
+  completeNewQueueRequest,
+  decryptClientMessageEnvelope,
+  prepareInitialSenderMessage,
+  prepareNewQueueRequest,
+  prepareRecipientCommand
+} from "simplex-web/browser-simplex-agent";
+
+const pending = prepareNewQueueRequest({
+  sessionId,
+  corrId,
+  rcvSignSeed,
+  rcvDhSeed
+});
+// Send pending.transmission through a browser SMP transport, then process IDS:
+const queue = completeNewQueueRequest(pending, idsBrokerMessage);
+const sub = prepareRecipientCommand(queue, {
+  sessionId,
+  corrId: new TextEncoder().encode("sub-1"),
+  command: { type: "SUB" }
+});
+```
+
+This helper layer is still transport-agnostic. It prepares and parses protocol state; it does not open sockets by itself.
 
 ## SimpleX Chat WebSocket adapter
 
