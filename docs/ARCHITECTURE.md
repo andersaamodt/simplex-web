@@ -229,6 +229,14 @@ low-level:
 - `encodeTransportBlock()` and `decodeTransportBlock()` implement fixed-size SMP blocks and v4 batches.
 - `generateEd25519KeyPair()`, `generateX25519KeyPair()`, `ed25519Sign()`, `ed25519Verify()`, `x25519SharedSecret()`, `encryptSecretBox()`, and `encryptAesGcm()` provide browser-safe crypto building blocks.
 
+`tests/vectors/simplex-web-interop-v1.json` stores deterministic local wire
+fixtures for representative SMP commands, broker messages, handshakes, signed
+transmissions, transport-block prefixes, agent envelopes, and XFTP chunks.
+`tests/interop-vectors.test.mjs` checks both directions: current encoders must
+still produce the committed vectors, and committed vectors must still parse and
+verify. These are drift-detection fixtures for this implementation; they are not
+yet upstream-certified SimpleX interoperability vectors.
+
 This layer is not a chat UX adapter by itself. The contact client and store own
 durable contacts, ratchets, retries, and browser storage.
 
@@ -341,5 +349,5 @@ as part of the protocol, not as a website plaintext bridge.
 ## Next protocol steps
 
 1. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
-2. Add formal interoperability vectors against upstream SimpleX implementations for every encoded protocol layer.
+2. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
 3. Add live encrypted file-transfer tests against reviewed non-loopback browser-profile XFTP servers.

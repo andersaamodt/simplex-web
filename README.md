@@ -72,6 +72,8 @@ Not shipped:
 - `src/browser-xftp-http-transport.mjs`: browser XFTP-over-HTTPS/fetch encrypted chunk transport.
 - `src/browser-xftp-server-profile.mjs`: production browser XFTP server profile validation.
 - `tests/default-chat.test.js`: Node unit tests for HTML contract, escaping, and status mapping.
+- `tests/interop-vectors.test.mjs`: deterministic local interoperability-vector checks for SMP, agent envelopes, and XFTP chunks.
+- `tests/vectors/simplex-web-interop-v1.json`: checked hex fixtures for local wire-format drift detection.
 - `tests/session-store.test.js`: Node unit tests for bounded local persistence and key normalization.
 - `tests/transport.test.js`: Node unit tests for the closed transport contract and adapter normalization.
 - `tests/browser-smp-core.test.mjs`: Node unit and fuzz tests for the handwritten SMP protocol core.

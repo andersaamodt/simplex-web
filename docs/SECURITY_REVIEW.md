@@ -61,6 +61,8 @@ Primary attacker capabilities tested:
 - Poison browser storage and cached labels.
 - Feed malformed SMP queue URIs, commands, broker messages, transport blocks,
   handshakes, encrypted envelopes, and correlation IDs.
+- Compare deterministic wire-format vectors against current encoders and parse
+  the committed fixtures back through decoders.
 - Feed hostile durable-storage keys and tamper with stored binary records.
 - Reorder ratchet messages and tamper with ratchet ciphertext.
 - Tamper with XFTP chunks, manifests, sizes, hashes, and server chunk responses.
@@ -130,6 +132,8 @@ Coverage added:
 - Live loopback XFTP HTTP tests cover actual `fetch` transport behavior and
   verify server request bodies contain encrypted chunk packets, not plaintext
   file bytes.
+- Local interoperability-vector tests cover stable SMP command/broker/handshake,
+  signed transmission, transport-block, agent-envelope, and XFTP fixture bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
   browser SMP transport profile without reintroducing a plaintext bridge.
 - Server-profile tests reject plaintext URLs and missing session binding.
@@ -152,8 +156,8 @@ The repo now contains browser-native SMP primitives, agent envelope helpers,
 queue orchestration, contact state, durable ratchet storage, retry scheduling,
 XFTP-style chunks, an encrypted-chunk XFTP client, and reviewed browser
 SMP/XFTP server profile validators. It still needs live interoperability
-vectors against real browser-profile SMP/XFTP servers before claiming production
-network interoperability.
+vectors against real browser-profile SMP/XFTP servers and upstream-certified
+SimpleX fixture bytes before claiming production network interoperability.
 
 ## Executed Coverage
 
