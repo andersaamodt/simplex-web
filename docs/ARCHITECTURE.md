@@ -38,7 +38,8 @@ framework app:
 13. `src/browser-xftp-web-client.mjs` implements the upstream-style browser
    XFTP web profile: binary fetch transport, web challenge, identity proof,
    padded handshake, PING, authenticated file-command wrappers, and
-   transport-encrypted download chunk verification.
+   file-level encrypted upload/download assembly with transport-encrypted
+   download chunk verification.
 14. `src/browser-smp-server-profile.mjs` validates production browser SMP server
    profiles before a browser endpoint is trusted.
 15. `src/browser-smp-websocket-transport.mjs` is the first network-facing browser
@@ -90,7 +91,7 @@ Safari automation, and wasm GHC without a bundler.
 - encrypted XFTP chunk upload/download sequencing over a reviewed server boundary
 - browser SMP server profile validation for binary frames, origin policy, padding, and session-binding requirements
 - browser XFTP server profile validation for encrypted chunk storage endpoints
-- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, and transport-encrypted FGET chunk decryption
+- upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, upload/download/delete helpers, and transport-encrypted FGET chunk decryption
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
@@ -158,7 +159,7 @@ server bridge:
 - contact request/accept lifecycle, file-transfer payloads, and retry scheduling
 - XFTP-style encrypted file chunks
 - an encrypted-chunk browser XFTP client and production XFTP server profile validation
-- an upstream-style browser XFTP web transport and command profile
+- an upstream-style browser XFTP web transport, command profile, and encrypted file envelope assembly
 - production browser SMP server profile validation
 
 ## Integration contract
@@ -326,11 +327,15 @@ profile. It sends binary blocks with `fetch`, starts with a padded web hello and
 32-byte challenge, verifies the server identity proof against the configured key
 hash, sends a padded client handshake, and then moves one padded XFTP command
 block per request. It now covers `PING` plus authenticated `FNEW`, `FPUT`,
-`FGET`, and `FDEL` command wrappers. `FGET` download bodies are decrypted as
-transport-encrypted XSalsa20-Poly1305 chunks and checked against the expected
-SHA-256 chunk digest before plaintext is returned. The local loopback test
-exercises those commands through a real HTTP server; live non-loopback coverage
-is gated through `tests/live-interop.test.mjs`.
+`FGET`, and `FDEL` command wrappers. Above that command layer it encrypts the
+upstream-style file envelope, pads to deterministic XFTP chunk sizes, uploads
+encrypted chunks, downloads and verifies every encrypted chunk, decrypts the
+file envelope, and deletes uploaded chunks from sender descriptions. `FGET`
+download bodies are decrypted as transport-encrypted XSalsa20-Poly1305 chunks
+and checked against the expected SHA-256 chunk digest before the encrypted file
+chunk is returned. The local loopback test exercises those commands through a
+real HTTP server; live non-loopback coverage is gated through
+`tests/live-interop.test.mjs`.
 
 ## Browser SMP Server Profile
 

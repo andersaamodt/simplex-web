@@ -1,7 +1,7 @@
 {
   "name": "simplex-web",
   "version": "1.0.0",
-  "description": "Browser-hosted SimpleX chat UI shell, local session store, transport facade, browser-native SMP primitives, and agent envelope helpers.",
+  "description": "Browser-hosted SimpleX chat UI shell, local session store, transport facade, browser-native SMP primitives, agent envelope helpers, and XFTP web helpers.",
   "private": true,
   "license": "AGPL-3.0-only",
   "main": "src/transport.js",

@@ -15,19 +15,16 @@ import {
   decodeBase64Url,
   encodeSignedTransmission,
   equalBytes,
-  generateEd25519KeyPair,
   hexToBytes,
-  sha256Hash,
   utf8Bytes
 } from '../src/browser-smp-core.mjs';
 import { connectBrowserSmpWebSocketTransport } from '../src/browser-smp-websocket-transport.mjs';
 import {
   connectBrowserXftpWebClient,
-  createXftpWebFile,
-  deleteXftpWebFile,
-  downloadXftpWebFileChunk,
+  deleteUploadedXftpWebFile,
+  downloadXftpWebFile,
   pingXftpWeb,
-  putXftpWebFile
+  uploadXftpWebFile
 } from '../src/browser-xftp-web-client.mjs';
 
 const LIVE_ENABLED = process.env.SIMPLEX_WEB_LIVE_ENABLE === '1';
@@ -131,7 +128,7 @@ test('live browser XFTP web profile handshakes verifies identity and answers PIN
   assert.equal(response.response.type, 'PONG');
 });
 
-test('live browser XFTP web profile creates uploads downloads and deletes a disposable chunk', async (t) => {
+test('live browser XFTP web profile uploads downloads and deletes a disposable encrypted file', async (t) => {
   if (!requireLiveEnv(t, [
     'SIMPLEX_WEB_LIVE_XFTP_WEB_URL',
     'SIMPLEX_WEB_LIVE_XFTP_KEY_HASH'
@@ -147,42 +144,24 @@ test('live browser XFTP web profile creates uploads downloads and deletes a disp
     keyHash,
     timeoutMs: liveTimeoutMs()
   });
-  const sender = generateEd25519KeyPair();
-  const recipient = generateEd25519KeyPair();
-  const chunk = utf8Bytes('simplex-web live xftp web chunk ' + uniqueLiveId('xftp-web'));
-  const digest = sha256Hash(chunk);
-  let created = null;
+  const fileBytes = utf8Bytes('simplex-web live xftp web file ' + uniqueLiveId('xftp-web'));
+  let uploaded = null;
   let primaryError = null;
   try {
-    created = await createXftpWebFile(client, {
-      privateKey: sender.secretKey,
-      fileInfo: {
-        sndKey: sender.publicKeyDer,
-        size: chunk.length,
-        digest
-      },
-      recipientKeys: [recipient.publicKeyDer]
+    uploaded = await uploadXftpWebFile(client, fileBytes, {
+      fileName: 'simplex-web-live.txt',
+      fileExtra: 'live-interop'
     });
-    await putXftpWebFile(client, {
-      privateKey: sender.secretKey,
-      senderId: created.senderId,
-      body: chunk
-    });
-    const downloaded = await downloadXftpWebFileChunk(client, {
-      privateKey: recipient.secretKey,
-      recipientId: created.recipientIds[0],
-      digest
-    });
-    assert.equal(equalBytes(downloaded.plaintext, chunk), true);
+    const downloaded = await downloadXftpWebFile(client, uploaded.recipientDescription);
+    assert.equal(downloaded.header.fileName, 'simplex-web-live.txt');
+    assert.equal(downloaded.header.fileExtra, 'live-interop');
+    assert.equal(equalBytes(downloaded.content, fileBytes), true);
   } catch (error) {
     primaryError = error;
   } finally {
-    if (created) {
+    if (uploaded) {
       try {
-        await deleteXftpWebFile(client, {
-          privateKey: sender.secretKey,
-          senderId: created.senderId
-        });
+        await deleteUploadedXftpWebFile(client, uploaded.senderDescription);
       } catch (deleteError) {
         if (!primaryError) primaryError = deleteError;
       }

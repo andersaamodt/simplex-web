@@ -140,9 +140,11 @@ Coverage added:
   file bytes.
 - XFTP web loopback tests cover padded browser hello, server identity proof
   verification, padded client handshake, PING, authenticated FNEW/FPUT/FGET/FDEL
-  command blocks, transport-encrypted FGET body decryption, digest mismatch
-  rejection, ciphertext tamper rejection, and explicit rejection of missing
-  identity proof outside loopback test mode.
+  command blocks, file-level envelope encryption, deterministic chunk planning,
+  encrypted file upload/download/delete assembly, transport-encrypted FGET body
+  decryption, digest mismatch rejection, ciphertext tamper rejection, path
+  smuggling rejection, and explicit rejection of missing identity proof outside
+  loopback test mode.
 - Local interoperability-vector tests cover stable SMP command/broker/handshake,
   signed transmission, transport-block, agent-envelope, and XFTP fixture bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
@@ -150,8 +152,8 @@ Coverage added:
 - Skipped-by-default live interop tests define the required non-loopback proof
   for browser-profile SMP WebSocket PING/PONG and upstream-style XFTP web
   HTTPS handshake, identity proof, and PING/PONG. A second opt-in destructive
-  live XFTP test creates, uploads, downloads, decrypts, verifies, and deletes a
-  disposable chunk when `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`.
+  live XFTP test uploads, downloads, decrypts, verifies, and deletes a
+  disposable encrypted file when `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server
@@ -171,7 +173,8 @@ directly speak the existing raw TCP/TLS SMP transport.
 The repo now contains browser-native SMP primitives, agent envelope helpers,
 queue orchestration, contact state, durable ratchet storage, retry scheduling,
 XFTP-style chunks, an encrypted-chunk XFTP client, an upstream-style XFTP web
-client, and reviewed browser SMP/XFTP server profile validators. It also
+client with file envelope assembly, and reviewed browser SMP/XFTP server
+profile validators. It also
 contains a skipped-by-default live interop harness in
 `tests/live-interop.test.mjs`. It still needs that harness to pass against
 reviewed browser-profile SMP/XFTP servers and upstream-certified SimpleX

@@ -12,27 +12,36 @@
 
 import { ed448 } from '@noble/curves/ed448.js';
 import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
+import { sha512 } from '@noble/hashes/sha2.js';
 
 import {
   asciiBytes,
   concatBytes,
   decodeBase64Url,
+  decodeWord64,
   decodePublicKeyDer,
   ed25519Sign,
   ed25519Verify,
   encodeBase64Url,
   encodeLargeBytes,
+  encodePrivateKeyDer,
   encodePublicKeyDer,
   encodeSmallBytes,
+  encodeWord64,
   encodeWord16,
   encodeWord32,
   equalBytes,
   generateX25519KeyPair,
+  generateEd25519KeyPair,
+  hexToBytes,
   padBlock,
   randomBytes32,
+  randomNonce24,
   sha256Hash,
   toBytes,
   unpadBlock,
+  utf8Bytes,
+  utf8Text,
   x25519SharedSecret
 } from './browser-smp-core.mjs';
 
@@ -40,6 +49,12 @@ export const XFTP_WEB_BLOCK_SIZE = 16384;
 export const XFTP_WEB_INITIAL_VERSION = 1;
 export const XFTP_WEB_AUTH_COMMANDS_VERSION = 2;
 export const XFTP_WEB_CURRENT_VERSION = 3;
+export const XFTP_WEB_FILE_AUTH_TAG_SIZE = 16;
+export const XFTP_WEB_FILE_SIZE_PREFIX_LENGTH = 8;
+export const XFTP_WEB_SMALL_CHUNK_SIZE = 64 * 1024;
+export const XFTP_WEB_MEDIUM_CHUNK_SIZE = 256 * 1024;
+export const XFTP_WEB_LARGE_CHUNK_SIZE = 1024 * 1024;
+export const XFTP_WEB_HUGE_CHUNK_SIZE = 4 * 1024 * 1024;
 
 export class BrowserXftpWebClientError extends Error {
   constructor(code, message) {
@@ -350,6 +365,215 @@ export function decodeXftpWebTransmission(sessionId, block) {
 export function decodeXftpWebBrokerTransmission(sessionId, block) {
   var tx = decodeXftpWebTransmission(sessionId, block);
   return { ...tx, response: decodeXftpWebResponse(tx.commandBytes) };
+}
+
+function assertByteLength(bytes, length, label) {
+  if (toBytes(bytes, label).length !== length) fail('XFTP_WEB_LENGTH', label + ' must be ' + length + ' bytes');
+}
+
+function sumNumbers(values) {
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function threeQuarter(value) {
+  return Math.floor(value * 3 / 4);
+}
+
+// Upstream XFTP grows chunks in bands.  Small files are padded to 64 KiB
+// chunks; larger files step up to 256 KiB, 1 MiB, and 4 MiB chunks so the
+// receiver can verify deterministic offsets without trusting server metadata.
+function chooseChunkBands(payloadSize) {
+  if (payloadSize > threeQuarter(XFTP_WEB_HUGE_CHUNK_SIZE)) {
+    return { small: XFTP_WEB_LARGE_CHUNK_SIZE, big: XFTP_WEB_HUGE_CHUNK_SIZE };
+  }
+  if (payloadSize > threeQuarter(XFTP_WEB_LARGE_CHUNK_SIZE)) {
+    return { small: XFTP_WEB_MEDIUM_CHUNK_SIZE, big: XFTP_WEB_LARGE_CHUNK_SIZE };
+  }
+  return { small: XFTP_WEB_SMALL_CHUNK_SIZE, big: XFTP_WEB_MEDIUM_CHUNK_SIZE };
+}
+
+function prepareSizeList(size, bands) {
+  if (size === 0) return [];
+  if (size >= bands.big) {
+    var bigCount = Math.floor(size / bands.big);
+    return [
+      ...new Array(bigCount).fill(bands.big),
+      ...prepareSizeList(size % bands.big, bands)
+    ];
+  }
+  if (size > threeQuarter(bands.big)) return [bands.big];
+  var smallCount = Math.floor(size / bands.small);
+  return new Array(size % bands.small === 0 ? smallCount : smallCount + 1).fill(bands.small);
+}
+
+export function prepareXftpWebChunkSizes(payloadSize) {
+  var size = safeInteger(payloadSize, 'XFTP encrypted payload size', 0, Number.MAX_SAFE_INTEGER);
+  return prepareSizeList(size, chooseChunkBands(size));
+}
+
+export function prepareXftpWebChunkSpecs(payloadSize) {
+  var offset = 0;
+  return prepareXftpWebChunkSizes(payloadSize).map((chunkSize, index) => {
+    var spec = { chunkNo: index + 1, offset, chunkSize };
+    offset += chunkSize;
+    return spec;
+  });
+}
+
+function encodeXftpWebString(value, label) {
+  var bytes = utf8Bytes(value);
+  if (bytes.length > 255) fail('XFTP_WEB_LENGTH', label + ' must encode to 255 bytes or less');
+  return encodeSmallBytes(bytes);
+}
+
+function decodeXftpWebString(reader, label) {
+  try {
+    return utf8Text(reader.takeSmall(label));
+  } catch (_error) {
+    fail('XFTP_WEB_UTF8', label + ' is not valid UTF-8');
+  }
+}
+
+function encodeXftpWebMaybeString(value, label) {
+  if (value == null) return asciiBytes('0');
+  return concatBytes(asciiBytes('1'), encodeXftpWebString(value, label));
+}
+
+function decodeXftpWebMaybeString(reader, label) {
+  var tag = reader.takeByte(label + ' maybe tag');
+  if (tag === 0x30) return null;
+  if (tag === 0x31) return decodeXftpWebString(reader, label);
+  fail('XFTP_WEB_PARSE', label + ' maybe tag is invalid');
+}
+
+// The file header is part of the encrypted file envelope.  It stores metadata
+// that the XFTP server must not see, so callers should keep names small and
+// filename-like rather than passing paths or control characters.
+function safeXftpWebFileName(value) {
+  var name = String(value == null || value === '' ? 'file' : value);
+  if (/[\x00-\x1f\x7f]/.test(name)) fail('XFTP_WEB_FILENAME', 'XFTP file name contains a control character');
+  if (/[\\/]/.test(name)) fail('XFTP_WEB_FILENAME', 'XFTP file name must not contain a path separator');
+  if (utf8Bytes(name).length > 255) fail('XFTP_WEB_FILENAME', 'XFTP file name must encode to 255 bytes or less');
+  return name;
+}
+
+export function encodeXftpWebFileHeader(header = {}) {
+  return concatBytes(
+    encodeXftpWebString(safeXftpWebFileName(header.fileName), 'XFTP file name'),
+    encodeXftpWebMaybeString(header.fileExtra == null ? null : String(header.fileExtra), 'XFTP file extra')
+  );
+}
+
+export function decodeXftpWebFileHeader(bytes) {
+  var reader = new ByteReader(bytes, 'XFTP file header');
+  var fileName = decodeXftpWebString(reader, 'XFTP file name');
+  var fileExtra = decodeXftpWebMaybeString(reader, 'XFTP file extra');
+  return {
+    fileName,
+    fileExtra,
+    contentOffset: reader.offset()
+  };
+}
+
+function normalizeXftpWebFileKey(key) {
+  var next = key == null ? randomBytes32() : toBytes(key, 'XFTP file encryption key');
+  assertByteLength(next, 32, 'XFTP file encryption key');
+  return next;
+}
+
+function normalizeXftpWebFileNonce(nonce) {
+  var next = nonce == null ? randomNonce24() : toBytes(nonce, 'XFTP file encryption nonce');
+  assertByteLength(next, 24, 'XFTP file encryption nonce');
+  return next;
+}
+
+function xftpWebSha512Hash(bytes) {
+  return sha512(toBytes(bytes, 'XFTP SHA-512 input'));
+}
+
+export function encryptXftpWebFileEnvelope(source, options = {}) {
+  var content = toBytes(source || new Uint8Array(), 'XFTP file content');
+  var header = {
+    fileName: safeXftpWebFileName(options.fileName),
+    fileExtra: options.fileExtra == null ? null : String(options.fileExtra)
+  };
+  var headerBytes = encodeXftpWebFileHeader(header);
+  var clearFileSize = headerBytes.length + content.length;
+  safeInteger(clearFileSize, 'XFTP clear file size', 0, Number.MAX_SAFE_INTEGER);
+  var payloadSize = clearFileSize + XFTP_WEB_FILE_SIZE_PREFIX_LENGTH + XFTP_WEB_FILE_AUTH_TAG_SIZE;
+  var chunkSizes = prepareXftpWebChunkSizes(payloadSize);
+  var encryptedSize = sumNumbers(chunkSizes);
+  var paddingLength = encryptedSize - XFTP_WEB_FILE_AUTH_TAG_SIZE - XFTP_WEB_FILE_SIZE_PREFIX_LENGTH - clearFileSize;
+  if (paddingLength < 0) fail('XFTP_WEB_CHUNK', 'XFTP file chunk plan is too small for the payload');
+  var key = normalizeXftpWebFileKey(options.key);
+  var nonce = normalizeXftpWebFileNonce(options.nonce);
+  // The clear envelope starts with the unpadded file size, then the encrypted
+  // header/content body, then `#` padding.  XSalsa20-Poly1305 appends the
+  // 16-byte tag, making the ciphertext length exactly match the chunk plan.
+  var plaintext = concatBytes(
+    encodeWord64(BigInt(clearFileSize)),
+    headerBytes,
+    content,
+    new Uint8Array(paddingLength).fill(0x23)
+  );
+  var encrypted = xsalsa20poly1305(key, nonce).encrypt(plaintext);
+  if (encrypted.length !== encryptedSize) fail('XFTP_WEB_CHUNK', 'XFTP file envelope size does not match chunk plan');
+  return {
+    header,
+    key,
+    nonce,
+    encrypted,
+    digest: xftpWebSha512Hash(encrypted),
+    clearFileSize,
+    encryptedSize,
+    chunkSizes,
+    chunkSpecs: prepareXftpWebChunkSpecs(payloadSize)
+  };
+}
+
+export function decryptXftpWebFileEnvelope(encryptedFile, options = {}) {
+  var encrypted = Array.isArray(encryptedFile)
+    ? concatBytes(...encryptedFile)
+    : toBytes(encryptedFile || new Uint8Array(), 'XFTP encrypted file');
+  if (options.size != null && encrypted.length !== safeInteger(options.size, 'XFTP encrypted file size', 0, Number.MAX_SAFE_INTEGER)) {
+    fail('XFTP_WEB_SIZE', 'XFTP encrypted file size mismatch');
+  }
+  if (options.digest != null && !equalBytes(xftpWebSha512Hash(encrypted), options.digest)) {
+    fail('XFTP_WEB_DIGEST', 'XFTP encrypted file digest mismatch');
+  }
+  if (options.key == null) fail('XFTP_WEB_KEY', 'XFTP file decryption key is required');
+  if (options.nonce == null) fail('XFTP_WEB_NONCE', 'XFTP file decryption nonce is required');
+  var key = normalizeXftpWebFileKey(options.key);
+  var nonce = normalizeXftpWebFileNonce(options.nonce);
+  var plaintext;
+  try {
+    plaintext = xsalsa20poly1305(key, nonce).decrypt(encrypted);
+  } catch (_error) {
+    fail('XFTP_WEB_DECRYPT', 'XFTP file envelope decryption failed');
+  }
+  var clearFileSize = decodeWord64(plaintext, 0);
+  if (clearFileSize > BigInt(Number.MAX_SAFE_INTEGER)) fail('XFTP_WEB_SIZE', 'XFTP clear file size is too large for this JavaScript runtime');
+  var clearLength = Number(clearFileSize);
+  var clearEnd = XFTP_WEB_FILE_SIZE_PREFIX_LENGTH + clearLength;
+  if (clearEnd > plaintext.length) fail('XFTP_WEB_TRUNCATED', 'XFTP file envelope clear body is truncated');
+  // After authentication succeeds, padding is still checked explicitly so a
+  // malformed local description cannot reinterpret garbage as file content.
+  var padding = plaintext.slice(clearEnd);
+  for (var i = 0; i < padding.length; i += 1) {
+    if (padding[i] !== 0x23) fail('XFTP_WEB_PADDING', 'XFTP file envelope padding is invalid');
+  }
+  var body = plaintext.slice(XFTP_WEB_FILE_SIZE_PREFIX_LENGTH, clearEnd);
+  var header = decodeXftpWebFileHeader(body);
+  return {
+    header: {
+      fileName: header.fileName,
+      fileExtra: header.fileExtra
+    },
+    content: body.slice(header.contentOffset),
+    clearFileSize: clearLength,
+    encryptedSize: encrypted.length,
+    digest: xftpWebSha512Hash(encrypted)
+  };
 }
 
 export function encryptXftpWebTransportChunk(dhSecret, nonce, plaintext) {
@@ -736,18 +960,209 @@ export async function deleteXftpWebFile(client, options = {}) {
   return response.response;
 }
 
+const ED25519_PKCS8_PREFIX = hexToBytes('302e020100300506032b657004220420');
+
+function decodeXftpWebEd25519PrivateKeyDer(value) {
+  var der = toBytes(value || new Uint8Array(), 'XFTP Ed25519 private key DER');
+  if (der.length === 32) return der;
+  if (der.length !== ED25519_PKCS8_PREFIX.length + 32) fail('XFTP_WEB_KEY', 'XFTP Ed25519 private key DER has invalid length');
+  for (var i = 0; i < ED25519_PKCS8_PREFIX.length; i += 1) {
+    if (der[i] !== ED25519_PKCS8_PREFIX[i]) fail('XFTP_WEB_KEY', 'XFTP Ed25519 private key DER has invalid prefix');
+  }
+  return der.slice(ED25519_PKCS8_PREFIX.length);
+}
+
+function xftpWebAddressFromClient(client, options = {}) {
+  if (options.serverAddress) return String(options.serverAddress);
+  var url = new URL(client.url);
+  return formatXftpWebServerAddress({
+    keyHash: client.keyHash,
+    host: url.hostname,
+    port: url.port || (url.protocol === 'http:' ? '80' : '443')
+  });
+}
+
+function normalizeXftpWebDescription(description) {
+  var desc = description && typeof description === 'object' ? description : {};
+  if (!Array.isArray(desc.chunks) || !desc.chunks.length) fail('XFTP_WEB_DESCRIPTION', 'XFTP file description has no chunks');
+  return desc;
+}
+
+function firstReplica(chunk) {
+  if (!Array.isArray(chunk.replicas) || !chunk.replicas.length) fail('XFTP_WEB_DESCRIPTION', 'XFTP chunk has no replicas');
+  return chunk.replicas[0];
+}
+
+function sortDescriptionChunks(description) {
+  return [...normalizeXftpWebDescription(description).chunks].sort((left, right) => left.chunkNo - right.chunkNo);
+}
+
+export async function uploadXftpWebFile(client, source, options = {}) {
+  var encryptedFile = encryptXftpWebFileEnvelope(source, options);
+  var serverAddress = xftpWebAddressFromClient(client, options);
+  var recipientChunks = [];
+  var senderChunks = [];
+  var uploadedSenderChunks = [];
+  // Each encrypted file chunk gets its own sender/recipient signing key pair.
+  // The recipient description carries only the recipient private key needed to
+  // download; the sender description carries only the sender key needed to
+  // delete.  The envelope key/nonce are returned for browser-side delivery
+  // through the ratcheted chat channel; the XFTP server sees encrypted chunks.
+  try {
+    for (var spec of encryptedFile.chunkSpecs) {
+      var chunkData = encryptedFile.encrypted.slice(spec.offset, spec.offset + spec.chunkSize);
+      var chunkDigest = sha256Hash(chunkData);
+      var sender = generateEd25519KeyPair(options.senderSeeds && options.senderSeeds[spec.chunkNo - 1]);
+      var recipient = generateEd25519KeyPair(options.recipientSeeds && options.recipientSeeds[spec.chunkNo - 1]);
+      var created = await createXftpWebFile(client, {
+        privateKey: sender.secretKey,
+        fileInfo: {
+          sndKey: sender.publicKeyDer,
+          size: chunkData.length,
+          digest: chunkDigest
+        },
+        recipientKeys: [recipient.publicKeyDer]
+      });
+      var senderRecord = {
+        chunkNo: spec.chunkNo,
+        offset: spec.offset,
+        chunkSize: chunkData.length,
+        digest: chunkDigest,
+        replicas: [{
+          server: serverAddress,
+          replicaId: created.senderId,
+          replicaKey: encodePrivateKeyDer('Ed25519', sender.secretKey)
+        }]
+      };
+      try {
+        await putXftpWebFile(client, {
+          privateKey: sender.secretKey,
+          senderId: created.senderId,
+          body: chunkData
+        });
+      } catch (error) {
+        try {
+          await deleteUploadedXftpWebFile(client, { chunks: [senderRecord] });
+        } catch (_cleanupError) {}
+        throw error;
+      }
+      uploadedSenderChunks.push(senderRecord);
+      var recipientRecord = {
+        chunkNo: spec.chunkNo,
+        offset: spec.offset,
+        chunkSize: chunkData.length,
+        digest: chunkDigest,
+        replicas: [{
+          server: serverAddress,
+          replicaId: created.recipientIds[0],
+          replicaKey: encodePrivateKeyDer('Ed25519', recipient.secretKey)
+        }]
+      };
+      recipientChunks.push(recipientRecord);
+      senderChunks.push(senderRecord);
+    }
+  } catch (error) {
+    for (var cleanup of uploadedSenderChunks.reverse()) {
+      try {
+        await deleteUploadedXftpWebFile(client, { chunks: [cleanup] });
+      } catch (_cleanupError) {}
+    }
+    throw error;
+  }
+  var base = {
+    size: encryptedFile.encryptedSize,
+    digest: encryptedFile.digest,
+    key: encryptedFile.key,
+    nonce: encryptedFile.nonce,
+    chunkSize: encryptedFile.chunkSizes[0],
+    fileName: encryptedFile.header.fileName,
+    fileExtra: encryptedFile.header.fileExtra
+  };
+  return {
+    ...encryptedFile,
+    recipientDescription: {
+      ...base,
+      party: 'recipient',
+      chunks: recipientChunks
+    },
+    senderDescription: {
+      ...base,
+      party: 'sender',
+      chunks: senderChunks
+    }
+  };
+}
+
+export async function downloadXftpWebFile(client, description, options = {}) {
+  var desc = normalizeXftpWebDescription(description);
+  var encryptedChunks = [];
+  var totalSize = 0;
+  // Download starts from the recipient description: authenticate each server
+  // response, verify each encrypted chunk digest, then verify and decrypt the
+  // whole file envelope only after all chunks have arrived.
+  for (var chunk of sortDescriptionChunks(desc)) {
+    var replica = options.chooseReplica ? options.chooseReplica(chunk) : firstReplica(chunk);
+    var seed = decodeXftpWebEd25519PrivateKeyDer(replica.replicaKey || replica.privateKey || replica.privateKeyDer);
+    var downloaded = await downloadXftpWebFileChunk(client, {
+      privateKey: seed,
+      recipientId: replica.replicaId,
+      digest: chunk.digest
+    });
+    if (chunk.chunkSize != null && downloaded.plaintext.length !== safeInteger(chunk.chunkSize, 'XFTP chunk size', 0, 0xffffffff)) {
+      fail('XFTP_WEB_SIZE', 'XFTP downloaded chunk size mismatch');
+    }
+    encryptedChunks.push(downloaded.plaintext);
+    totalSize += downloaded.plaintext.length;
+  }
+  if (totalSize !== safeInteger(desc.size, 'XFTP encrypted file size', 0, Number.MAX_SAFE_INTEGER)) {
+    fail('XFTP_WEB_SIZE', 'XFTP downloaded file size mismatch');
+  }
+  var decrypted = decryptXftpWebFileEnvelope(encryptedChunks, {
+    key: desc.key,
+    nonce: desc.nonce,
+    digest: desc.digest,
+    size: desc.size
+  });
+  return {
+    ...decrypted,
+    encryptedChunks
+  };
+}
+
+export async function deleteUploadedXftpWebFile(client, senderDescription, options = {}) {
+  for (var chunk of sortDescriptionChunks(senderDescription)) {
+    var replica = options.chooseReplica ? options.chooseReplica(chunk) : firstReplica(chunk);
+    var seed = decodeXftpWebEd25519PrivateKeyDer(replica.replicaKey || replica.privateKey || replica.privateKeyDer);
+    await deleteXftpWebFile(client, {
+      privateKey: seed,
+      senderId: replica.replicaId
+    });
+  }
+}
+
 export default {
   BrowserXftpWebClientError,
   XFTP_WEB_BLOCK_SIZE,
+  XFTP_WEB_FILE_AUTH_TAG_SIZE,
+  XFTP_WEB_FILE_SIZE_PREFIX_LENGTH,
+  XFTP_WEB_HUGE_CHUNK_SIZE,
+  XFTP_WEB_LARGE_CHUNK_SIZE,
+  XFTP_WEB_MEDIUM_CHUNK_SIZE,
+  XFTP_WEB_SMALL_CHUNK_SIZE,
   connectBrowserXftpWebClient,
   createXftpWebFile,
   decodeXftpWebBrokerTransmission,
+  decodeXftpWebFileHeader,
   decodeXftpWebResponse,
   decodeXftpWebServerHandshake,
   decodeXftpWebTransmission,
+  decryptXftpWebFileEnvelope,
   decryptXftpWebTransportChunk,
+  deleteUploadedXftpWebFile,
   deleteXftpWebFile,
+  downloadXftpWebFile,
   downloadXftpWebFileChunk,
+  encodeXftpWebFileHeader,
   encodeXftpWebAuthTransmission,
   encodeXftpWebClientHandshake,
   encodeXftpWebClientHello,
@@ -760,13 +1175,17 @@ export default {
   encodeXftpWebPING,
   encodeXftpWebSignedKeyForTests,
   encodeXftpWebTransmission,
+  encryptXftpWebFileEnvelope,
   encryptXftpWebTransportChunk,
   formatXftpWebServerAddress,
   getXftpWebFile,
   normalizeXftpWebUrl,
   parseXftpWebServerAddress,
   pingXftpWeb,
+  prepareXftpWebChunkSizes,
+  prepareXftpWebChunkSpecs,
   putXftpWebFile,
   sendXftpWebCommand,
+  uploadXftpWebFile,
   verifyXftpWebIdentityProof
 };

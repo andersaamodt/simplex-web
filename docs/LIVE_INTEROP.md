@@ -22,14 +22,14 @@ When enabled, it checks:
 - XFTP web HTTPS/fetch hello with a 32-byte browser challenge.
 - XFTP web server identity proof verification against the configured key hash.
 - XFTP web padded client handshake and binary `PING`/`PONG`.
-- Optional destructive XFTP web `FNEW`/`FPUT`/`FGET`/`FDEL` round trip against a
-  disposable endpoint, including transport-encrypted `FGET` body decryption and
-  SHA-256 chunk digest verification.
+- Optional destructive XFTP web file upload/download/delete round trip against
+  a disposable endpoint, including file-envelope decryption, transport-encrypted
+  `FGET` body decryption, and SHA-256 chunk digest verification.
 
 It does not send chat plaintext through a website server. The SMP endpoint sees
-SMP protocol blocks. The XFTP endpoint sees XFTP protocol blocks. The
-destructive XFTP test creates, uploads, downloads, verifies, and deletes one
-test chunk; keep it pointed at a disposable reviewed endpoint.
+SMP protocol blocks. The XFTP endpoint sees XFTP protocol blocks and encrypted
+file chunks. The destructive XFTP test uploads, downloads, verifies, and deletes
+one encrypted test file; keep it pointed at a disposable reviewed endpoint.
 
 ## Required Endpoint Shape
 
@@ -55,7 +55,8 @@ The XFTP server must expose the upstream-style XFTP web profile implemented by
 - Broker `PONG` response to an unauthenticated XFTP `PING`.
 - Disposable file-command tests must support `FNEW`, `FPUT`, `FGET`, and `FDEL`;
   `FGET` must return a transport-encrypted chunk body decryptable with the
-  response DH key and nonce.
+  response DH key and nonce. The client then verifies the encrypted file digest
+  and decrypts the file-level XFTP envelope locally.
 
 Point this harness only at a reviewed browser-profile endpoint. The default
 live XFTP test is non-destructive.

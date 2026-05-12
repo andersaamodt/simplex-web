@@ -28,7 +28,7 @@
 - Added `src/browser-smp-server-profile.mjs` for reviewed production browser SMP server profile validation.
 - Added `src/browser-xftp-client.mjs` and `src/browser-xftp-server-profile.mjs` for encrypted XFTP chunk upload/download sequencing and production browser XFTP server profile validation.
 - Added `src/browser-xftp-http-transport.mjs` and live loopback fetch coverage for encrypted XFTP chunk upload, download, and deletion.
-- Added `src/browser-xftp-web-client.mjs`, an upstream-style browser XFTP web client for binary fetch hello, server identity proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, and transport-encrypted FGET chunk decryption.
+- Added `src/browser-xftp-web-client.mjs`, an upstream-style browser XFTP web client for binary fetch hello, server identity proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, upload/download/delete assembly, and transport-encrypted FGET chunk decryption.
 - Added deterministic local interoperability vectors for SMP command/broker/handshake bytes, signed transmissions, agent envelopes, and XFTP chunks.
 - Added a skipped-by-default live SMP/XFTP interoperability harness and `docs/LIVE_INTEROP.md` so reviewed browser-profile endpoints can be tested without adding flaky network work to the default suite.
 - Added focused adversarial tests and fuzz/property coverage for storage keys, ratchet tampering, contact retries, inbound contact receive/ack, XFTP corruption, hostile XFTP byte payloads, encrypted XFTP client boundaries, scheduler bounds, and SMP/XFTP server-profile downgrade rejection.

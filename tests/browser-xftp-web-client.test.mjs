@@ -22,12 +22,16 @@ import {
   XFTP_WEB_BLOCK_SIZE,
   connectBrowserXftpWebClient,
   createXftpWebFile,
+  decryptXftpWebFileEnvelope,
   decodeXftpWebResponse,
   decodeXftpWebTransmission,
   decodeXftpWebServerHandshake,
   decryptXftpWebTransportChunk,
+  deleteUploadedXftpWebFile,
   deleteXftpWebFile,
+  downloadXftpWebFile,
   downloadXftpWebFileChunk,
+  encryptXftpWebFileEnvelope,
   encodeXftpWebClientHandshake,
   encodeXftpWebClientHello,
   encodeXftpWebFNEW,
@@ -40,12 +44,24 @@ import {
   normalizeXftpWebUrl,
   parseXftpWebServerAddress,
   pingXftpWeb,
+  prepareXftpWebChunkSizes,
   putXftpWebFile,
+  uploadXftpWebFile,
   verifyXftpWebIdentityProof
 } from '../src/browser-xftp-web-client.mjs';
 
 function filled(length, value) {
   return new Uint8Array(length).fill(value);
+}
+
+function loopId(value, count) {
+  var id = filled(6, value);
+  id[5] = count & 0xff;
+  return id;
+}
+
+function keyOf(bytes) {
+  return Buffer.from(bytes).toString('hex');
 }
 
 function derLength(length) {
@@ -136,7 +152,10 @@ async function readBody(request) {
 
 async function withLoopbackXftpWebServer(fn, options = {}) {
   var transcript = [];
-  var storedBody = null;
+  var storedBodies = new Map();
+  var recipientToSender = new Map();
+  var fnewCount = 0;
+  var fputCount = 0;
   var serverDh = generateX25519KeyPair(filled(32, 52));
   var server = http.createServer(async (request, response) => {
     try {
@@ -170,19 +189,30 @@ async function withLoopbackXftpWebServer(fn, options = {}) {
       if (command === 'PING') {
         responseCommand = asciiBytes('PONG');
       } else if (command === 'FNEW') {
-        responseCommand = concatBytes(asciiBytes('SIDS '), encodeSmallBytes(filled(6, 61)), new Uint8Array([1]), encodeSmallBytes(filled(6, 62)));
+        fnewCount += 1;
+        var senderId = loopId(61, fnewCount);
+        var recipientId = loopId(62, fnewCount);
+        recipientToSender.set(keyOf(recipientId), keyOf(senderId));
+        responseCommand = concatBytes(asciiBytes('SIDS '), encodeSmallBytes(senderId), new Uint8Array([1]), encodeSmallBytes(recipientId));
       } else if (command === 'FPUT') {
-        storedBody = chunk;
-        responseCommand = asciiBytes('OK');
+        fputCount += 1;
+        if (options.failFputAt === fputCount) {
+          responseCommand = asciiBytes('ERR FPUT FAILED');
+        } else {
+          storedBodies.set(keyOf(tx.entityId), chunk);
+          responseCommand = asciiBytes('OK');
+        }
       } else if (command === 'FGET') {
         var dhKeyDer = tx.commandBytes.slice(6, 6 + tx.commandBytes[5]);
         var requestDh = decodePublicKeyDer(dhKeyDer);
         var nonce = filled(24, 63);
         var dhSecret = x25519SharedSecret(serverDh.secretKey, requestDh.rawPublicKey);
+        var senderForRecipient = recipientToSender.get(keyOf(tx.entityId));
+        var storedBody = senderForRecipient ? storedBodies.get(senderForRecipient) : null;
         responseCommand = concatBytes(asciiBytes('FILE '), encodeSmallBytes(encodePublicKeyDer('X25519', serverDh.publicKey)), nonce);
         responseBody = encryptXftpWebTransportChunk(dhSecret, nonce, storedBody || filled(4, 64));
       } else if (command === 'FDEL') {
-        storedBody = null;
+        storedBodies.delete(keyOf(tx.entityId));
         responseCommand = asciiBytes('OK');
       } else {
         responseCommand = asciiBytes('ERR CMD UNKNOWN');
@@ -279,6 +309,43 @@ test('XFTP web transport chunk decrypts with digest checks and rejects tampering
   assert.throws(() => decryptXftpWebTransportChunk(dhSecret, nonce, encrypted, filled(32, 34)), /digest mismatch/i);
 });
 
+test('XFTP web file envelope encrypts padded chunks and rejects corrupted metadata', () => {
+  var source = new Uint8Array(70000);
+  for (var i = 0; i < source.length; i += 1) source[i] = i & 0xff;
+  var key = filled(32, 81);
+  var nonce = filled(24, 82);
+  var envelope = encryptXftpWebFileEnvelope(source, {
+    fileName: 'archive.bin',
+    fileExtra: 'v1',
+    key,
+    nonce
+  });
+  assert.deepEqual(envelope.chunkSizes, [65536, 65536]);
+  assert.equal(envelope.encrypted.length, 131072);
+  assert.deepEqual(prepareXftpWebChunkSizes(envelope.clearFileSize + 24), [65536, 65536]);
+
+  var decrypted = decryptXftpWebFileEnvelope(envelope.encrypted, {
+    key,
+    nonce,
+    digest: envelope.digest,
+    size: envelope.encryptedSize
+  });
+  assert.equal(decrypted.header.fileName, 'archive.bin');
+  assert.equal(decrypted.header.fileExtra, 'v1');
+  assert.equal(equalBytes(decrypted.content, source), true);
+
+  var tampered = envelope.encrypted.slice();
+  tampered[10] ^= 1;
+  assert.throws(() => decryptXftpWebFileEnvelope(tampered, {
+    key,
+    nonce,
+    digest: envelope.digest,
+    size: envelope.encryptedSize
+  }), /digest mismatch/i);
+  assert.throws(() => encryptXftpWebFileEnvelope(source, { fileName: '../escape.txt' }), /path separator/i);
+  assert.throws(() => decryptXftpWebFileEnvelope(envelope.encrypted, { nonce }), /decryption key/i);
+});
+
 test('XFTP web client rejects missing server identity proof unless explicit loopback test mode is enabled', async () => {
   await withLoopbackXftpWebServer(async ({ url, transcript }) => {
     var expected = makeHandshake(filled(32, 90)).keyHash;
@@ -301,6 +368,90 @@ test('XFTP web client rejects missing server identity proof unless explicit loop
     });
     assert.equal(client.security.unverifiedLoopbackTestMode, true);
   }, { omitProof: true });
+});
+
+test('XFTP web client uploads downloads and deletes encrypted file descriptions', async () => {
+  await withLoopbackXftpWebServer(async ({ url, transcript }) => {
+    var bootstrap = makeHandshake(filled(32, 92));
+    var client = await connectBrowserXftpWebClient({
+      url,
+      keyHash: bootstrap.keyHash,
+      allowInsecureLocal: true,
+      allowUnverifiedIdentityForTests: true,
+      timeoutMs: 2000
+    });
+    var source = new Uint8Array(70000);
+    for (var i = 0; i < source.length; i += 1) source[i] = (i * 17) & 0xff;
+    var uploaded = await uploadXftpWebFile(client, source, {
+      fileName: 'browser.bin',
+      fileExtra: 'fixture',
+      key: filled(32, 93),
+      nonce: filled(24, 94),
+      senderSeeds: [filled(32, 95), filled(32, 96)],
+      recipientSeeds: [filled(32, 97), filled(32, 98)]
+    });
+    assert.equal(uploaded.recipientDescription.party, 'recipient');
+    assert.equal(uploaded.senderDescription.party, 'sender');
+    assert.equal(uploaded.recipientDescription.chunks.length, 2);
+    assert.equal(uploaded.senderDescription.chunks.length, 2);
+
+    var downloaded = await downloadXftpWebFile(client, uploaded.recipientDescription);
+    assert.equal(downloaded.header.fileName, 'browser.bin');
+    assert.equal(downloaded.header.fileExtra, 'fixture');
+    assert.equal(equalBytes(downloaded.content, source), true);
+
+    var tampered = {
+      ...uploaded.recipientDescription,
+      chunks: uploaded.recipientDescription.chunks.map((chunk, index) => ({
+        ...chunk,
+        digest: index === 0 ? filled(32, 99) : chunk.digest,
+        replicas: chunk.replicas.map((replica) => ({ ...replica }))
+      }))
+    };
+    await assert.rejects(() => downloadXftpWebFile(client, tampered), /digest mismatch/i);
+
+    await deleteUploadedXftpWebFile(client, uploaded.senderDescription);
+    assert.deepEqual(transcript.filter((row) => row.type === 'command').map((row) => row.command), [
+      'FNEW',
+      'FPUT',
+      'FNEW',
+      'FPUT',
+      'FGET',
+      'FGET',
+      'FGET',
+      'FDEL',
+      'FDEL'
+    ]);
+  });
+});
+
+test('XFTP web file upload cleans up created chunks after mid-upload failure', async () => {
+  await withLoopbackXftpWebServer(async ({ url, transcript }) => {
+    var bootstrap = makeHandshake(filled(32, 102));
+    var client = await connectBrowserXftpWebClient({
+      url,
+      keyHash: bootstrap.keyHash,
+      allowInsecureLocal: true,
+      allowUnverifiedIdentityForTests: true,
+      timeoutMs: 2000
+    });
+    var source = filled(70000, 103);
+    await assert.rejects(() => uploadXftpWebFile(client, source, {
+      fileName: 'cleanup.bin',
+      key: filled(32, 104),
+      nonce: filled(24, 105),
+      senderSeeds: [filled(32, 106), filled(32, 107)],
+      recipientSeeds: [filled(32, 108), filled(32, 109)]
+    }), /server returned ERR/i);
+    assert.deepEqual(transcript.filter((row) => row.type === 'command').map((row) => row.command), [
+      'FNEW',
+      'FPUT',
+      'FNEW',
+      'FPUT',
+      'FDEL',
+      'FDEL'
+    ]);
+  }, { failFputAt: 2 });
 });
 
 test('XFTP web client handshakes pings and sends authenticated file commands over fetch', async () => {
@@ -331,8 +482,8 @@ test('XFTP web client handshakes pings and sends authenticated file commands ove
       },
       recipientKeys: [recipient.publicKeyDer]
     });
-    assert.equal(equalBytes(created.senderId, filled(6, 61)), true);
-    assert.equal(equalBytes(created.recipientIds[0], filled(6, 62)), true);
+    assert.equal(equalBytes(created.senderId, loopId(61, 1)), true);
+    assert.equal(equalBytes(created.recipientIds[0], loopId(62, 1)), true);
 
     await putXftpWebFile(client, {
       privateKey: sender.secretKey,
