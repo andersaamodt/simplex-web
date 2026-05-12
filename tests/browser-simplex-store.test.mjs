@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createBrowserSimplexStore } from '../src/browser-simplex-store.mjs';
+import { createBrowserSimplexStore, SIMPLEX_STORE_MAX_LIST_ITEMS } from '../src/browser-simplex-store.mjs';
 
 function storage() {
   const map = new Map();
@@ -45,4 +45,17 @@ test('durable store can remove selected pending tasks without touching others', 
   assert.equal(remaining.length, 1);
   assert.equal(remaining[0].payload.contactId, 'bob');
   assert.equal(store.listPending().length, 1);
+});
+
+test('durable store capped lists keep newest saved record ids visible', () => {
+  const store = createBrowserSimplexStore({ storage: storage(), namespace: 'list-cap' });
+  for (let i = 0; i < SIMPLEX_STORE_MAX_LIST_ITEMS + 5; i += 1) {
+    store.saveContact('contact-' + String(i).padStart(4, '0'), { state: 'active', index: i });
+  }
+
+  const listed = store.listContacts();
+  assert.equal(listed.length, SIMPLEX_STORE_MAX_LIST_ITEMS);
+  assert.equal(listed.some((row) => row.id === 'contact-0000'), false);
+  assert.equal(listed.some((row) => row.id === 'contact-1004'), true);
+  assert.equal(store.loadContact('contact-1004').index, SIMPLEX_STORE_MAX_LIST_ITEMS + 4);
 });

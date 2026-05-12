@@ -117,7 +117,11 @@ function readList(storage, namespace, type) {
 }
 
 function writeList(storage, namespace, type, ids) {
-  var clean = Array.from(new Set(ids.map((id) => safePart(id, 'stored id')))).slice(0, SIMPLEX_STORE_MAX_LIST_ITEMS);
+  var clean = [];
+  for (var i = ids.length - 1; i >= 0 && clean.length < SIMPLEX_STORE_MAX_LIST_ITEMS; i -= 1) {
+    var id = safePart(ids[i], 'stored id');
+    if (!clean.includes(id)) clean.unshift(id);
+  }
   storage.setItem(listKey(namespace, type), serialize(clean));
 }
 

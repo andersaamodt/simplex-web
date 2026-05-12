@@ -125,6 +125,8 @@ validation.
 Coverage added:
 
 - Durable store round trips binary records and rejects hostile storage keys.
+- Durable store retention tests prove capped record lists keep newest saved
+  IDs visible instead of silently hiding newly saved records.
 - Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, encrypted-packet retry enqueueing after

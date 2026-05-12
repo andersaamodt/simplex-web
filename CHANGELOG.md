@@ -28,6 +28,7 @@
 - Added durable ACK retry handling so inbound messages are not lost if decrypt succeeds but the queue ACK transport round-trip fails.
 - Added metadata-only received-message fingerprints so duplicate SMP redelivery is ACKed without replaying the ratchet or redelivering plaintext, while same-id changed-body replay fails closed.
 - Changed failed-send retries to persist the already-ratcheted packet bytes instead of chat plaintext.
+- Changed capped durable-store record lists to keep newest saved IDs visible when the list reaches its retention limit.
 - Added contact deletion scrubbing for durable queue records, ratchet state, and contact-scoped retry payloads.
 - Added contact-client XFTP file send/receive helpers that upload encrypted chunks, ratchet-send file descriptors/root keys, and verify received downloads.
 - Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.

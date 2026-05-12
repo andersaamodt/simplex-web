@@ -138,6 +138,7 @@ assert_file_contains "$ROOT_DIR/src/browser-simplex-scheduler.mjs" 'nextRetryDel
 assert_file_contains "$ROOT_DIR/src/browser-simplex-scheduler.mjs" 'removeWhere' 'browser SimpleX scheduler removes selected retry tasks'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-store.mjs" 'saveContact' 'browser SimpleX store persists contacts'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-store.mjs" 'deletePendingWhere' 'browser SimpleX store removes selected pending tasks'
+assert_file_contains "$ROOT_DIR/tests/browser-simplex-store.test.mjs" 'capped lists keep newest saved record ids visible' 'browser SimpleX store tests capped newest record visibility'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-web-transport-adapter.mjs" 'createSimplexWebTransportAdapter' 'browser SimpleX web adapter is exported'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-web-transport-adapter.mjs" 'registerSimplexWebTransportAdapter' 'browser SimpleX web adapter registers with facade'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-web-transport-adapter.mjs" 'connectBrowserSmpWebSocketTransport' 'browser SimpleX web adapter uses SMP websocket transport'
