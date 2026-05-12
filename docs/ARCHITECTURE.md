@@ -1,5 +1,28 @@
 # Architecture
 
+## Reader map
+
+`simplex-web` is built as a small set of plain modules rather than as a
+framework app:
+
+1. `src/default-chat.js` renders the chat UI from a plain data model and emits
+   callbacks when the user clicks, types, sends, or selects files.
+2. `src/session-store.js` keeps a bounded local browser cache of UI continuity
+   state such as drafts, recent messages, and upload rows.
+3. `src/transport.js` is the public browser API. It is unavailable until an
+   adapter is registered, so host pages cannot accidentally send plaintext
+   through a server fallback.
+4. `src/simplex-chat-websocket-adapter.js` is the current real adapter. It talks
+   to a browser-reachable SimpleX Chat command WebSocket, preferably loopback.
+5. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
+   stages browser `File` objects on disk for SimpleX file-send commands.
+6. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+   small state core and a smoke module; it is not yet the network protocol core.
+
+The shape is intentionally conservative: the UI can be embedded on any page, the
+transport boundary fails closed, and the code can be tested in Node, browsers,
+Safari automation, live SimpleX daemons, and wasm GHC without a bundler.
+
 ## Current boundary
 
 `simplex-web` currently owns the browser-facing chat shell and the first Haskell-owned chat-state slice:

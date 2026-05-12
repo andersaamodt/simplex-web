@@ -1,6 +1,12 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE JavaScriptFFI #-}
 
+-- SPDX-License-Identifier: AGPL-3.0-only
+--
+-- Small Haskell-owned state core used to prove the browser/WASM boundary. The
+-- JavaScript UI calls the exported functions below, and this module returns the
+-- same JSON model shape that src/default-chat.js already knows how to render.
+
 module Simplex.Web.Core where
 
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
@@ -63,6 +69,9 @@ initialState =
     }
 
 stateRef :: IORef CoreState
+-- The wasm reactor stays alive between JavaScript calls, so one IORef is enough
+-- for this first local state slice. A future protocol core should replace this
+-- with durable encrypted state and explicit session ownership.
 stateRef = unsafePerformIO (newIORef initialState)
 {-# NOINLINE stateRef #-}
 
@@ -96,6 +105,8 @@ coreClearError :: IO ()
 coreClearError = modifyIORef' stateRef (\state -> state {stateError = ""})
 
 coreSendText :: JSString -> IO Int
+-- Exported functions use JSString at the boundary, then sanitize immediately so
+-- hostile browser strings cannot grow the in-memory model without bounds.
 coreSendText rawText = do
   let text = sanitizeText (fromJSString rawText)
   modifyIORef' stateRef (appendOutgoingMessage text)
@@ -206,6 +217,8 @@ appendIncomingMessage text state =
         }
 
 appendBounded :: Int -> [a] -> a -> [a]
+-- Keep the newest entries and drop old history. This mirrors the browser store
+-- strategy and keeps snapshot_json cheap enough for frequent UI refreshes.
 appendBounded limit items nextItem
   | limit <= 1 = [nextItem]
   | otherwise = takeLast (limit - 1) items ++ [nextItem]
@@ -244,6 +257,8 @@ clampProgress progress
   | otherwise = progress
 
 encodeState :: CoreState -> String
+-- Manual JSON encoding keeps this smoke/core layer dependency-free for the
+-- wasm bootstrap. Every string passes through jsonString before it is emitted.
 encodeState state =
   "{"
     ++ intercalate
@@ -330,6 +345,8 @@ hexDigit value
   | otherwise = toEnum (fromEnum 'a' + value - 10)
 
 foreign export javascript "core_reset sync"
+-- These exports are the browser contract. The tests compile the module, run
+-- GHC's post-link JSFFI glue, instantiate it from JavaScript, and call them.
   coreReset :: IO ()
 
 foreign export javascript "core_login sync"

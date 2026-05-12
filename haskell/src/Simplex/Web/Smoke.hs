@@ -1,6 +1,11 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE JavaScriptFFI #-}
 
+-- SPDX-License-Identifier: AGPL-3.0-only
+--
+-- Minimal exported functions used to prove that the installed wasm GHC can
+-- compile a reactor module and JavaScript can call its synchronous exports.
+
 module Simplex.Web.Smoke where
 
 import Data.Word (Word)

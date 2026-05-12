@@ -1,6 +1,12 @@
 (function (global) {
   'use strict';
 
+  // SPDX-License-Identifier: AGPL-3.0-only
+  //
+  // Adapter for the official SimpleX Chat command WebSocket API. It is
+  // loopback-first because the SimpleX daemon sees plaintext before it encrypts
+  // messages for the SimpleX network. Remote endpoints must opt in explicitly.
+
   var MAX_TEXT_LENGTH = 4000;
   var MAX_LABEL_LENGTH = 256;
   var DEFAULT_TIMEOUT_MS = 90000;
@@ -23,6 +29,8 @@
   }
 
   function normalizeCommandAtom(value, label, allowEmpty) {
+    // Command atoms become pieces of SimpleX CLI commands, so they allow only a
+    // narrow identifier alphabet and reject spaces/newlines/shell-like text.
     var raw = limitString(value, MAX_LABEL_LENGTH).replace(/^@/, '').trim();
     if (!raw) {
       if (allowEmpty) return '';
@@ -35,6 +43,8 @@
   }
 
   function normalizeContactLink(value, allowEmpty) {
+    // Contact links are passed as a single SimpleX command argument. Whitespace
+    // is rejected so a malicious link cannot append a second command.
     var raw = limitString(value, MAX_TEXT_LENGTH).trim();
     if (!raw) {
       if (allowEmpty) return '';
@@ -146,6 +156,8 @@
   }
 
   function normalizeConfig(options) {
+    // Configuration is the adapter's main trust boundary. Normalize once here so
+    // every later command path can assume safe URLs, numbers, and runtime hooks.
     var opts = options && typeof options === 'object' ? options : {};
     var url = normalizeUrl(opts.url || opts.webSocketUrl || opts.websocketUrl || opts.endpoint || '');
     var userId = limitString(opts.user_id || opts.userId || opts.active_user_id || opts.activeUserId || '', MAX_LABEL_LENGTH).trim();
@@ -241,6 +253,8 @@
   }
 
   function parseAttachmentMarker(text) {
+    // Older browser-only file sends may appear as a text marker with base64
+    // metadata. Parse it cautiously so history can still render attachments.
     var value = String(text || '');
     var idx = value.indexOf(ATTACHMENT_MARKER);
     if (idx < 0) return null;
@@ -300,6 +314,8 @@
   }
 
   function chatFileLocalPath(file) {
+    // SimpleX may report either an absolute local file path or a basename in a
+    // configured file directory. Anything path-shaped beyond that is ignored.
     var status = file && file.fileStatus && typeof file.fileStatus === 'object' ? file.fileStatus : {};
     var source = file && file.fileSource && typeof file.fileSource === 'object' ? file.fileSource : {};
     var raw = file && (
@@ -328,6 +344,8 @@
   }
 
   function chatItemNeedsFileReceive(config, chatItem) {
+    // Incoming file invitations need an explicit accept command before the file
+    // can be downloaded by the local SimpleX daemon.
     if (chatItemDirection(chatItem) !== 'incoming') return false;
     var file = chatItem && chatItem.file ? chatItem.file : null;
     if (!file || !chatFileId(file)) return false;
@@ -351,6 +369,8 @@
   }
 
   function messageFromChatItem(config, chatItem) {
+    // Convert SimpleX's rich chat item shape into the small message shape used
+    // by the facade and default UI.
     var direction = chatItemDirection(chatItem);
     var messageKind = chatItemKind(chatItem);
     var text = chatItemText(chatItem);
@@ -468,6 +488,8 @@
   }
 
   function contactIdFromResponse(resp) {
+    // SimpleX uses several response shapes while a contact link resolves. Pull
+    // out the usable contact id and re-run command-atom validation before use.
     var contact = contactFromResponse(resp);
     var id = contact && (contact.contactId || contact.apiId || contact.id);
     return normalizeCommandAtom(id, 'contact id', true);
@@ -609,6 +631,9 @@
   }
 
   function stageFileWithBridge(config, file) {
+    // Browsers do not reveal selected files' absolute local paths. The optional
+    // loopback bridge writes the File to disk beside the SimpleX daemon and
+    // returns the absolute path that SimpleX needs for file sends.
     if (!config.file_bridge_url) {
       return Promise.reject(makeError(
         ERROR_CONFIG,
@@ -695,18 +720,24 @@
   }
 
   function fileSendCommand(contactId, filePath, caption) {
+    // SimpleX file sends use a JSON ComposedMessage command, not text markers,
+    // so captions and filenames remain structured data.
     return '/_send @' + normalizeCommandAtom(contactId, 'contact id', false) + ' json ' + JSON.stringify([
       fileComposedMessage(filePath, caption)
     ]);
   }
 
   function textSendCommand(contactId, text) {
+    // Text also uses a JSON ComposedMessage command. That keeps message bodies
+    // containing newlines or command-looking strings from becoming commands.
     return '/_send @' + normalizeCommandAtom(contactId, 'contact id', false) + ' json ' + JSON.stringify([
       textComposedMessage(text)
     ]);
   }
 
   function createSimplexChatWebSocketAdapter(options) {
+    // Public constructor used by both browser script tags and CommonJS tests.
+    // It returns the adapter shape expected by src/transport.js.
     var config = normalizeConfig(options);
     if (!config.WebSocketImpl) {
       throw makeError(ERROR_CONFIG, 'Browser WebSocket runtime is unavailable');
@@ -845,6 +876,12 @@
   }
 
   function sendTextSequential(config, payload, userId, contactId, contactLink, text, clientMessageId, sendCommandForContact) {
+    // Main send state machine:
+    // 1. open the WebSocket,
+    // 2. activate the SimpleX user,
+    // 3. resolve or reuse the contact id,
+    // 4. send the JSON command,
+    // 5. optionally watch/poll for final delivery status.
     return new Promise(function (resolve, reject) {
       var WebSocketImpl = config.WebSocketImpl;
       var ws = null;
@@ -904,6 +941,8 @@
       }
 
       function scheduleStatusPoll(delay) {
+        // Some SimpleX status updates arrive as events; others are easiest to
+        // discover by querying recent chat history after the initial send.
         if (settled || !sentMessageRef || !contactId) return;
         if (statusPollTimer) {
           global.clearTimeout(statusPollTimer);
@@ -926,6 +965,8 @@
       }
 
       function send(cmd) {
+        // Every command gets a correlation id so unsolicited daemon events do
+        // not advance the current step by accident.
         var corrId = 'sxw-' + Date.now() + '-' + (++commandSeq);
         pendingCorrId = corrId;
         try {
@@ -1062,6 +1103,8 @@
           return;
         }
         if (type === 'chatCmdError' && contactLink && contactId && !reconnectedAfterSendError) {
+          // A cached contact id may be stale. Forget it once, reconnect the
+          // contact link, and retry before surfacing the failure.
           reconnectedAfterSendError = true;
           forgetContactId(config, payload, userId, contactLink);
           contactId = '';
@@ -1071,6 +1114,9 @@
           return;
         }
         if (type === 'chatCmdError' && sendAttempts < config.retries) {
+          // Newly connected contacts can exist before they are send-ready. Back
+          // off longer for that specific condition; other transient errors stay
+          // on the short retry cadence.
           var errorType = chatErrorType(resp);
           sendAttempts += 1;
           global.setTimeout(function () {

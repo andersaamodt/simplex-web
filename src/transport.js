@@ -1,6 +1,12 @@
 (function (global) {
   'use strict';
 
+  // SPDX-License-Identifier: AGPL-3.0-only
+  //
+  // The facade is the stable website API. By default it fails closed: websites
+  // can call the same methods before a real adapter exists, but plaintext is
+  // never silently routed through a server bridge.
+
   var MAX_TEXT_LENGTH = 4000;
   var MAX_LABEL_LENGTH = 256;
   var MAX_STATUS_LENGTH = 64;
@@ -27,6 +33,8 @@
   }
 
   function normalizeOutboundMessage(message, options) {
+    // Accept both object payloads and simple string text for host-page ergonomics,
+    // then reduce everything to the adapter contract.
     var opts = options && typeof options === 'object' ? options : {};
     var payload = message && typeof message === 'object' && !Array.isArray(message)
       ? message
@@ -109,6 +117,8 @@
   }
 
   function callAdapterMethod(target, methodName, args) {
+    // Adapters may be synchronous or asynchronous. Wrapping both paths in a
+    // Promise gives host pages one predictable error-handling model.
     try {
       return Promise.resolve(target[methodName].apply(target, args || []));
     } catch (error) {
@@ -117,6 +127,9 @@
   }
 
   function createTransport(adapter, options) {
+    // createTransport is used for both unavailable and registered transports.
+    // The unavailable transport intentionally has the same public method names
+    // so integration code can be written once and still fail safely.
     var opts = options && typeof options === 'object' ? options : {};
     var activeAdapter = validateAdapter(adapter) ? adapter : null;
     var unavailableReason = limitString(opts.unavailableReason || UNAVAILABLE_MESSAGE, MAX_TEXT_LENGTH);

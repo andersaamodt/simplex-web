@@ -1,6 +1,12 @@
 (function (global) {
   'use strict';
 
+  // SPDX-License-Identifier: AGPL-3.0-only
+  //
+  // Browser-local session storage for the example chat UI. This module stores
+  // only bounded UI continuity data: draft text, recent messages, upload rows,
+  // and the dismissed-state for the simplex-web intro. It does not store keys.
+
   var STORAGE_PREFIX = 'simplex-web-session-v1';
   var MAX_MESSAGES = 50;
   var MAX_UPLOADS = 20;
@@ -40,6 +46,8 @@
   }
 
   function normalizeKeyPart(value, fallback) {
+    // Storage keys are assembled from host-provided labels, so keep them short
+    // and path-like-character-safe before joining them into one localStorage key.
     var raw = String(value == null ? '' : value).trim().toLowerCase();
     raw = raw.replace(/[^a-z0-9._:-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     raw = raw.replace(/(^|[-:.])\.+(?=$|[-:.])/g, '$1');
@@ -101,6 +109,8 @@
   }
 
   function normalizeSession(value) {
+    // Always slice first, then normalize. That prevents an oversized imported
+    // history array from forcing work on thousands of discarded entries.
     var next = value && typeof value === 'object' ? value : {};
     var messages = Array.isArray(next.messages) ? next.messages.slice(-MAX_MESSAGES).map(normalizeMessage) : [];
     var uploads = Array.isArray(next.uploads) ? next.uploads.slice(-MAX_UPLOADS).map(normalizeUpload) : [];
@@ -131,6 +141,8 @@
   }
 
   function readSession(storage, siteKey, accountKey) {
+    // Storage is a convenience, not a dependency. Missing storage, invalid JSON,
+    // oversized blobs, and browser quota errors all fall back to an empty state.
     var target = storageOrGlobal(storage);
     var rawValue;
     if (!target) {

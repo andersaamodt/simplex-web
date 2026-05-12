@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-only
+//
+// Local-only helper for browser file sends/receives. Browsers cannot hand a web
+// page an absolute local file path, but SimpleX file commands need one. This
+// bridge stages selected browser Files under a user-state directory and serves
+// only files inside explicit allowlisted roots.
+
 import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdir, realpath, stat, writeFile } from 'node:fs/promises';
@@ -71,6 +78,8 @@ async function realPathOrResolved(filePath) {
 }
 
 async function allowedReadPath(filePath) {
+  // Reads are allowed only after resolving symlinks and proving the final path
+  // stays inside one configured root. Relative names are treated as basenames.
   const raw = String(filePath || '').trim();
   if (!raw) return '';
   if (!isAbsolute(raw)) {
@@ -155,6 +164,8 @@ function isOriginAllowed(req) {
 }
 
 function corsHeaders(req) {
+  // The bridge is meant for a specific local page. Wildcard CORS exists only
+  // for throwaway testing and is documented as unsafe for normal use.
   const origin = requestOrigin(req);
   const allowOrigin = allowedOrigins.includes('*') ? '*' : (origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0]);
   return {
@@ -175,6 +186,8 @@ function sendJson(req, res, status, payload) {
 }
 
 async function readLimitedBody(req) {
+  // Stream the body with a hard byte cap so oversized uploads fail before a
+  // large staging file is written to disk.
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
@@ -188,6 +201,8 @@ async function readLimitedBody(req) {
 }
 
 const server = createServer(async (req, res) => {
+  // The API surface is intentionally tiny:
+  // GET /health, GET /files?path=..., and POST /files.
   try {
     if (!isOriginAllowed(req)) {
       sendJson(req, res, 403, { ok: false, error: 'origin is not allowed' });

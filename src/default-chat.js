@@ -1,6 +1,12 @@
 (function (global) {
   'use strict';
 
+  // SPDX-License-Identifier: AGPL-3.0-only
+  //
+  // This file is deliberately framework-free. Host pages pass in a plain chat
+  // model, this module turns that model into escaped HTML, and mount() wires
+  // browser events back to callbacks supplied by the host page.
+
   var MAX_RENDER_MESSAGES = 200;
   var MAX_RENDER_UPLOADS = 50;
   var MAX_TEXT_LENGTH = 4000;
@@ -10,6 +16,8 @@
   var SPINNER_ANIMATION_MS = 800;
 
   function escapeHtml(value) {
+    // Every value that came from storage, SimpleX, or user input is treated as
+    // hostile until it passes through this function before entering HTML.
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -46,6 +54,8 @@
   }
 
   function normalizeAttachment(value) {
+    // Normalize imported attachment metadata to one predictable shape and clamp
+    // every field before the renderer decides whether anything can be loaded.
     var next = value && typeof value === 'object' ? value : null;
     if (!next) {
       return null;
@@ -95,6 +105,9 @@
   }
 
   function safeAttachmentUrl(value, kind) {
+    // Only data/blob URLs and loopback bridge URLs are allowed to auto-load.
+    // Remote URLs are rendered as inert labels so imported history cannot leak
+    // a viewer's IP address by forcing the browser to fetch arbitrary media.
     var raw = String(value || '').trim();
     var match;
     var parsed;
@@ -118,6 +131,8 @@
   }
 
   function renderAttachment(message) {
+    // Render the media preview when a safe URL exists, but always include a
+    // plain attachment label so unsafe URLs still show useful metadata.
     var attachment = message && message.attachment;
     if (!attachment) return '';
     var name = String(attachment.name || 'Attachment');
@@ -272,6 +287,9 @@
   }
 
   function normalizeModel(model) {
+    // The renderer has a narrow input contract. This defensive pass lets old
+    // state, malformed adapter responses, and hostile storage values degrade
+    // into bounded defaults instead of changing the DOM shape.
     var next = model && typeof model === 'object' ? model : {};
     var messages = Array.isArray(next.messages) ? next.messages.slice(-MAX_RENDER_MESSAGES).map(normalizeMessage) : [];
     var uploads = Array.isArray(next.uploads) ? next.uploads.slice(-MAX_RENDER_UPLOADS).map(normalizeUpload) : [];
@@ -315,6 +333,8 @@
   }
 
   function renderPanel(model) {
+    // renderPanel is pure: model in, HTML string out. Event handling lives in
+    // mount(), which keeps UI rendering testable without a browser framework.
     var state = normalizeModel(model);
     var html = '<section class="secure-chat-panel" aria-labelledby="secure-chat-title">';
     html += '<div class="secure-chat-head">';
@@ -401,6 +421,9 @@
   }
 
   function mount(root, model, handlers) {
+    // mount() is the only function that mutates the DOM. It renders once, then
+    // uses event delegation so repeated re-renders do not attach duplicate
+    // handlers to individual buttons, inputs, or attachment controls.
     if (!root || typeof root.innerHTML === 'undefined') {
       throw new Error('A root element is required');
     }
@@ -412,6 +435,8 @@
       if (nextModel && typeof nextModel === 'object') {
         state = normalizeModel(nextModel);
       }
+      // Preserve the intro node across renders when possible. This avoids
+      // resetting focus/selection inside that notice during frequent updates.
       var stableSimplexInfo = root.querySelector('.secure-chat-thread > .secure-chat-simplex-info');
       root.innerHTML = renderPanel(state);
       if (stableSimplexInfo && state.simplexWebIntroDismissed !== true) {
@@ -432,6 +457,8 @@
     }
 
     function containsActionNode(node) {
+      // Delegated events can cross shadow/DOM boundaries in surprising ways;
+      // actions are ignored unless the action element belongs to this mount.
       if (!node) return false;
       if (node === root) return true;
       if (typeof root.contains === 'function') {
@@ -525,6 +552,8 @@
     }
 
     function onDragOver(event) {
+      // Drag/drop accepts actual File payloads only. Text/URI drops are ignored
+      // because they could smuggle unexpected paths or remote URLs into chat.
       if (!event || !event.dataTransfer) return;
       var hasFiles = event.dataTransfer.files && event.dataTransfer.files.length;
       if (!hasFiles && event.dataTransfer.types && typeof event.dataTransfer.types.indexOf === 'function') {
