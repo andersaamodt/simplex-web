@@ -26,16 +26,12 @@ framework app:
 7. `src/transport.js` is the public browser API. It is unavailable until an
    adapter is registered, so host pages cannot accidentally send plaintext
    through a server fallback.
-8. `src/simplex-chat-websocket-adapter.js` is the current daemon-backed adapter. It talks
-   to a browser-reachable SimpleX Chat command WebSocket, preferably loopback.
-9. `scripts/simplex-web-file-bridge.mjs` is an optional loopback helper that
-   stages browser `File` objects on disk for SimpleX file-send commands.
-10. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
+8. `haskell/src/Simplex/Web/*.hs` proves the Haskell-to-browser boundary with a
    small state core and a smoke module; it is not yet the network protocol core.
 
 The shape is intentionally conservative: the UI can be embedded on any page, the
 transport boundary fails closed, and the code can be tested in Node, browsers,
-Safari automation, live SimpleX daemons, and wasm GHC without a bundler.
+Safari automation, and wasm GHC without a bundler.
 
 ## Current boundary
 
@@ -62,10 +58,13 @@ Safari automation, live SimpleX daemons, and wasm GHC without a bundler.
 - queue-level client orchestration over abstract SMP transports for create, subscribe, acknowledge, secure, delete, and initial confirmation
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
-- a SimpleX Chat WebSocket adapter that can send through a browser-reachable SimpleX Chat command API
 
 It does **not** yet own the complete SimpleX browser client:
 
+- no SimpleX Chat command API adapter
+- no loopback file bridge
+- no mock chat transport
+- no plaintext website/server bridge
 - no full agent/contact state machine yet
 - no integrated double-ratchet message state yet
 - no durable browser queue/contact store yet
@@ -93,7 +92,7 @@ complexity or isolating a trust boundary.
 The upstream SimpleX code that exists today is centered on:
 
 - native Haskell client and agent libraries
-- local CLI / Node addon / WebSocket daemon integrations
+- local CLI, Node addon, and native app integrations
 - native app storage and transport assumptions
 
 That means a truthful browser-native client needs new work in:
@@ -121,7 +120,6 @@ Until the remaining layers exist, the safest thing this repo can ship honestly i
 - executable SMP protocol primitives in the browser runtime
 - a host contract that proves Haskell/browser interop is workable before transport is attempted
 - a transport API that refuses sends unless a browser-native adapter is explicitly registered
-- a loopback-first adapter for the official SimpleX Chat command WebSocket, avoiding plaintext website relay when users provide a local/browser-reachable SimpleX endpoint
 
 ## Integration contract
 
@@ -185,14 +183,6 @@ The transport facade exposed by `src/transport.js` is separate from the UI:
 
 Without an adapter, `sendText` rejects with `SIMPLEX_WEB_TRANSPORT_UNAVAILABLE`. This is the expected secure behavior; it keeps host sites from accidentally routing plaintext through a server bridge while still giving them a stable browser API to call.
 
-`src/simplex-chat-websocket-adapter.js` provides the first real adapter. It registers via `registerBrowserTransport` and sends text through a SimpleX Chat command WebSocket:
-
-- activate the configured SimpleX user with `/_user <user_id>`
-- send to the configured contact with `/_send @<contact_id> json [...]`, including text sends, so message bodies remain structured content rather than command text
-- normalize the SimpleX `newChatItems` response back into the facade receipt
-
-The adapter only accepts loopback endpoints by default. Remote endpoints require `allowRemote: true` because they can see plaintext before SimpleX encrypts and sends through its own network transport.
-
 ## Browser SMP core
 
 The `src/browser-smp-core.mjs` module is plain ESM so it can run in modern
@@ -223,7 +213,7 @@ The `src/browser-simplex-agent.mjs` module starts the layer above raw SMP:
 - `prepareInitialSenderMessage()` prepares the initial unsigned SMP `SEND` that carries the sender signing key in the encrypted confirmation body.
 
 These helpers are deliberately transport-agnostic. They prepare protocol state
-and signed transmissions; they do not open sockets or call the daemon adapter.
+and signed transmissions; they do not open sockets or call any command API.
 
 ## Browser Client Orchestrator
 
@@ -265,4 +255,4 @@ as part of the protocol, not as a website plaintext bridge.
 3. Port or reimplement the SimpleX agent message envelope and double-ratchet flow on top of the SMP core.
 4. Tighten the browser-compatible SMP server transport profile so server identity and session binding are preserved without exposing plaintext.
 5. Add XFTP protocol primitives and browser-safe file transfer state.
-6. Keep the SimpleX Chat WebSocket adapter compatible for local daemon-backed comparison tests, but do not use it as the browser-native transport.
+6. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.

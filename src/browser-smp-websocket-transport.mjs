@@ -7,7 +7,7 @@
 // small browser transport profile for SMP servers that expose binary WebSocket
 // frames. Each WebSocket message carries exactly one padded SMP transport block.
 //
-// This module never talks to the SimpleX Chat command API and never forwards
+// This module never talks to a plaintext compatibility API and never forwards
 // chat plaintext through a web server. Callers pass already encoded/signed SMP
 // transmissions, and message bodies should already be encrypted by the agent
 // layer before they reach `SEND`.

@@ -4,8 +4,8 @@ Date: 2026-05-11
 
 Reviewer posture: Codex Desktop external-review simulation. This is not an
 independent third-party human audit, but it was performed adversarially against
-the code, tests, browser surface, and live SimpleX daemon behavior available in
-this local environment.
+the code, tests, browser surface, and package metadata available in this local
+environment.
 
 ## Scope
 
@@ -14,78 +14,82 @@ Reviewed release surface:
 - `src/default-chat.js` and `src/default-chat.css`
 - `src/session-store.js`
 - `src/transport.js`
-- `src/simplex-chat-websocket-adapter.js`
-- `scripts/simplex-web-file-bridge.mjs`
+- `src/browser-smp-core.mjs`
+- `src/browser-simplex-agent.mjs`
+- `src/browser-simplex-client.mjs`
+- `src/browser-smp-websocket-transport.mjs`
 - Haskell/WASM scaffolds and runtime wrappers
 - Browser examples and release documentation
 
-Out of scope:
+Explicitly not shipped or reviewed as a release feature:
 
+- A SimpleX Chat command API adapter.
+- A loopback file bridge.
+- A mock chat transport.
+- A plaintext website/server bridge.
 - Upstream SimpleX cryptographic protocol correctness.
-- A handwritten browser-native SMP/XFTP transport, which this release does not
-  ship.
-- Security of remote SimpleX Chat WebSocket endpoints operated by someone else.
+- Full contact state, double ratchet persistence, XFTP, and production browser
+  SMP server deployment.
 
 ## Threat Model
 
 Primary assets:
 
-- Plaintext message text before it reaches a local SimpleX daemon.
 - Browser-local chat history and draft state.
-- Local files staged through the optional file bridge.
-- Contact identifiers, contact links, and SimpleX daemon command strings.
+- SMP queue IDs, correlation IDs, signed transmissions, and broker responses.
+- Browser-held signing, DH, and message encryption keys.
 - Browser DOM integrity when rendering hostile imported messages or metadata.
+- Package integrity, so removed plaintext paths cannot be imported accidentally.
 
 Primary attacker capabilities tested:
 
 - Inject hostile HTML, event handler strings, JavaScript URLs, oversized data,
-  control characters, Unicode edge cases, and command-shaped message bodies.
-- Poison browser storage and cached contact IDs.
-- Return malformed WebSocket responses from the SimpleX Chat API.
-- Make WebSocket sends throw or race page lifecycle close events.
-- Abuse the file bridge with hostile origins, traversal, symlinks, oversized
-  uploads, malformed names, and MIME confusion.
+  control characters, Unicode edge cases, and malformed attachment metadata.
+- Poison browser storage and cached labels.
+- Feed malformed SMP queue URIs, commands, broker messages, transport blocks,
+  handshakes, encrypted envelopes, and correlation IDs.
+- Return malformed, short, long, text, wrong-session, or late WebSocket frames.
 - Force browser rendering/layout stress across desktop and mobile viewports.
 
 ## Findings
 
-### Fixed: new SimpleX contacts could be used before ready
+### Fixed: legacy plaintext paths removed
 
-Live daemon probing showed that a contact can appear in `/chats` before the
-daemon accepts sends to it. The previous retry loop was too short for this
-condition. The adapter now recognizes `contactNotReady`, increases the default
-retry count, and applies real backoff before retrying.
+The previous SimpleX Chat command WebSocket adapter, loopback file bridge, mock
+chat example, and live daemon adapter tests are no longer shipped. The package
+exports, runtime checks, README, architecture docs, changelog, and test scripts
+now describe only the browser-native protocol workbench and closed transport
+facade.
 
 Coverage added:
 
-- Unit regression for `contactNotReady` backoff.
-- Live two-daemon E2E with temporary profiles and real SimpleX network setup.
+- Runtime assertions that the removed adapter, file bridge, and mock example do
+  not exist.
+- Package assertions that no adapter or file-bridge export/script remains.
+- A broad source scan during release cleanup for old command-API and bridge
+  references.
 
-### Fixed: command-shaped text is structured content
+### Fixed: browser protocol layers fail closed before side effects
 
-Text sends use the SimpleX Chat JSON composed-message command shape:
+The browser SimpleX client validates hostile correlation IDs before transport
+send/receive side effects. The WebSocket SMP transport accepts only fixed-size
+binary SMP blocks and rejects malformed frames, text frames, wrong-session
+messages, and timeout paths.
 
-```text
-/_send @<contact_id> json [{"msgContent":{"type":"text","text":"..."},"mentions":{}}]
-```
+### Accepted residual risk: browser WebSocket SMP profile is not raw TCP/TLS SMP
 
-The live daemon test sends a body containing a newline plus a second
-command-looking string and verifies the peer receives it as literal message
-content.
+Ordinary browser JavaScript cannot open raw TCP sockets, inspect TLS channel
+binding, or pin server certificate bytes the same way a native SimpleX client
+can. The current network-facing module is therefore an explicit browser
+SMP-over-WebSocket profile for compatible servers, not a claim that browsers can
+directly speak the existing raw TCP/TLS SMP transport.
 
-### Accepted residual risk: local SimpleX WebSocket plaintext boundary
+### Accepted residual risk: full browser agent is still incomplete
 
-The WebSocket adapter necessarily sends plaintext to a browser-reachable SimpleX
-Chat command API before the SimpleX daemon encrypts it for the network. This is
-why the adapter rejects remote WebSocket endpoints by default. Remote endpoints
-require explicit `allowRemote: true` and should be treated as trusted local
-infrastructure, not a website bridge.
-
-### Accepted residual risk: no direct browser SMP/XFTP transport
-
-This release does not claim to include a handwritten browser-native SimpleX
-protocol implementation. The fail-closed transport facade remains correct when
-no adapter is registered.
+The repo now contains real browser-native SMP primitives, agent envelope helpers,
+queue orchestration, and a WebSocket block transport profile. It does not yet
+contain the complete contact state machine, durable ratchet store, retry
+scheduler, XFTP implementation, or production server deployment profile.
 
 ## Executed Coverage
 
@@ -94,7 +98,6 @@ Automated:
 - `npm test`
 - `npm run test:fuzz`
 - `npm run test:browser`
-- `npm run test:live`
 - `npm run test:haskell`
 - `npm audit --audit-level=moderate`
 - `npm pack --dry-run --json`
@@ -118,12 +121,13 @@ Toolchain:
 The release is suitable to describe as:
 
 > adversarially tested by Codex Desktop across unit, integration, property/fuzz,
-> browser, Safari automation, Haskell/WASM compile/runtime, live SimpleX daemon
-> E2E, packaging, and dependency audit coverage available in this environment.
+> browser, Safari automation, Haskell/WASM compile/runtime, packaging, and
+> dependency audit coverage available in this environment.
 
 Do not describe it as:
 
-- browser-native direct SMP/XFTP
+- complete full-stack browser SimpleX Chat
+- direct browser support for existing raw TCP/TLS SMP/XFTP servers
 - independently audited by a third-party security firm
 - mathematically bulletproof
-- free of all future protocol, browser, or upstream daemon compatibility risk
+- free of all future protocol, browser, or upstream compatibility risk

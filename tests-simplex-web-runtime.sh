@@ -37,16 +37,30 @@ assert_file_not_contains() {
   fi
 }
 
+assert_file_missing() {
+  file=$1
+  label=$2
+  if [ -e "$file" ]; then
+    fail "$label (unexpected file exists: $file)"
+  else
+    pass
+  fi
+}
+
 node --check "$ROOT_DIR/src/default-chat.js" >/dev/null 2>&1 || fail 'default chat source parses in Node'
 node --check "$ROOT_DIR/src/session-store.js" >/dev/null 2>&1 || fail 'session store source parses in Node'
 node --check "$ROOT_DIR/src/transport.js" >/dev/null 2>&1 || fail 'transport source parses in Node'
-node --check "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" >/dev/null 2>&1 || fail 'websocket adapter source parses in Node'
-node --check "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" >/dev/null 2>&1 || fail 'file bridge source parses in Node'
+node --check "$ROOT_DIR/src/browser-smp-core.mjs" >/dev/null 2>&1 || fail 'browser SMP core source parses in Node'
+node --check "$ROOT_DIR/src/browser-simplex-agent.mjs" >/dev/null 2>&1 || fail 'browser SimpleX agent source parses in Node'
+node --check "$ROOT_DIR/src/browser-simplex-client.mjs" >/dev/null 2>&1 || fail 'browser SimpleX client source parses in Node'
+node --check "$ROOT_DIR/src/browser-smp-websocket-transport.mjs" >/dev/null 2>&1 || fail 'browser SMP websocket transport source parses in Node'
 node --test "$ROOT_DIR/tests/default-chat.test.js" >/dev/null 2>&1 || fail 'default chat unit tests pass'
 node --test "$ROOT_DIR/tests/session-store.test.js" >/dev/null 2>&1 || fail 'session store unit tests pass'
 node --test "$ROOT_DIR/tests/transport.test.js" >/dev/null 2>&1 || fail 'transport unit tests pass'
-node --test "$ROOT_DIR/tests/simplex-chat-websocket-adapter.test.js" >/dev/null 2>&1 || fail 'websocket adapter unit tests pass'
-node --test "$ROOT_DIR/tests/file-bridge.test.mjs" >/dev/null 2>&1 || fail 'file bridge unit tests pass'
+node --test "$ROOT_DIR/tests/browser-smp-core.test.mjs" >/dev/null 2>&1 || fail 'browser SMP core unit tests pass'
+node --test "$ROOT_DIR/tests/browser-simplex-agent.test.mjs" >/dev/null 2>&1 || fail 'browser SimpleX agent unit tests pass'
+node --test "$ROOT_DIR/tests/browser-simplex-client.test.mjs" >/dev/null 2>&1 || fail 'browser SimpleX client unit tests pass'
+node --test "$ROOT_DIR/tests/browser-smp-websocket-transport.test.mjs" >/dev/null 2>&1 || fail 'browser SMP websocket transport unit tests pass'
 
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'data-secure-chat-action="login"' 'default chat exposes login action'
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'Attach files' 'default chat exposes attachment control'
@@ -64,21 +78,17 @@ assert_file_contains "$ROOT_DIR/src/default-chat.js" "secure-chat-attachment-'" 
 assert_file_contains "$ROOT_DIR/src/default-chat.js" '<video class="secure-chat-attachment-media"' 'default chat renders video attachments inline'
 assert_file_contains "$ROOT_DIR/src/transport.js" 'SIMPLEX_WEB_TRANSPORT_UNAVAILABLE' 'transport fails closed with stable error code'
 assert_file_contains "$ROOT_DIR/src/transport.js" 'registerBrowserTransport' 'transport exposes browser-native adapter registration'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'registerSimplexChatWebSocketTransport' 'websocket adapter registers with transport facade'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" '/_send @' 'websocket adapter sends through SimpleX Chat command API'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'function textSendCommand' 'websocket adapter sends text through structured SimpleX JSON commands'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'contactNotReady' 'websocket adapter backs off while new SimpleX contacts become ready'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'normalizeCommandAtom' 'websocket adapter validates command atoms'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'finish(reject, error);' 'websocket adapter rejects thrown websocket sends'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'isSafeRelativeFilePath(raw)' 'websocket adapter allows safe SimpleX receive filenames while rejecting traversal paths'
-assert_file_contains "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" "'/freceive ' + chatFileId(file)" 'websocket adapter accepts incoming SimpleX file invitations before rendering media'
+assert_file_contains "$ROOT_DIR/src/browser-smp-core.mjs" 'encodeTransportBlock' 'browser SMP core encodes fixed-size transport blocks'
+assert_file_contains "$ROOT_DIR/src/browser-simplex-agent.mjs" 'prepareNewQueueRequest' 'browser SimpleX agent prepares NEW queue requests'
+assert_file_contains "$ROOT_DIR/src/browser-simplex-client.mjs" 'createQueue' 'browser SimpleX client orchestrates queue creation'
+assert_file_contains "$ROOT_DIR/src/browser-smp-websocket-transport.mjs" 'binarySmpBlocksOnly' 'browser SMP websocket transport rejects non-binary frames'
+assert_file_missing "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'daemon-backed websocket adapter is not shipped'
+assert_file_missing "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'loopback file bridge is not shipped'
+assert_file_missing "$ROOT_DIR/examples/mock-chat.html" 'mock chat example is not shipped'
+assert_file_not_contains "$ROOT_DIR/package.json" 'simplex-chat-websocket-adapter' 'package exports do not expose daemon-backed adapter'
+assert_file_not_contains "$ROOT_DIR/package.json" 'file-bridge' 'package scripts do not expose loopback file bridge'
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'safeAttachmentUrl' 'default chat sanitizes rendered attachment URLs'
 assert_file_contains "$ROOT_DIR/src/default-chat.js" 'isLoopbackHost(parsed.hostname)' 'default chat only autoloads loopback attachment URLs'
-assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'origin is not allowed' 'file bridge rejects hostile origins'
-assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'realpath(filePath)' 'file bridge resolves symlinks before reads'
-assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'join(root, fileName)' 'file bridge resolves safe relative receive filenames under allowed roots'
-assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'function safeLogValue' 'file bridge sanitizes startup output values'
-assert_file_contains "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'X-Content-Type-Options' 'file bridge sends nosniff headers'
 assert_file_contains "$ROOT_DIR/src/transport.js" 'transport.registerBrowserTransport = registerBrowserTransport' 'registered transport remains replaceable'
 assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" 'official `ghc-wasm-meta` toolchain' 'repo documents completed Haskell browser toolchain validation'
 assert_file_contains "$ROOT_DIR/docs/HASKELL_BROWSER_STATUS.md" '`npm run test:haskell` passes' 'repo documents passing Haskell browser checks'

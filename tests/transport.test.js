@@ -39,8 +39,7 @@ test('registered browser adapter receives normalized outbound text and returns n
   assert.deepEqual(transport.getStatus(), {
     available: true,
     transport_status: 'direct-browser-smp',
-    transport_error: '',
-    file_bridge_url: ''
+    transport_error: ''
   });
 
   const receipt = await transport.sendText(

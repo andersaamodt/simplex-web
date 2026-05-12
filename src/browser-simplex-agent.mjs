@@ -9,7 +9,7 @@
 //
 // This is still intentionally transport-agnostic.  Callers can feed the signed
 // transmissions to a real browser SMP transport when that exists, or to test
-// harnesses today.  No function here calls the SimpleX Chat command API or sends
+// harnesses today.  No function here calls a plaintext compatibility API or sends
 // plaintext through a web server.
 
 import {

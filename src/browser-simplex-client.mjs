@@ -6,7 +6,7 @@
 // abstract SMP transport together.  It intentionally stays low to the ground:
 // callers provide a transport with `sendSignedTransmissions()` and
 // `receiveSignedTransmissions()`, and this module performs queue-level protocol
-// steps without owning UI, storage, sockets, or daemon command APIs.
+// steps without owning UI, storage, sockets, or compatibility command shims.
 
 import {
   asciiBytes,

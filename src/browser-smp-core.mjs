@@ -3,7 +3,7 @@
 // Browser-native SMP protocol primitives.
 //
 // This module is deliberately small and explicit.  It does not talk to the
-// SimpleX Chat command API, and it does not send plaintext to a website bridge.
+// plaintext command bridge, and it does not send plaintext to a website bridge.
 // It implements the low-level SimpleX Messaging Protocol (SMP) pieces that a
 // browser transport needs before a full agent/contact layer can be built:
 //

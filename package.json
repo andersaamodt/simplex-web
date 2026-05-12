@@ -23,7 +23,6 @@
     "./browser-simplex-agent": "./src/browser-simplex-agent.mjs",
     "./browser-simplex-client": "./src/browser-simplex-client.mjs",
     "./browser-smp-websocket-transport": "./src/browser-smp-websocket-transport.mjs",
-    "./simplex-chat-websocket-adapter": "./src/simplex-chat-websocket-adapter.js",
     "./default-chat": "./src/default-chat.js",
     "./session-store": "./src/session-store.js",
     "./default-chat.css": "./src/default-chat.css",
@@ -31,7 +30,6 @@
   },
   "files": [
     "src",
-    "scripts",
     "docs",
     "examples",
     "haskell",
@@ -40,11 +38,9 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "file-bridge": "node scripts/simplex-web-file-bridge.mjs",
-    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/simplex-chat-websocket-adapter.test.js tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-simplex-client.test.mjs tests/browser-smp-websocket-transport.test.mjs tests/file-bridge.test.mjs",
+    "test:ui": "node --test tests/default-chat.test.js tests/session-store.test.js tests/transport.test.js tests/browser-smp-core.test.mjs tests/browser-simplex-agent.test.mjs tests/browser-simplex-client.test.mjs tests/browser-smp-websocket-transport.test.mjs",
     "test:fuzz": "node --test tests/adversarial-fuzz.test.js",
     "test:browser": "node --test tests/browser-matrix.test.mjs",
-    "test:live": "node --test tests/simplex-live-e2e.test.mjs",
     "test:runtime": "sh ./tests-simplex-web-runtime.sh",
     "test:haskell-smoke": "sh ./tests-haskell-wasm-runtime.sh",
     "test:haskell-core": "sh ./tests-haskell-core-runtime.sh",

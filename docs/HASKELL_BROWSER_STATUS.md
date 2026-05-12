@@ -42,12 +42,12 @@ ignored and not checked into the package.
 
 ## What This Does Not Prove
 
-- A browser-native SimpleX SMP/XFTP transport exists in this package.
+- The Haskell scaffolds provide the browser-native SimpleX SMP/XFTP transport.
 - Upstream SimpleX protocol, cryptography, broker behavior, or queue semantics
   are verified by the Haskell scaffolds.
 - Browser support for the future full protocol core is complete across every
   engine.
 
 The release remains honest: Haskell owns the current state-core slice, while
-actual network transport is still provided by the SimpleX Chat WebSocket adapter
-or by a future browser-native transport adapter.
+the browser-native protocol work currently lives in the JavaScript SMP core,
+agent helper, queue client, and WebSocket SMP transport profile.

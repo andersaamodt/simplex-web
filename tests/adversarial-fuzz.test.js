@@ -5,7 +5,6 @@ const fc = require('fast-check');
 const ui = require('../src/default-chat.js');
 const sessionStore = require('../src/session-store.js');
 const transport = require('../src/transport.js');
-const wsAdapter = require('../src/simplex-chat-websocket-adapter.js');
 
 const FUZZ_SEED = 0x51a7f00d;
 
@@ -188,28 +187,30 @@ test('transport normalization fuzzing keeps adapter payloads bounded', () => {
   }), { numRuns: 250, seed: FUZZ_SEED + 2 });
 });
 
-test('websocket adapter fuzzing rejects command-shaped contact ids before opening sockets', async () => {
-  const invalidContactId = hostileString.filter((value) => {
-    const raw = String(value == null ? '' : value).slice(0, 256).replace(/^@/, '').trim();
-    return !!raw && !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(raw);
+test('browser simplex client fuzzing rejects hostile correlation ids before transport side effects', async () => {
+  const { createBrowserSimplexClient } = await import('../src/browser-simplex-client.mjs');
+  const invalidCorrId = hostileString.filter((value) => {
+    const raw = String(value == null ? '' : value);
+    return raw.length > 32 || /[\u0000-\u001f\u007f-\uffff]/.test(raw);
   });
 
-  await fc.assert(fc.asyncProperty(invalidContactId, async (contactId) => {
-    let socketCount = 0;
-    class CountingWebSocket {
-      constructor() {
-        socketCount += 1;
+  await fc.assert(fc.asyncProperty(invalidCorrId, async (corrId) => {
+    let sentCount = 0;
+    const client = createBrowserSimplexClient({
+      transport: {
+        async sendSignedTransmissions() {
+          sentCount += 1;
+        },
+        async receiveSignedTransmissions() {
+          throw new Error('transport should not receive after invalid input');
+        }
       }
-    }
-    const adapter = wsAdapter.createSimplexChatWebSocketAdapter({
-      url: 'ws://127.0.0.1:5225',
-      WebSocketImpl: CountingWebSocket
     });
 
     await assert.rejects(
-      adapter.sendText({ contact_id: contactId, text: 'hello' }),
-      /unsupported command characters/
+      client.createQueue({ label: 'inbox', corrId }),
+      /ASCII|correlation id/
     );
-    assert.equal(socketCount, 0);
+    assert.equal(sentCount, 0);
   }), { numRuns: 120, seed: FUZZ_SEED + 3 });
 });
