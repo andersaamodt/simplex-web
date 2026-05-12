@@ -8,7 +8,7 @@
   var DEFAULT_RETRIES = 10;
   var DEFAULT_RETRY_DELAY_MS = 1000;
   var DEFAULT_RECEIVE_FILE_BYTES = 25 * 1024 * 1024;
-  var DEFAULT_RECEIVE_REQUERY_DELAY_MS = 700;
+  var DEFAULT_RECEIVE_REQUERY_DELAY_MS = 250;
   var ERROR_CONFIG = 'SIMPLEX_CHAT_WS_CONFIG';
   var ERROR_TIMEOUT = 'SIMPLEX_CHAT_WS_TIMEOUT';
   var ERROR_RESPONSE = 'SIMPLEX_CHAT_WS_RESPONSE';
@@ -921,7 +921,7 @@
         if (statusIsTerminal(statusReceipt.transport_status)) {
           stopStatusWatch();
         } else {
-          scheduleStatusPoll(700);
+          scheduleStatusPoll(350);
         }
       }
 
@@ -981,10 +981,10 @@
               if (polledChatItem) {
                 handleStatusReceipt(statusReceiptFromChatItem(polledChatItem, sentMessageRef || clientMessageId));
               } else {
-                scheduleStatusPoll(900);
+                scheduleStatusPoll(500);
               }
             } else if (type === 'chatCmdError') {
-              scheduleStatusPoll(1200);
+              scheduleStatusPoll(800);
             }
           }
           return;
@@ -1057,7 +1057,7 @@
           resolveInitial(receipt, shouldWatchStatus);
           if (shouldWatchStatus) {
             statusTimer = global.setTimeout(stopStatusWatch, config.status_timeout_ms);
-            scheduleStatusPoll(400);
+            scheduleStatusPoll(200);
           }
           return;
         }
