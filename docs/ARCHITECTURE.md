@@ -310,7 +310,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   encrypted XFTP file chunks, ratchet-sends file descriptors and root keys,
   downloads received encrypted files, stores failed
   sends as already-ratcheted packet retry tasks instead of chat plaintext, and
-  scrubs queue, ratchet, and retry secrets when a contact is deleted.
+  scrubs queue, ratchet, received-message fingerprint, and retry records when a
+  contact is deleted.
 - `src/browser-simplex-scheduler.mjs` gives retryable work bounded exponential
   backoff with deterministic tests.
 

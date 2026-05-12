@@ -131,8 +131,8 @@ Coverage added:
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, encrypted-packet retry enqueueing after
   transport failure, explicit retry draining, and contact deletion that scrubs
-  durable queue records, ratchet secrets, and contact-scoped pending retry
-  payloads.
+  durable queue records, ratchet secrets, received-message fingerprints, and
+  contact-scoped pending retry payloads.
 - Failed-send tests prove retry records contain the already-ratcheted packet
   bytes, do not contain the outbound plaintext, and resend the same encrypted
   packet during retry drain.

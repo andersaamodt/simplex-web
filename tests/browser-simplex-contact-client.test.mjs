@@ -917,6 +917,16 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
   });
   contacts.scheduler.enqueue('alice:send:secret', { type: 'sendPacket', contactId: 'alice', packet: smp.encodeBase64Url(filled(8, 89)) });
   contacts.scheduler.enqueue('bob:send:keep', { type: 'sendPacket', contactId: 'bob', packet: smp.encodeBase64Url(filled(8, 90)) });
+  store.save('received', 'rx:alice', {
+    contactId: 'alice',
+    msgId: smp.encodeBase64Url(filled(24, 91)),
+    bodyHash: smp.encodeBase64Url(filled(32, 92))
+  });
+  store.save('received', 'rx:bob', {
+    contactId: 'bob',
+    msgId: smp.encodeBase64Url(filled(24, 93)),
+    bodyHash: smp.encodeBase64Url(filled(32, 94))
+  });
 
   const deleted = contacts.deleteContact('alice');
   assert.equal(deleted.state, 'active');
@@ -930,6 +940,8 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
   assert.equal(store.loadQueue('alice:outbox'), null);
   assert.equal(store.loadRatchet('alice'), null);
   assert.deepEqual(store.listPending().map((task) => task.payload.contactId), ['bob']);
+  assert.equal(store.load('received', 'rx:alice'), null);
+  assert.equal(store.load('received', 'rx:bob').contactId, 'bob');
 });
 
 test('contact payload decoder preserves plain text and rejects malformed prefixed payloads', () => {
