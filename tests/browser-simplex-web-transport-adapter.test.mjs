@@ -233,6 +233,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(messages.length, 1);
   assert.equal(messages[0].text, 'reply');
   assert.equal(messages[0].delivery_status, 'received');
+  assert.equal(messages[0].ack_pending, false);
   await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
   assert.equal(acceptCalls[0].id, 'alice');
   assert.equal(acceptCalls[0].options.ackCorrId, 'accept-ack');

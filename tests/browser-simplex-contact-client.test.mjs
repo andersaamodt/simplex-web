@@ -623,6 +623,57 @@ test('contact client receives decrypts and acknowledges queue messages', async (
   assert.equal(smp.equalBytes(ack.command.msgId, msgId), true);
 });
 
+test('contact client keeps decrypted message and retries ACK after ack transport failure', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-ack-retry' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const aliceDh = smp.generateX25519KeyPair(filled(32, 157));
+  const bobDh = smp.generateX25519KeyPair(filled(32, 158));
+  const root = filled(32, 159);
+  const senderRatchet = createRatchetState({ rootKey: root, ownDhKey: aliceDh, remoteDhPublicKey: bobDh.publicKey });
+  const receiverRatchet = createRatchetState({ rootKey: root, ownDhKey: bobDh, initializeSending: false });
+  const queue = {
+    rcvId: filled(24, 160),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 161)),
+    serverDhSecret: filled(32, 162)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+  store.saveRatchet('alice', receiverRatchet);
+
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes('ack me later'), { nonce: filled(24, 163) }).packet;
+  const msgId = filled(24, 164);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 777n,
+    body: packetBytes(packet)
+  });
+  transport.pushResponse('msg-ack-retry', { type: 'MSG', msgId, body }, queue.rcvId);
+
+  const received = await contacts.receiveNext('alice', { ackCorrId: 'missing-ack' });
+  assert.equal(received.text, 'ack me later');
+  assert.equal(received.acknowledged, false);
+  assert.equal(received.ackPending, true);
+  assert.equal(store.listPending().length, 1);
+  assert.equal(store.listPending()[0].payload.type, 'ackMessage');
+  assert.equal(store.listPending()[0].payload.contactId, 'alice');
+  assert.equal(JSON.stringify(store.listPending()[0]).includes('ack me later'), false);
+
+  transport.pushResponse('ack-retry-ok', { type: 'OK' }, queue.rcvId);
+  const retried = await contacts.drainDueRetries({
+    now: Date.now() + 60000,
+    ackOptions: { corrId: 'ack-retry-ok' }
+  });
+  assert.equal(retried.length, 1);
+  assert.equal(retried[0].ok, true);
+  assert.equal(store.listPending()[0].completedAt > 0, true);
+  const retryAck = smp.parseSignedTransmission(4, transport.sent[1].bytes);
+  assert.equal(retryAck.command.type, 'ACK');
+  assert.equal(smp.equalBytes(retryAck.command.msgId, msgId), true);
+});
+
 test('contact client uploads files through XFTP and sends only a ratcheted file descriptor', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });

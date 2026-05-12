@@ -110,6 +110,8 @@ function receivedToFacadeMessage(received) {
     message_ref: ref,
     message_kind: file ? 'file' : 'text',
     delivery_status: 'received',
+    ack_pending: !!(received && received.ackPending),
+    ack_error: received && received.ackError ? String(received.ackError).slice(0, 500) : '',
     created_at: received && received.timestamp ? String(received.timestamp) : new Date().toISOString(),
     text: received && received.text ? received.text : '',
     attachment: file ? {

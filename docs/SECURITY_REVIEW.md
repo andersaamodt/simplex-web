@@ -130,6 +130,9 @@ Coverage added:
   queue-message decrypt-and-ack, durable retry enqueueing after transport
   failure, explicit retry draining, and contact deletion that scrubs durable
   queue records, ratchet secrets, and contact-scoped pending retry payloads.
+- ACK-failure tests cover decrypt-success/ACK-failure ordering, prove the
+  plaintext is returned to the caller, persist only a non-plaintext ACK retry
+  task, and complete that ACK through the retry drain.
 - Contact request tests cover invitation URI generation, requester reply-queue
   creation, caller-supplied reply-queue persistence, encrypted initial
   confirmation sends, profile hiding from broker bodies, recipient confirmation

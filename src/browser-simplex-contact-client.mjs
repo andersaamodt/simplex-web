@@ -136,6 +136,10 @@ function parseJsonBytes(bytes, label) {
   }
 }
 
+function ackTaskId(contactId, msgId) {
+  return 'ack:' + encodeBase64Url(msgId).slice(0, 96) + ':' + encodeBase64Url(utf8Bytes(safeId(contactId))).slice(0, 48);
+}
+
 export function createBrowserSimplexContactClient(options = {}) {
   return new BrowserSimplexContactClient(options);
 }
@@ -522,11 +526,34 @@ export class BrowserSimplexContactClient {
     });
     var text = this.receiveText(contact.id, decryptedBody.body);
     var payload = decodeContactPayload(text);
+    var acknowledged = false;
+    var ackPending = false;
+    var ackError = '';
     if (options.acknowledge !== false) {
-      await this.client.acknowledgeMessage(queue, received.message.msgId, {
-        ...options,
-        corrId: options.ackCorrId || options.corrId || ('ack-' + Date.now())
-      });
+      try {
+        // The plaintext has already been handed to the local ratchet above, so
+        // ACK failures must not hide the message from the website. Instead, the
+        // client records a small retry task that contains the queue id and SMP
+        // message id, but never the decrypted body.
+        await this.client.acknowledgeMessage(queue, received.message.msgId, {
+          ...options,
+          corrId: options.ackCorrId || options.corrId || ('ack-' + Date.now())
+        });
+        acknowledged = true;
+      } catch (error) {
+        if (options.retryAckOnFailure === false) throw error;
+        var taskId = ackTaskId(contact.id, received.message.msgId);
+        this.scheduler.enqueue(taskId, {
+          type: 'ackMessage',
+          contactId: contact.id,
+          queueId: contact.inboxQueueId || (contact.id + ':inbox'),
+          msgId: encodeBase64Url(received.message.msgId),
+          options: { timeoutMs: options.timeoutMs || 0 }
+        });
+        this.scheduler.fail(taskId, error);
+        ackPending = true;
+        ackError = String(error && error.message || error || '').slice(0, 500);
+      }
     }
     return {
       contactId: contact.id,
@@ -535,7 +562,10 @@ export class BrowserSimplexContactClient {
       file: payload.type === 'file' ? payload.file : null,
       msgId: received.message.msgId,
       timestamp: decryptedBody.timestamp,
-      flags: decryptedBody.flags
+      flags: decryptedBody.flags,
+      acknowledged,
+      ackPending,
+      ackError
     };
   }
 
@@ -551,16 +581,37 @@ export class BrowserSimplexContactClient {
     var results = [];
     for (var task of due) {
       if (!task || !task.payload) continue;
-      if (task.payload.type !== 'sendText' && task.payload.type !== 'sendPayload') continue;
+      if (task.payload.type !== 'sendText' && task.payload.type !== 'sendPayload' && task.payload.type !== 'ackMessage') continue;
       try {
-        var sendOptions = {
-          ...(task.payload.options || {}),
-          ...(options.sendOptions || {}),
-          retryOnFailure: false
-        };
-        var response = task.payload.type === 'sendText'
-          ? await this.sendText(task.payload.contactId, task.payload.text, sendOptions)
-          : await this.sendPlaintext(task.payload.contactId, utf8Bytes(task.payload.payloadText), sendOptions, task.payload);
+        var response;
+        if (task.payload.type === 'sendText') {
+          var sendTextOptions = {
+            ...(task.payload.options || {}),
+            ...(options.sendOptions || {}),
+            retryOnFailure: false
+          };
+          response = await this.sendText(task.payload.contactId, task.payload.text, sendTextOptions);
+        } else if (task.payload.type === 'sendPayload') {
+          var sendPayloadOptions = {
+            ...(task.payload.options || {}),
+            ...(options.sendOptions || {}),
+            retryOnFailure: false
+          };
+          response = await this.sendPlaintext(task.payload.contactId, utf8Bytes(task.payload.payloadText), sendPayloadOptions, task.payload);
+        } else {
+          // ACK retry tasks carry only enough metadata to repeat the SMP ACK.
+          // They deliberately avoid storing the plaintext message or ratchet
+          // packet because the website already received and decrypted it.
+          var contact = this.store.loadContact(safeId(task.payload.contactId));
+          if (!contact) fail('SIMPLEX_CONTACT_MISSING', 'contact does not exist');
+          var queue = this.store.loadQueue(task.payload.queueId || contact.inboxQueueId || (contact.id + ':inbox'));
+          if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact ACK queue is missing');
+          response = await this.client.acknowledgeMessage(queue, decodeBase64Url(task.payload.msgId, 'retry ACK msg id'), {
+            ...(task.payload.options || {}),
+            ...(options.ackOptions || {}),
+            corrId: (options.ackOptions && (options.ackOptions.corrId || options.ackOptions.ackCorrId)) || this.client.makeCorrId('ack')
+          });
+        }
         this.scheduler.complete(task.id);
         results.push({ id: task.id, ok: true, response });
       } catch (error) {

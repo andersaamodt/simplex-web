@@ -86,7 +86,7 @@ Safari automation, and wasm GHC without a bundler.
 - browser invitation URI creation, requester reply queues, encrypted sender
   contact requests, encrypted accept confirmations, recipient/requester
   confirmation-key verification, queue `KEY` securing, and request/accept ACKs
-- active-contact sends and receives with ratchet persistence, SMP ACKs, and failed-send retry enqueueing
+- active-contact sends and receives with ratchet persistence, SMP ACKs, durable ACK retry, and failed-send retry enqueueing
 - contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
 - contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
 - in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
@@ -304,7 +304,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   accepts incoming contact requests, creates requester reply queues, sends and
   receives encrypted accept confirmations, persists ratchets, sends
   active-contact messages, decrypts inbound queue messages, acknowledges
-  received SMP messages, uploads encrypted XFTP file chunks, ratchet-sends file
+  received SMP messages, stores non-plaintext ACK retry tasks if ACK transport
+  fails after decrypt, uploads encrypted XFTP file chunks, ratchet-sends file
   descriptors and root keys, downloads received encrypted files, stores failed
   sends as retry tasks, and scrubs queue, ratchet, and retry secrets when a
   contact is deleted.
