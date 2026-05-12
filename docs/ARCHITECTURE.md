@@ -88,6 +88,7 @@ Safari automation, and wasm GHC without a bundler.
 - browser XFTP server profile validation for encrypted chunk storage endpoints
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
+- skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 
 It intentionally does **not** ship old or unsafe compatibility paths:
@@ -339,6 +340,12 @@ client masking, server binary frames, handshake negotiation, block send, and
 broker response receive on loopback. It is still not a production
 browser-profile SMP server interoperability result.
 
+`tests/live-interop.test.mjs` is the non-loopback contract. It is skipped unless
+`SIMPLEX_WEB_LIVE_ENABLE=1` and reviewed endpoint variables are present. When
+enabled, it checks a real browser-profile SMP WebSocket handshake plus PING/PONG
+and a real browser-profile XFTP HTTPS encrypted-chunk upload/download/delete
+cycle. See `docs/LIVE_INTEROP.md`.
+
 This profile is browser-native protocol transport, but it is not a claim that
 ordinary browser JavaScript can speak the upstream raw TCP/TLS transport. Browser
 JavaScript still cannot read TLS channel-binding data or perform the same server
@@ -348,6 +355,10 @@ as part of the protocol, not as a website plaintext bridge.
 
 ## Next protocol steps
 
-1. Add compatibility tests against real browser-profile SMP servers when that server profile is specified and available.
+1. Point the live SMP/XFTP harness at reviewed browser-profile servers and keep
+   the passing run metadata outside the repo unless it is scrubbed release
+   evidence.
 2. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
-3. Add live encrypted file-transfer tests against reviewed non-loopback browser-profile XFTP servers.
+3. Review the browser-profile SMP/XFTP server specifications against upstream
+   SimpleX security goals before describing any deployment as production
+   interoperable.

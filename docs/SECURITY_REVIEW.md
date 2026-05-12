@@ -68,6 +68,8 @@ Primary attacker capabilities tested:
 - Tamper with XFTP chunks, manifests, sizes, hashes, and server chunk responses.
 - Exercise real loopback `fetch` upload, download, and deletion for encrypted
   XFTP chunks without exposing plaintext bytes to request bodies.
+- Provide a skipped-by-default live interop harness for reviewed non-loopback
+  SMP/XFTP browser-profile endpoints.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
 - Downgrade production browser XFTP server profiles to plaintext, missing
@@ -136,6 +138,9 @@ Coverage added:
   signed transmission, transport-block, agent-envelope, and XFTP fixture bytes.
 - Live loopback WebSocket tests cover actual WebSocket framing around the
   browser SMP transport profile without reintroducing a plaintext bridge.
+- Skipped-by-default live interop tests define the required non-loopback proof
+  for browser-profile SMP WebSocket PING/PONG and browser-profile XFTP HTTPS
+  encrypted chunk upload/download/delete.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server
@@ -155,8 +160,9 @@ directly speak the existing raw TCP/TLS SMP transport.
 The repo now contains browser-native SMP primitives, agent envelope helpers,
 queue orchestration, contact state, durable ratchet storage, retry scheduling,
 XFTP-style chunks, an encrypted-chunk XFTP client, and reviewed browser
-SMP/XFTP server profile validators. It still needs live interoperability
-vectors against real browser-profile SMP/XFTP servers and upstream-certified
+SMP/XFTP server profile validators. It also contains a skipped-by-default live
+interop harness in `tests/live-interop.test.mjs`. It still needs that harness to
+pass against reviewed browser-profile SMP/XFTP servers and upstream-certified
 SimpleX fixture bytes before claiming production network interoperability.
 
 ## Executed Coverage
@@ -166,6 +172,8 @@ Automated:
 - `npm test`
 - `npm run test:fuzz`
 - `npm run test:browser`
+- `npm run test:live` with no live endpoint variables, which verifies the
+  skipped-by-default harness path
 - `npm run test:haskell`
 - `npm audit --audit-level=moderate`
 - `npm pack --dry-run --json`

@@ -51,14 +51,14 @@ What works locally today:
   reassembly, and an HTTPS/`fetch` encrypted chunk transport.
 - Binary SMP-over-WebSocket transport for browser-compatible SMP servers.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
-  tests, fuzz/property tests, browser rendering tests, and Haskell/WASM smoke
-  checks.
+  tests, skipped-by-default live interop tests, fuzz/property tests, browser
+  rendering tests, and Haskell/WASM smoke checks.
 
 What is still required before claiming full production SimpleX browser-client
 interoperability:
 
 - Reviewed non-loopback browser-profile SMP and XFTP servers.
-- Live compatibility tests against those servers.
+- Passing live compatibility runs against those servers.
 - Upstream-certified SimpleX protocol vectors for every encoded layer.
 - A security review outside this Codex Desktop environment.
 
@@ -165,6 +165,7 @@ Not shipped:
 - `tests/browser-smp-server-profile.test.mjs`: Node tests for browser SMP server profile downgrade rejection.
 - `tests/browser-smp-websocket-transport.test.mjs`: Node tests for the binary browser WebSocket SMP transport profile.
 - `tests/browser-smp-websocket-live.test.mjs`: Node loopback WebSocket server test for real browser transport framing, handshake, send, and receive.
+- `tests/live-interop.test.mjs`: skipped-by-default live SMP/XFTP interoperability harness for reviewed non-loopback endpoints.
 - `tests/browser-xftp-core.test.mjs`: Node tests for XFTP chunk encryption, manifest verification, and tamper rejection.
 - `tests/browser-xftp-client.test.mjs`: Node tests for encrypted XFTP upload/download, deletion, and tamper rejection.
 - `tests/browser-xftp-http-transport.test.mjs`: Node loopback HTTP/fetch test for encrypted XFTP chunk upload, download, and deletion.
@@ -181,6 +182,7 @@ Not shipped:
 - `docs/ARCHITECTURE.md`: current boundaries and next protocol steps.
 - `docs/HASKELL_BROWSER_STATUS.md`: current Haskell/browser status and why the UI ships first.
 - `docs/SECURITY_REVIEW.md`: adversarial review scope, findings, coverage, and release posture.
+- `docs/LIVE_INTEROP.md`: live SMP/XFTP endpoint contract and environment variables.
 
 ## Run
 
@@ -192,9 +194,14 @@ Optional browser and Haskell/WASM checks:
 
 ```sh
 npm run test:browser
+npm run test:live
 ./tests-haskell-wasm-runtime.sh
 ./tests-haskell-core-runtime.sh
 ```
+
+`npm run test:live` skips by default. Set the environment variables described
+in `docs/LIVE_INTEROP.md` to run it against reviewed browser-profile SMP/XFTP
+servers.
 
 The Haskell/WASM checks require `wasm32-wasi-ghc`. Source the
 `ghc-wasm-meta` environment first when it is installed outside the default shell
