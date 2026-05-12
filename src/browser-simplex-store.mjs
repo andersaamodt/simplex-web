@@ -39,6 +39,10 @@ function storageKey(namespace, type, id) {
   return SIMPLEX_STORE_PREFIX + ':' + safePart(namespace, 'namespace') + ':' + safePart(type, 'record type') + ':' + safePart(id, 'record id');
 }
 
+function storageKeyPrefix(namespace, type) {
+  return SIMPLEX_STORE_PREFIX + ':' + safePart(namespace, 'namespace') + ':' + safePart(type, 'record type') + ':';
+}
+
 function listKey(namespace, type) {
   return SIMPLEX_STORE_PREFIX + ':' + safePart(namespace, 'namespace') + ':list:' + safePart(type, 'record type');
 }
@@ -125,6 +129,35 @@ function writeList(storage, namespace, type, ids) {
   storage.setItem(listKey(namespace, type), serialize(clean));
 }
 
+function scanStorageIds(storage, namespace, type) {
+  // Normal list calls are intentionally capped. Security cleanup needs a full
+  // sweep, so this scans the Storage keyspace when the backend exposes it.
+  if (!storage || typeof storage.key !== 'function' || typeof storage.length !== 'number') return [];
+  var prefix = storageKeyPrefix(namespace, type);
+  var ids = [];
+  for (var i = 0; i < storage.length; i += 1) {
+    var key = storage.key(i);
+    if (typeof key === 'string' && key.startsWith(prefix)) {
+      try {
+        ids.push(safePart(key.slice(prefix.length), 'stored id'));
+      } catch (_error) {
+        // Ignore same-origin garbage keys instead of letting one bad local
+        // storage entry block cleanup of valid records.
+      }
+    }
+  }
+  return ids;
+}
+
+function uniqueIds(ids) {
+  var seen = [];
+  for (var id of ids) {
+    var clean = safePart(id, 'stored id');
+    if (!seen.includes(clean)) seen.push(clean);
+  }
+  return seen;
+}
+
 export function createBrowserSimplexStore(options = {}) {
   return new BrowserSimplexStore(options);
 }
@@ -157,11 +190,42 @@ export class BrowserSimplexStore {
     return readList(this.storage, this.namespace, type).map((id) => ({ id, value: this.load(type, id) })).filter((row) => !!row.value);
   }
 
+  scan(type) {
+    // Merge the capped list with the physical storage scan. This keeps ordinary
+    // reads bounded while giving cleanup paths a way to find older records.
+    var cleanType = safePart(type, 'record type');
+    var ids = uniqueIds(readList(this.storage, this.namespace, cleanType).concat(scanStorageIds(this.storage, this.namespace, cleanType)));
+    var rows = [];
+    for (var id of ids) {
+      try {
+        var value = this.load(cleanType, id);
+        if (value) rows.push({ id, value });
+      } catch (_error) {
+        // A malformed local record should not prevent cleanup of the rest of
+        // the namespace. Direct `load` and `list` still fail loudly.
+      }
+    }
+    return rows;
+  }
+
   delete(type, id) {
     var cleanType = safePart(type, 'record type');
     var cleanId = safePart(id, 'record id');
     this.storage.removeItem(storageKey(this.namespace, cleanType, cleanId));
     writeList(this.storage, this.namespace, cleanType, readList(this.storage, this.namespace, cleanType).filter((item) => item !== cleanId));
+  }
+
+  deleteWhere(type, predicate) {
+    var cleanType = safePart(type, 'record type');
+    var test = typeof predicate === 'function' ? predicate : () => false;
+    var deleted = 0;
+    for (var row of this.scan(cleanType)) {
+      if (test(row.value, row.id, row)) {
+        this.delete(cleanType, row.id);
+        deleted += 1;
+      }
+    }
+    return deleted;
   }
 
   saveQueue(id, queue) { return this.save('queue', id, queue); }

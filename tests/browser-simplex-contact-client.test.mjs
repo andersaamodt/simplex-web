@@ -5,7 +5,7 @@ import * as smp from '../src/browser-smp-core.mjs';
 import { encryptRcvMessageBody, prepareInitialSenderMessage } from '../src/browser-simplex-agent.mjs';
 import { createBrowserSimplexClient } from '../src/browser-simplex-client.mjs';
 import { CONTACT_PAYLOAD_PREFIX, createBrowserSimplexContactClient, decodeContactPayload, encodeContactPayload } from '../src/browser-simplex-contact-client.mjs';
-import { createBrowserSimplexStore } from '../src/browser-simplex-store.mjs';
+import { createBrowserSimplexStore, SIMPLEX_STORE_MAX_LIST_ITEMS } from '../src/browser-simplex-store.mjs';
 import { createRatchetState, encryptRatchetMessage } from '../src/browser-simplex-ratchet.mjs';
 import { createBrowserXftpClient } from '../src/browser-xftp-client.mjs';
 
@@ -927,6 +927,14 @@ test('contact client delete scrubs durable queues ratchets and pending retries',
     msgId: smp.encodeBase64Url(filled(24, 93)),
     bodyHash: smp.encodeBase64Url(filled(32, 94))
   });
+  for (let i = 0; i < SIMPLEX_STORE_MAX_LIST_ITEMS + 5; i += 1) {
+    store.save('received', 'rx:filler-' + String(i).padStart(4, '0'), {
+      contactId: 'carol',
+      msgId: smp.encodeBase64Url(filled(24, i % 256)),
+      bodyHash: smp.encodeBase64Url(filled(32, (i + 1) % 256))
+    });
+  }
+  assert.equal(store.list('received').some((row) => row.id === 'rx:alice'), false);
 
   const deleted = contacts.deleteContact('alice');
   assert.equal(deleted.state, 'active');

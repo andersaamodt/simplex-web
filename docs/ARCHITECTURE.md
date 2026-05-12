@@ -21,7 +21,8 @@ framework app:
    over an abstract SMP transport. It performs create, subscribe, acknowledge,
    secure, delete, and initial confirmation protocol flows.
 6. `src/browser-simplex-store.mjs` persists queue, contact, ratchet, and
-   pending-task records in a Storage-like browser backend.
+   pending-task records in a Storage-like browser backend. Visible lists are
+   capped, and cleanup paths can scan physical storage keys for full deletion.
 7. `src/browser-simplex-ratchet.mjs` owns the browser double-ratchet state:
    root keys, DH steps, sending/receiving chains, skipped-message keys, and
    message AEAD.
@@ -295,7 +296,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
 ## Browser Store, Ratchet, Contact, And Retry
 
 - `src/browser-simplex-store.mjs` serializes binary fields with tagged
-  base64url JSON records and rejects hostile storage keys before writes.
+  base64url JSON records, rejects hostile storage keys before writes, caps
+  visible lists, and scans storage keys for privacy-sensitive cleanup.
 - `src/browser-simplex-ratchet.mjs` implements root-key derivation,
   sending/receiving chains, DH ratchet steps, skipped-message keys, and AES-GCM
   packet encryption.

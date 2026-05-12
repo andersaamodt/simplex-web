@@ -8,7 +8,9 @@ function storage() {
   return {
     getItem(key) { return map.has(key) ? map.get(key) : null; },
     setItem(key, value) { map.set(String(key), String(value)); },
-    removeItem(key) { map.delete(String(key)); }
+    removeItem(key) { map.delete(String(key)); },
+    key(index) { return Array.from(map.keys())[index] || null; },
+    get length() { return map.size; }
   };
 }
 
@@ -58,4 +60,29 @@ test('durable store capped lists keep newest saved record ids visible', () => {
   assert.equal(listed.some((row) => row.id === 'contact-0000'), false);
   assert.equal(listed.some((row) => row.id === 'contact-1004'), true);
   assert.equal(store.loadContact('contact-1004').index, SIMPLEX_STORE_MAX_LIST_ITEMS + 4);
+});
+
+test('durable store deleteWhere scans records beyond the capped visible list', () => {
+  const store = createBrowserSimplexStore({ storage: storage(), namespace: 'delete-scan' });
+  for (let i = 0; i < SIMPLEX_STORE_MAX_LIST_ITEMS + 5; i += 1) {
+    const id = 'rx-' + String(i).padStart(4, '0');
+    store.save('received', id, { contactId: i === 0 ? 'alice' : 'bob', index: i });
+  }
+
+  assert.equal(store.list('received').some((row) => row.id === 'rx-0000'), false);
+  assert.equal(store.load('received', 'rx-0000').contactId, 'alice');
+  assert.equal(store.deleteWhere('received', (value) => value.contactId === 'alice'), 1);
+  assert.equal(store.load('received', 'rx-0000'), null);
+  assert.equal(store.load('received', 'rx-1004').contactId, 'bob');
+});
+
+test('durable store deleteWhere ignores malformed storage keys and records', () => {
+  const backing = storage();
+  const store = createBrowserSimplexStore({ storage: backing, namespace: 'delete-scan-garbage' });
+  store.save('received', 'valid-alice', { contactId: 'alice' });
+  backing.setItem('simplex-web-v1:delete-scan-garbage:received:../bad', 'not-json');
+  backing.setItem('simplex-web-v1:delete-scan-garbage:received:corrupt', 'not-json');
+
+  assert.equal(store.deleteWhere('received', (value) => value.contactId === 'alice'), 1);
+  assert.equal(store.load('received', 'valid-alice'), null);
 });

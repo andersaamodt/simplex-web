@@ -127,12 +127,18 @@ Coverage added:
 - Durable store round trips binary records and rejects hostile storage keys.
 - Durable store retention tests prove capped record lists keep newest saved
   IDs visible instead of silently hiding newly saved records.
+- Durable store cleanup tests prove `deleteWhere` finds records that have fallen
+  out of capped visible lists by scanning the physical storage keyspace.
+- Durable store cleanup tests prove malformed same-origin storage keys and
+  corrupt scanned records do not block cleanup of valid records.
 - Ratchet tests cover out-of-order skipped messages and tampered ciphertext.
 - Contact tests cover invitation creation, active ratcheted sends, inbound
   queue-message decrypt-and-ack, encrypted-packet retry enqueueing after
   transport failure, explicit retry draining, and contact deletion that scrubs
   durable queue records, ratchet secrets, received-message fingerprints, and
   contact-scoped pending retry payloads.
+- Contact deletion fuzzing now includes received-message fingerprint records so
+  hostile metadata cases exercise the same privacy cleanup path.
 - Failed-send tests prove retry records contain the already-ratcheted packet
   bytes, do not contain the outbound plaintext, and resend the same encrypted
   packet during retry drain.
