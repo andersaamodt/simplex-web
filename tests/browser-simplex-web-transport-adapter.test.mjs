@@ -188,6 +188,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   var sentFiles = [];
   var acceptCalls = [];
   var deleteCalls = [];
+  var localDeleteCalls = [];
   var received = [{
     duplicate: true,
     payload: { type: 'duplicate' },
@@ -222,6 +223,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     deleteContactEverywhere(id, options) {
       deleteCalls.push({ id, options });
       return Promise.resolve({ contact: { id, state: 'deleted' }, remoteDeletedQueues: [id + ':inbox'] });
+    },
+    deleteContact(id, options) {
+      localDeleteCalls.push({ id, options });
+      return { id, state: 'deleted' };
     }
   };
   var adapter = createSimplexWebTransportAdapter({ contactClient });
@@ -250,10 +255,15 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
   assert.equal(acceptCalls[0].id, 'alice');
   assert.equal(acceptCalls[0].options.ackCorrId, 'accept-ack');
-  var deleted = await adapter.deleteContact({ contact_id: 'alice', corrId: 'delete-1' });
+  var deleted = await adapter.deleteContact({ contact_id: 'alice', corr_id: 'delete-1' });
   assert.deepEqual(deleted.remoteDeletedQueues, ['alice:inbox']);
   assert.equal(deleteCalls[0].id, 'alice');
   assert.equal(deleteCalls[0].options.corrId, 'delete-1');
+  var localDeleted = await adapter.deleteContact({ contact_id: 'alice', local_only: true, hard_delete: true });
+  assert.equal(localDeleted.state, 'deleted');
+  assert.equal(localDeleteCalls[0].id, 'alice');
+  assert.equal(localDeleteCalls[0].options.localOnly, true);
+  assert.equal(localDeleteCalls[0].options.hardDelete, true);
 
   var registered = registerSimplexWebTransportAdapter({ contactClient }, {
     registerBrowserTransport(nextAdapter) {

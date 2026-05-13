@@ -378,13 +378,20 @@ export class SimplexWebTransportAdapter {
   async deleteContact(params = {}) {
     var contacts = await this.ensureReady();
     var contactId = safeContactId(params.contact_id || params.contactId || params.id || this.options.defaultContactId);
-    if (params.local_only === true || params.localOnly === true || params.remote_delete === false || params.remoteDelete === false) {
-      return contacts.deleteContact(contactId, params);
+    var options = {
+      ...params,
+      corrId: params.corr_id || params.corrId,
+      hardDelete: params.hard_delete === true || params.hardDelete === true,
+      localOnly: params.local_only === true || params.localOnly === true,
+      remoteDelete: params.remote_delete === false ? false : params.remoteDelete
+    };
+    if (options.localOnly === true || options.remoteDelete === false) {
+      return contacts.deleteContact(contactId, options);
     }
     if (typeof contacts.deleteContactEverywhere === 'function') {
-      return contacts.deleteContactEverywhere(contactId, params);
+      return contacts.deleteContactEverywhere(contactId, options);
     }
-    return contacts.deleteContact(contactId, params);
+    return contacts.deleteContact(contactId, options);
   }
 
   activateContact(params = {}) {

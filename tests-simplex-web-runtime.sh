@@ -187,6 +187,7 @@ assert_file_contains "$ROOT_DIR/src/browser-xftp-server-profile.mjs" 'assertProd
 assert_file_contains "$ROOT_DIR/tests/browser-simplex-e2e-broker.test.mjs" 'two browser clients exchange ratcheted messages' 'browser SimpleX E2E broker exercises two clients'
 assert_file_contains "$ROOT_DIR/tests/browser-simplex-web-transport-adapter.test.mjs" 'sends and receives over the browser SimpleX contact client' 'browser SimpleX web adapter has E2E contact coverage'
 assert_file_contains "$ROOT_DIR/tests/browser-simplex-web-transport-adapter.test.mjs" "bob.deleteContact" 'browser SimpleX web adapter has E2E remote deletion coverage'
+assert_file_contains "$ROOT_DIR/tests/browser-simplex-web-transport-adapter.test.mjs" "local_only: true" 'browser SimpleX web adapter tests snake-case local-only deletion'
 assert_file_missing "$ROOT_DIR/src/simplex-chat-websocket-adapter.js" 'daemon-backed websocket adapter is not shipped'
 assert_file_missing "$ROOT_DIR/scripts/simplex-web-file-bridge.mjs" 'loopback file bridge is not shipped'
 assert_file_missing "$ROOT_DIR/examples/mock-chat.html" 'mock chat example is not shipped'
