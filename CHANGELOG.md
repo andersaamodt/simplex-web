@@ -27,6 +27,7 @@
 - Added requester reply queues, encrypted accept-confirmation receive handling, and a requester-first post-accept ratchet regression to complete more of the two-sided contact bootstrap.
 - Added durable ACK retry handling so inbound messages are not lost if decrypt succeeds but the queue ACK transport round-trip fails.
 - Added metadata-only received-message fingerprints so duplicate SMP redelivery is ACKed without replaying the ratchet or redelivering plaintext, while same-id changed-body replay fails closed.
+- Hardened inbound contact receive so malformed higher-level payloads cannot persist a ratchet advance before ACK/fingerprint side effects.
 - Changed failed-send retries to persist the already-ratcheted packet bytes instead of chat plaintext.
 - Changed capped durable-store record lists to keep newest saved IDs visible when the list reaches its retention limit.
 - Added full-scan durable-store deletion so privacy cleanup can scrub records that have fallen out of capped visible lists.

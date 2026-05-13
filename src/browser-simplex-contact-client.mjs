@@ -658,8 +658,15 @@ export class BrowserSimplexContactClient {
       msgId,
       encryptedBody: received.message.body
     });
-    var text = this.receiveText(contact.id, decryptedBody.body);
+    var ratchet = this.store.loadRatchet(contact.id);
+    if (!ratchet) fail('SIMPLEX_CONTACT_RATCHET', 'contact ratchet is missing');
+    var decryptedPacket = decryptRatchetMessage(ratchet, parsePacketBytes(decryptedBody.body));
+    var text = utf8Text(decryptedPacket.plaintext);
     var payload = decodeContactPayload(text);
+    // Persist the ratchet only after the higher-level payload is validated. A
+    // malformed prefixed payload must not consume a message key before the
+    // broker message can be retried or handled manually.
+    this.store.saveRatchet(contact.id, decryptedPacket.state);
     // Store only metadata and encrypted-body fingerprints before the ACK. If a
     // server redelivers the same message because ACK failed, the caller will not
     // receive the plaintext twice and the ratchet will not be replayed.

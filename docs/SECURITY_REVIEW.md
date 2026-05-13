@@ -154,6 +154,9 @@ Coverage added:
 - Replay tests cover duplicate received-message IDs with identical encrypted
   bodies, proving they are ACKed without ratchet replay or plaintext
   redelivery, and changed-body replays, proving no ACK side effect happens.
+- Malformed payload tests cover successful ratchet decrypt followed by
+  higher-level payload rejection, proving the ratchet advance is not persisted
+  before ACK/fingerprint side effects.
 - ACK-failure tests cover decrypt-success/ACK-failure ordering, prove the
   plaintext is returned to the caller, persist only a non-plaintext ACK retry
   task, and complete that ACK through the retry drain.

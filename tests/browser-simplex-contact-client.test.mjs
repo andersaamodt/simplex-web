@@ -765,6 +765,44 @@ test('contact client rejects changed-body replay before ACK side effects', async
   assert.equal(transport.sent.length, 1);
 });
 
+test('contact client rejects malformed payloads before persisting ratchet advance', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-payload-malformed-ratchet' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const aliceDh = smp.generateX25519KeyPair(filled(32, 181));
+  const bobDh = smp.generateX25519KeyPair(filled(32, 182));
+  const root = filled(32, 183);
+  const senderRatchet = createRatchetState({ rootKey: root, ownDhKey: aliceDh, remoteDhPublicKey: bobDh.publicKey });
+  const receiverRatchet = createRatchetState({ rootKey: root, ownDhKey: bobDh, initializeSending: false });
+  const queue = {
+    rcvId: filled(24, 184),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 185)),
+    serverDhSecret: filled(32, 186)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'active', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+  store.saveRatchet('alice', receiverRatchet);
+
+  const malformed = CONTACT_PAYLOAD_PREFIX + '<not-json>';
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes(malformed), { nonce: filled(24, 187) }).packet;
+  const msgId = filled(24, 188);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 780n,
+    body: packetBytes(packet)
+  });
+  transport.pushResponse('msg-malformed-payload', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('ack-should-not-send', { type: 'OK' }, queue.rcvId);
+
+  await assert.rejects(() => contacts.receiveNext('alice', { ackCorrId: 'ack-should-not-send' }), /payload JSON/i);
+
+  assert.equal(store.loadRatchet('alice').receiveCount, 0);
+  assert.equal(store.list('received').length, 0);
+  assert.equal(transport.sent.length, 0);
+});
+
 test('contact client uploads files through XFTP and sends only a ratcheted file descriptor', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });

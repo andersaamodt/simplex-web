@@ -144,6 +144,7 @@ assert_file_contains "$ROOT_DIR/tests/adversarial-fuzz.test.js" "store.load('rec
 assert_file_contains "$ROOT_DIR/tests/adversarial-fuzz.test.js" "simplex-web-v1:delete-fuzz:received:corrupt" 'adversarial fuzz tests corrupt received record cleanup'
 assert_file_contains "$ROOT_DIR/tests/browser-simplex-contact-client.test.mjs" 'ACKs duplicate received message ids without redelivering plaintext' 'browser SimpleX contact client tests duplicate redelivery suppression'
 assert_file_contains "$ROOT_DIR/tests/browser-simplex-contact-client.test.mjs" 'rejects changed-body replay before ACK side effects' 'browser SimpleX contact client tests changed-body replay rejection'
+assert_file_contains "$ROOT_DIR/tests/browser-simplex-contact-client.test.mjs" 'malformed payloads before persisting ratchet advance' 'browser SimpleX contact client tests malformed payload ratchet rollback'
 assert_file_contains "$ROOT_DIR/tests/browser-simplex-contact-client.test.mjs" 'pending.payload.type, '"'sendPacket'"'' 'browser SimpleX contact client tests plaintext-free failed-send retry'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-web-transport-adapter.mjs" 'received.duplicate' 'browser SimpleX facade skips duplicate redeliveries'
 assert_file_contains "$ROOT_DIR/src/browser-simplex-ratchet.mjs" 'decryptRatchetMessage' 'browser SimpleX ratchet decrypts message packets'
