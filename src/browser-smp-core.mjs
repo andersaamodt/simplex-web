@@ -10,7 +10,7 @@
 // - byte/string encodings used by simplexmq's Haskell `Encoding` instances
 // - `smp://` queue URI parsing
 // - fixed-size 16384-byte transport block padding
-// - SMP v3 single-transmission and SMP v4 batched block framing
+// - SMP v3 single-transmission and SMP v4+ batched block framing
 // - command/response codecs for SMP queue operations
 // - Ed25519 signatures, X25519 DH, XSalsa20-Poly1305, AES-GCM, and SHA-256
 //
@@ -30,7 +30,7 @@ export const SMP_MAX_RCV_MESSAGE_LENGTH = SMP_MAX_MESSAGE_LENGTH + 16;
 export const SMP_E2E_ENC_CONFIRMATION_LENGTH = 15936;
 export const SMP_E2E_ENC_MESSAGE_LENGTH = 16032;
 export const SMP_BROWSER_MIN_VERSION = 3;
-export const SMP_BROWSER_MAX_VERSION = 4;
+export const SMP_BROWSER_MAX_VERSION = 6;
 export const SMP_DEFAULT_PORT = '5223';
 
 export class SimplexSmpProtocolError extends Error {

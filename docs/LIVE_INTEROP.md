@@ -40,7 +40,7 @@ The SMP server must expose the browser SMP WebSocket profile implemented by
 - Binary WebSocket frames only.
 - Exactly one padded 16384-byte SMP transport block per frame after handshake.
 - Server handshake first, then client handshake with the configured key hash.
-- Compatible SMP version 3 or 4.
+- Compatible SMP version 3, 4, 5, or 6.
 - Broker `PONG` response to an unauthenticated queue-empty `PING`.
 
 The XFTP server must expose the upstream-style XFTP web profile implemented by

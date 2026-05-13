@@ -169,7 +169,7 @@ test('signed transmissions verify against the exact signed bytes', () => {
   assert.equal(smp.verifyTransmissionSignature(tampered, parsed.signature, signer.publicKey), false);
 });
 
-test('SMP v4 transport block batches signed transmissions with strict padding', () => {
+test('SMP v4 and later transport blocks batch signed transmissions with strict padding', () => {
   const signer = smp.generateEd25519KeyPair(filled(32, 15));
   const tx1 = smp.encodeSignedTransmission(4, filled(32, 16), {
     privateKey: signer.secretKey,
@@ -197,12 +197,17 @@ test('SMP v4 transport block batches signed transmissions with strict padding', 
 
   const emptyBatchBody = smp.padBlock(bytes([0]), smp.SMP_BLOCK_SIZE);
   assert.throws(() => smp.decodeTransportBlock(4, emptyBatchBody), /empty batch/);
+
+  const v6Block = smp.encodeTransportBlock(6, [tx1, tx2]);
+  const v6Decoded = smp.decodeTransportBlock(6, v6Block);
+  assert.equal(v6Decoded.length, 2);
+  assert.equal(v6Decoded[0].command.type, 'PING');
 });
 
 test('handshake codecs choose the highest mutually supported SMP version', () => {
   const serverBlock = smp.padBlock(smp.encodeServerHandshake({
     minVersion: 1,
-    maxVersion: 4,
+    maxVersion: 6,
     sessionId: filled(32, 19)
   }));
   const server = smp.parseServerHandshake(smp.unpadBlock(serverBlock));
@@ -212,10 +217,10 @@ test('handshake codecs choose the highest mutually supported SMP version', () =>
     keyHash: filled(32, 20)
   }));
 
-  assert.equal(version, 4);
-  assert.equal(client.version, 4);
+  assert.equal(version, 6);
+  assert.equal(client.version, 6);
   assert.equal(client.keyHash.length, 32);
-  assert.throws(() => smp.chooseCompatibleVersion({ minVersion: 5, maxVersion: 6 }), /incompatible/);
+  assert.throws(() => smp.chooseCompatibleVersion({ minVersion: 7, maxVersion: 8 }), /incompatible/);
 });
 
 test('browser crypto primitives perform protocol-sized authenticated round trips', () => {
