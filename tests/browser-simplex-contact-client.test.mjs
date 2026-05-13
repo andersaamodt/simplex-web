@@ -781,6 +781,7 @@ test('accepted contact can receive the requester first ratcheted message', async
   transport.pushResponse('first-text', { type: 'OK' }, filled(24, 117));
   await aliceContacts.sendText('bob', 'first encrypted hello', {
     corrId: 'first-text',
+    clientMessageId: 'alice-first-1',
     nonce: filled(24, 134)
   });
   const firstTextCommand = lastParsedCommand(transport, 'SEND').command;
@@ -799,7 +800,76 @@ test('accepted contact can receive the requester first ratcheted message', async
 
   const received = await bobContacts.receiveNext('alice', { ackCorrId: 'first-text-ack' });
   assert.equal(received.text, 'first encrypted hello');
+  assert.equal(received.payload.messageRef, 'alice-first-1');
   assert.equal(received.timestamp, 333n);
+});
+
+test('contact client sends and receives encrypted read receipts', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-read-receipt' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const senderRatchet = createRatchetState({
+    rootKey: filled(32, 154),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 155)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 156)).publicKey
+  });
+  const receiverRatchet = createRatchetState({
+    rootKey: filled(32, 154),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 156)),
+    initializeSending: false
+  });
+  const outbox = {
+    sndId: filled(24, 157),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 158))
+  };
+  const inbox = {
+    rcvId: filled(24, 159),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 160)),
+    serverDhSecret: filled(32, 161)
+  };
+  store.saveContact('alice', {
+    id: 'alice',
+    state: 'active',
+    inboxQueueId: 'alice:inbox',
+    outboundQueue: outbox
+  });
+  store.saveQueue('alice:inbox', inbox);
+  store.saveRatchet('alice', senderRatchet);
+
+  transport.pushResponse('read-send', { type: 'OK' }, outbox.sndId);
+  await contacts.sendReadReceipt('alice', 'sender-msg-1', {
+    corrId: 'read-send',
+    clientMessageId: 'read-local-1',
+    nonce: filled(24, 162),
+    readAt: '2026-05-12T00:00:00.000Z'
+  });
+  const sent = lastParsedCommand(transport, 'SEND');
+  assert.equal(sent.command.type, 'SEND');
+  assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('sender-msg-1')), false);
+  assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('read-receipt')), false);
+
+  store.saveRatchet('alice', receiverRatchet);
+  const packet = encryptRatchetMessage(senderRatchet, smp.utf8Bytes(encodeContactPayload({
+    type: 'read-receipt',
+    messageRef: 'sender-msg-2',
+    readAt: '2026-05-12T00:01:00.000Z'
+  })), { nonce: filled(24, 163) }).packet;
+  const msgId = filled(24, 164);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: inbox.serverDhSecret,
+    msgId,
+    timestamp: 999n,
+    body: packetBytes(packet)
+  });
+  transport.pushResponse('read-msg', { type: 'MSG', msgId, body }, inbox.rcvId);
+  transport.pushResponse('read-ack', { type: 'OK' }, inbox.rcvId);
+
+  const received = await contacts.receiveNext('alice', { ackCorrId: 'read-ack' });
+  assert.equal(received.text, '');
+  assert.equal(received.payload.type, 'read-receipt');
+  assert.equal(received.payload.messageRef, 'sender-msg-2');
+  assert.equal(received.payload.readAt, '2026-05-12T00:01:00.000Z');
 });
 
 test('contact client rejects malformed accept confirmation before queue side effects', async () => {
@@ -1379,6 +1449,9 @@ test('contact client delete everywhere falls back from hostile stored inbox ids'
 
 test('contact payload decoder preserves plain text and rejects malformed prefixed payloads', () => {
   assert.deepEqual(decodeContactPayload('hello'), { type: 'text', text: 'hello' });
+  assert.deepEqual(decodeContactPayload(encodeContactPayload({ type: 'text', text: 'hello', messageRef: 'm-1' })).messageRef, 'm-1');
+  assert.equal(decodeContactPayload(encodeContactPayload({ type: 'read-receipt', messageRef: 'm-2' })).type, 'read-receipt');
+  assert.throws(() => decodeContactPayload(encodeContactPayload({ type: 'read-receipt', messageRef: '../bad' })), /message ref/i);
   assert.throws(() => decodeContactPayload(CONTACT_PAYLOAD_PREFIX + '{"type":"file"}'), /file payload/i);
   assert.throws(() => decodeContactPayload(CONTACT_PAYLOAD_PREFIX + '<script>bad()</script>'), /JSON/i);
 });

@@ -186,6 +186,7 @@ async function activateAdapterPair(alice, bob, aliceStore, bobStore) {
 test('SimplexWebTransport adapter normalizes facade sends files receives and registration', async () => {
   var sentText = [];
   var sentFiles = [];
+  var sentReceipts = [];
   var acceptCalls = [];
   var deleteCalls = [];
   var localDeleteCalls = [];
@@ -211,6 +212,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     sendFile(id, bytes, options) {
       sentFiles.push({ id, bytes, options });
       return Promise.resolve({ file: { manifest: { fileId: 'f' }, rootKey: 'k' } });
+    },
+    sendReadReceipt(id, messageRef, options) {
+      sentReceipts.push({ id, messageRef, options });
+      return Promise.resolve({ message: { type: 'OK' } });
     },
     receiveNext() {
       if (received.length) return Promise.resolve(received.shift());
@@ -252,6 +257,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(messages[0].text, 'reply');
   assert.equal(messages[0].delivery_status, 'received');
   assert.equal(messages[0].ack_pending, false);
+  var readReceipt = await adapter.sendReadReceipt({ contact_id: 'alice', message_ref: 'sender-msg-1', client_message_id: 'read-1' });
+  assert.equal(readReceipt.message_ref, 'read-1');
+  assert.equal(readReceipt.read_message_ref, 'sender-msg-1');
+  assert.equal(sentReceipts[0].messageRef, 'sender-msg-1');
   await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
   assert.equal(acceptCalls[0].id, 'alice');
   assert.equal(acceptCalls[0].options.ackCorrId, 'accept-ack');
@@ -290,6 +299,10 @@ test('SimplexWebTransport adapter sends and receives over the browser SimpleX co
   assert.equal(messages.length, 1);
   assert.equal(messages[0].text, 'hello bob');
   assert.equal(messages[0].message_kind, 'text');
+  assert.equal(messages[0].sender_message_ref, 'alice-msg-1');
+  var receiptEvents = await alice.getMessages({ contact_id: 'bob', limit: 1 });
+  assert.deepEqual(receiptEvents, []);
+  assert.equal((await alice.getMessageStatus({ message_ref: 'alice-msg-1' })).transport_status, 'read');
 
   var allAcked = Array.from(broker.queues.values()).every((queue) => (
     Array.from(queue.messages.values()).every((message) => message.acked)

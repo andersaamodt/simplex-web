@@ -34,7 +34,8 @@ framework app:
 10. `src/browser-simplex-web-transport-adapter.mjs` is the first-party adapter
    that registers the browser contact client with `window.SimplexWebTransport`.
    It exposes send, receive, contact setup, retry drain, and remote-first
-   contact deletion operations.
+  contact deletion operations. It also keeps encrypted read-receipt state for
+  messages sent through the facade.
 11. `src/browser-xftp-core.mjs` owns encrypted XFTP-style chunks, manifests, and
    reassembly verification.
 12. `src/browser-xftp-client.mjs` owns encrypted chunk upload/download
@@ -90,7 +91,7 @@ Safari automation, and wasm GHC without a bundler.
 - browser invitation URI creation, requester reply queues, encrypted sender
   contact requests, encrypted accept confirmations, recipient/requester
   confirmation-key verification, queue `KEY` securing, and request/accept ACKs
-- active-contact sends and receives with ratchet persistence, SMP ACKs, durable ACK retry, duplicate-redelivery suppression, changed-body replay rejection, and encrypted-packet failed-send retry enqueueing
+- active-contact sends and receives with ratchet persistence, SMP ACKs, durable ACK retry, duplicate-redelivery suppression, changed-body replay rejection, encrypted read receipts, and encrypted-packet failed-send retry enqueueing
 - contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
 - contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
 - in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
@@ -192,6 +193,8 @@ The default UI expects a model shaped like:
       direction: "incoming" | "outgoing",
       text: "hello",
       message_kind: "text" | "file",
+      message_ref: "local-or-received-message-ref",
+      sender_message_ref: "sender-local-ref-for-read-receipts",
       delivery_status: "sent",
       created_at: "2026-05-01T00:00:00Z",
       attachment: {
@@ -229,6 +232,10 @@ The transport facade exposed by `src/transport.js` is separate from the UI:
 - `window.SimplexWebTransport.getStatus()`
 - `window.SimplexWebTransport.connect(params)`
 - `window.SimplexWebTransport.sendText({ contact_id, text, client_message_id })`
+- `window.SimplexWebTransport.sendFiles({ contact_id, files, client_message_id })`
+- `window.SimplexWebTransport.sendReadReceipt({ contact_id, message_ref })`
+- `window.SimplexWebTransport.getMessages({ contact_id, limit })`
+- `window.SimplexWebTransport.getMessageStatus({ contact_id, message_ref })`
 - `window.SimplexWebTransport.deleteContact({ contact_id })`
 - `window.SimplexWebTransport.disconnect()`
 - `window.SimplexWebTransport.registerBrowserTransport(adapter)`

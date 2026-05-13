@@ -43,6 +43,9 @@
 - Added remote-first contact deletion that sends signed SMP `DEL` for browser-owned inbox queues before local cleanup and preserves local secrets if broker deletion fails.
 - Exposed remote-first contact deletion through the first-party adapter and `window.SimplexWebTransport.deleteContact(...)`.
 - Added contact-client XFTP file send/receive helpers that upload encrypted chunks, ratchet-send file descriptors/root keys, and verify received downloads.
+- Added encrypted read receipts across the contact client, first-party adapter,
+  and public facade so Secure Chat can move outgoing messages from sent to read
+  without exposing receipt metadata to the website server or SMP broker.
 - Added `src/browser-simplex-scheduler.mjs` for bounded retry scheduling.
 - Added `src/browser-simplex-web-transport-adapter.mjs`, a first-party adapter that registers the browser contact client with `window.SimplexWebTransport` over SMP WebSocket and optional XFTP web file transfer.
 - Added `src/browser-xftp-core.mjs` for XFTP-style encrypted chunk manifests, tamper detection, and download assembly.

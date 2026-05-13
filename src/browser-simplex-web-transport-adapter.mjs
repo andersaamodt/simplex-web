@@ -48,6 +48,14 @@ function safeContactId(value) {
   return id;
 }
 
+function safeMessageRef(value, fallback = '') {
+  var ref = String(value == null ? fallback : value).trim();
+  if (!ref || ref.length > 256 || /[^A-Za-z0-9_.:-]/.test(ref)) {
+    fail('SIMPLEX_WEB_ADAPTER_MESSAGE_REF', 'message ref is required and must be filename-safe ASCII');
+  }
+  return ref;
+}
+
 function safeText(value) {
   var text = String(value == null ? '' : value);
   if (!text.trim()) fail('SIMPLEX_WEB_ADAPTER_TEXT', 'message text is required');
@@ -105,9 +113,11 @@ function makeReceipt(ref, status = 'sent') {
 function receivedToFacadeMessage(received) {
   var ref = received && received.msgId ? 'rcv:' + encodeBase64Url(received.msgId) : generatedMessageRef('rcv');
   var file = received && received.file ? received.file : null;
+  var payload = received && received.payload && typeof received.payload === 'object' ? received.payload : {};
   return {
     direction: 'incoming',
     message_ref: ref,
+    sender_message_ref: payload.messageRef || '',
     message_kind: file ? 'file' : 'text',
     delivery_status: 'received',
     ack_pending: !!(received && received.ackPending),
@@ -320,9 +330,29 @@ export class SimplexWebTransportAdapter {
           acknowledge: query.acknowledge !== false
         });
         if (received && received.duplicate) continue;
+        if (received && received.payload && received.payload.type === 'read-receipt') {
+          var readRef = safeMessageRef(received.payload.messageRef);
+          this.receipts.set(readRef, {
+            ...makeReceipt(readRef, 'read'),
+            read_at: received.payload.readAt || new Date().toISOString()
+          });
+          continue;
+        }
         var facadeMessage = receivedToFacadeMessage(received);
         messages.push(facadeMessage);
         this.history.push(facadeMessage);
+        var senderMessageRef = facadeMessage.sender_message_ref;
+        if (senderMessageRef && query.send_read_receipts !== false && query.sendReadReceipts !== false && this.options.sendReadReceipts !== false) {
+          try {
+            await this.sendReadReceipt({
+              contact_id: contactId,
+              message_ref: senderMessageRef,
+              corr_id: query.read_receipt_corr_id || query.readReceiptCorrId
+            });
+          } catch (error) {
+            facadeMessage.read_receipt_error = String(error && error.message || error || '').slice(0, 500);
+          }
+        }
       } catch (error) {
         if (timeoutError(error)) break;
         throw error;
@@ -332,9 +362,27 @@ export class SimplexWebTransportAdapter {
   }
 
   async getMessageStatus(message = {}) {
-    var ref = String(message.message_ref || message.messageRef || message.client_message_id || message.clientMessageId || '');
-    if (!ref) fail('SIMPLEX_WEB_ADAPTER_MESSAGE_REF', 'message ref is required');
+    var ref = safeMessageRef(message.message_ref || message.messageRef || message.client_message_id || message.clientMessageId);
     return this.receipts.get(ref) || makeReceipt(ref, 'unknown');
+  }
+
+  async sendReadReceipt(message = {}) {
+    var contacts = await this.ensureReady();
+    var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
+    var readRef = safeMessageRef(message.message_ref || message.messageRef || message.read_message_ref || message.readMessageRef);
+    var receiptRef = String(message.client_message_id || message.clientMessageId || generatedMessageRef('read'));
+    await contacts.sendReadReceipt(contactId, readRef, {
+      clientMessageId: receiptRef,
+      corrId: message.corr_id || message.corrId,
+      timeoutMs: message.timeout_ms || message.timeoutMs,
+      readAt: message.read_at || message.readAt
+    });
+    var receipt = {
+      ...makeReceipt(receiptRef, 'sent'),
+      read_message_ref: readRef
+    };
+    this.receipts.set(receiptRef, receipt);
+    return receipt;
   }
 
   async createInvitation(params = {}) {

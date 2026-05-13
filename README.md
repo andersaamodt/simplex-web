@@ -62,7 +62,8 @@ What works locally today:
   transport-encrypted download chunks.
 - Binary SMP-over-WebSocket transport for browser-compatible SMP servers.
 - A public website adapter that can register with `window.SimplexWebTransport`
-  and send/receive through the browser contact client.
+  and send/receive through the browser contact client, including encrypted
+  text, encrypted file descriptors, and encrypted read receipts.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
   tests, skipped-by-default live interop tests, fuzz/property tests, browser
   rendering tests, and Haskell/WASM smoke checks.
@@ -125,7 +126,7 @@ ratcheted chat layer.
 - Ships a low-level queue client orchestrator over an abstract SMP transport.
 - Ships durable browser queue/contact/ratchet/pending-task storage with bounded visible lists, poisoned-list recovery, and full-scan cleanup for privacy-sensitive deletes.
 - Ships browser-owned double-ratchet encryption with skipped-message-key handling.
-- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages and XFTP file descriptors, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, sends remote SMP `DEL` for browser-owned inbox queues before optional local deletion, and scrubs contact queue/ratchet/received-fingerprint/retry records on delete.
+- Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages, XFTP file descriptors, and read receipts, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, sends remote SMP `DEL` for browser-owned inbox queues before optional local deletion, and scrubs contact queue/ratchet/received-fingerprint/retry records on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
@@ -269,7 +270,19 @@ registerSimplexWebTransportAdapter({
 await window.SimplexWebTransport.connect();
 await window.SimplexWebTransport.sendText({
   contact_id: "alice",
-  text: "hello"
+  text: "hello",
+  client_message_id: "local-message-1"
+});
+
+// Poll receives inbound messages. For messages sent by simplex-web peers, the
+// adapter automatically sends an encrypted read receipt unless disabled.
+await window.SimplexWebTransport.getMessages({ contact_id: "alice" });
+
+// The sender can check whether a message has been read after the peer's
+// encrypted receipt arrives.
+await window.SimplexWebTransport.getMessageStatus({
+  contact_id: "alice",
+  message_ref: "local-message-1"
 });
 ```
 
@@ -292,6 +305,11 @@ window.SimplexWebTransport.registerBrowserTransport({
     // Send without a plaintext server bridge.
     // message: { contact_id, text, client_message_id }
     return { message_ref: "browser-message-ref" };
+  },
+  async sendReadReceipt(message) {
+    // Send an encrypted receipt for message.message_ref or
+    // message.read_message_ref.
+    return { message_ref: "receipt-ref", read_message_ref: message.message_ref };
   },
   async disconnect() {}
 });

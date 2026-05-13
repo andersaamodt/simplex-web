@@ -188,13 +188,17 @@ Coverage added:
 - Contact file-transfer tests cover encrypted XFTP upload, ratcheted descriptor
   send, root-key hiding from the SMP body, received descriptor parsing, verified
   XFTP download, and received-file byte equality.
+- Read-receipt tests cover sender message refs inside ratcheted text/file
+  payloads, encrypted receipt sends that do not expose the target message ref in
+  the SMP body, receipt receive parsing, facade normalization, and adapter E2E
+  status updates from `sent` to `read`.
 - E2E broker tests cover two browser clients exchanging ratcheted messages
   through queue creation, recipient `KEY`, signed `SEND`, encrypted received
   `MSG`, `ACK`, and forged-signature rejection.
 - First-party facade-adapter tests cover `sendText`, `sendFiles`,
-  `getMessages`, registration with `window.SimplexWebTransport`, and an
-  in-process ratcheted contact send/receive over the browser SimpleX contact
-  client.
+  `sendReadReceipt`, `getMessages`, registration with
+  `window.SimplexWebTransport`, and an in-process ratcheted contact
+  send/receive/read-receipt cycle over the browser SimpleX contact client.
 - XFTP tests cover encrypted chunk reassembly, encrypted server-bound upload,
   verified download, deletion, profile downgrade rejection, and tampered chunk
   rejection.

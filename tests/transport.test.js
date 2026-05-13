@@ -64,7 +64,9 @@ test('registered browser adapter receives normalized outbound text and returns n
   assert.deepEqual(receipt, {
     accepted: true,
     transport_status: 'accepted',
-    message_ref: 'serverless-ref-1'
+    message_ref: 'serverless-ref-1',
+    read_message_ref: '',
+    read_at: ''
   });
 });
 
@@ -149,7 +151,39 @@ test('registered browser adapter can query normalized message status', async () 
   assert.deepEqual(receipt, {
     accepted: true,
     transport_status: 'sent',
-    message_ref: 'msg-1'
+    message_ref: 'msg-1',
+    read_message_ref: '',
+    read_at: ''
+  });
+});
+
+test('registered browser adapter can send normalized read receipts', async () => {
+  const calls = [];
+  const transport = transportApi.createTransport({
+    sendText() {
+      throw new Error('unused');
+    },
+    sendReadReceipt(message) {
+      calls.push(message);
+      return { transport_status: 'sent', message_ref: 'read-1', read_message_ref: message.read_message_ref || message.message_ref };
+    }
+  });
+
+  const receipt = await transport.sendReadReceipt(
+    { contactLink: 'simplex:/contact#abc', readMessageRef: 'sender-msg-1', bridgeUserId: 'user-1' },
+    { clientMessageId: 'read-local-1' }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].contact_link, 'simplex:/contact#abc');
+  assert.equal(calls[0].read_message_ref, 'sender-msg-1');
+  assert.equal(calls[0].client_message_id, 'read-local-1');
+  assert.deepEqual(receipt, {
+    accepted: true,
+    transport_status: 'sent',
+    message_ref: 'read-1',
+    read_message_ref: 'sender-msg-1',
+    read_at: ''
   });
 });
 
@@ -184,6 +218,8 @@ test('registered browser adapter can query normalized recent messages', async ()
     seq: 0,
     direction: 'incoming',
     message_ref: 'reply-1',
+    sender_message_ref: '',
+    read_message_ref: '',
     message_kind: 'text',
     delivery_status: 'rcvNew',
     created_at: '2026-05-11T00:00:00Z',

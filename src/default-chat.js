@@ -200,6 +200,10 @@
       case 'sndRcvd':
       case 'delivered':
         return 'Delivered';
+      case 'read':
+      case 'sndRead':
+      case 'readReceipt':
+        return 'Read';
       case 'sndSent':
       case 'sent':
         return 'Sent';

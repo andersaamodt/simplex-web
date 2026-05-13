@@ -35,6 +35,7 @@ export const CONTACT_STATE_ACTIVE = 'active';
 export const CONTACT_STATE_SUSPENDED = 'suspended';
 export const CONTACT_STATE_DELETED = 'deleted';
 export const CONTACT_PAYLOAD_PREFIX = 'simplex-web:payload:v1\n';
+const MAX_MESSAGE_REF_LENGTH = 256;
 
 export class BrowserSimplexContactError extends Error {
   constructor(code, message) {
@@ -60,6 +61,18 @@ function safeStoredId(value, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function safeMessageRef(value, label = 'message ref') {
+  var text = String(value == null ? '' : value).trim();
+  if (!text || text.length > MAX_MESSAGE_REF_LENGTH || /[^A-Za-z0-9_.:-]/.test(text)) {
+    fail('SIMPLEX_CONTACT_MESSAGE_REF', label + ' is invalid');
+  }
+  return text;
+}
+
+function optionalMessageRef(value, label = 'message ref') {
+  return value == null || value === '' ? '' : safeMessageRef(value, label);
 }
 
 function nowIso() {
@@ -96,6 +109,35 @@ export function encodeContactPayload(payload = {}) {
   return CONTACT_PAYLOAD_PREFIX + JSON.stringify(p);
 }
 
+function validateTextPayload(parsed) {
+  var text = String(parsed.text == null ? '' : parsed.text);
+  var messageRef = optionalMessageRef(parsed.messageRef || parsed.message_ref || '');
+  return {
+    type: 'text',
+    text,
+    messageRef,
+    createdAt: String(parsed.createdAt || parsed.created_at || '').slice(0, 64)
+  };
+}
+
+function validateFilePayload(parsed) {
+  if (!parsed.file || typeof parsed.file !== 'object') fail('SIMPLEX_CONTACT_PAYLOAD', 'contact file payload is invalid');
+  return {
+    type: 'file',
+    file: parsed.file,
+    messageRef: optionalMessageRef(parsed.messageRef || parsed.message_ref || ''),
+    createdAt: String(parsed.createdAt || parsed.created_at || '').slice(0, 64)
+  };
+}
+
+function validateReadReceiptPayload(parsed) {
+  return {
+    type: 'read-receipt',
+    messageRef: safeMessageRef(parsed.messageRef || parsed.message_ref, 'read receipt message ref'),
+    readAt: String(parsed.readAt || parsed.read_at || nowIso()).slice(0, 64)
+  };
+}
+
 export function decodeContactPayload(text) {
   var value = String(text == null ? '' : text);
   if (!value.startsWith(CONTACT_PAYLOAD_PREFIX)) return { type: 'text', text: value };
@@ -106,9 +148,10 @@ export function decodeContactPayload(text) {
     fail('SIMPLEX_CONTACT_PAYLOAD', 'contact payload JSON is invalid');
   }
   if (!parsed || typeof parsed !== 'object') fail('SIMPLEX_CONTACT_PAYLOAD', 'contact payload is invalid');
-  if (parsed.type !== 'file') fail('SIMPLEX_CONTACT_PAYLOAD', 'contact payload type is unsupported');
-  if (!parsed.file || typeof parsed.file !== 'object') fail('SIMPLEX_CONTACT_PAYLOAD', 'contact file payload is invalid');
-  return parsed;
+  if (parsed.type === 'text') return validateTextPayload(parsed);
+  if (parsed.type === 'file') return validateFilePayload(parsed);
+  if (parsed.type === 'read-receipt') return validateReadReceiptPayload(parsed);
+  fail('SIMPLEX_CONTACT_PAYLOAD', 'contact payload type is unsupported');
 }
 
 function requireXftpClient(client) {
@@ -569,7 +612,13 @@ export class BrowserSimplexContactClient {
   }
 
   async sendText(id, text, options = {}) {
-    return this.sendPlaintext(id, utf8Bytes(text), options);
+    var payloadText = encodeContactPayload({
+      type: 'text',
+      text: String(text == null ? '' : text),
+      messageRef: optionalMessageRef(options.messageRef || options.clientMessageId || ''),
+      createdAt: nowIso()
+    });
+    return this.sendPlaintext(id, utf8Bytes(payloadText), options);
   }
 
   async sendPlaintext(id, plaintext, options = {}) {
@@ -624,9 +673,23 @@ export class BrowserSimplexContactClient {
       rootKey: encodeBase64Url(upload.rootKey),
       uploadedChunks: upload.uploadedChunks
     };
-    var payloadText = encodeContactPayload({ type: 'file', file });
+    var payloadText = encodeContactPayload({
+      type: 'file',
+      file,
+      messageRef: optionalMessageRef(options.messageRef || options.clientMessageId || ''),
+      createdAt: nowIso()
+    });
     var response = await this.sendPlaintext(id, utf8Bytes(payloadText), options);
     return { ...response, file };
+  }
+
+  async sendReadReceipt(id, messageRef, options = {}) {
+    var payloadText = encodeContactPayload({
+      type: 'read-receipt',
+      messageRef: safeMessageRef(messageRef || options.messageRef || options.message_ref, 'read receipt message ref'),
+      readAt: String(options.readAt || options.read_at || nowIso()).slice(0, 64)
+    });
+    return this.sendPlaintext(id, utf8Bytes(payloadText), options);
   }
 
   receiveText(id, packetBytesValue) {

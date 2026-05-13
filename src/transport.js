@@ -49,6 +49,7 @@
       text: limitString(payload.text || '', MAX_TEXT_LENGTH),
       client_message_id: limitString(payload.client_message_id || payload.clientMessageId || opts.client_message_id || opts.clientMessageId || '', MAX_LABEL_LENGTH),
       message_ref: limitString(payload.message_ref || payload.messageRef || opts.message_ref || opts.messageRef || '', MAX_LABEL_LENGTH),
+      read_message_ref: limitString(payload.read_message_ref || payload.readMessageRef || opts.read_message_ref || opts.readMessageRef || '', MAX_LABEL_LENGTH),
       corr_id: limitString(payload.corr_id || payload.corrId || opts.corr_id || opts.corrId || '', MAX_LABEL_LENGTH),
       user_id: limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || opts.user_id || opts.userId || opts.bridge_user_id || opts.bridgeUserId || '', MAX_LABEL_LENGTH),
       hard_delete: payload.hard_delete === true || payload.hardDelete === true || opts.hard_delete === true || opts.hardDelete === true,
@@ -76,7 +77,9 @@
     return {
       accepted: next.accepted !== false,
       transport_status: normalizeStatus(next.transport_status || next.transportStatus, 'accepted'),
-      message_ref: limitString(next.message_ref || next.messageRef || fallbackMessage.message_ref || fallbackMessage.client_message_id || '', MAX_LABEL_LENGTH)
+      message_ref: limitString(next.message_ref || next.messageRef || fallbackMessage.message_ref || fallbackMessage.client_message_id || '', MAX_LABEL_LENGTH),
+      read_message_ref: limitString(next.read_message_ref || next.readMessageRef || fallbackMessage.read_message_ref || '', MAX_LABEL_LENGTH),
+      read_at: limitString(next.read_at || next.readAt || '', MAX_LABEL_LENGTH)
     };
   }
 
@@ -87,6 +90,8 @@
       seq: 0,
       direction: direction,
       message_ref: limitString(next.message_ref || next.messageRef || '', MAX_LABEL_LENGTH),
+      sender_message_ref: limitString(next.sender_message_ref || next.senderMessageRef || '', MAX_LABEL_LENGTH),
+      read_message_ref: limitString(next.read_message_ref || next.readMessageRef || '', MAX_LABEL_LENGTH),
       message_kind: limitString(next.message_kind || next.messageKind || 'text', MAX_STATUS_LENGTH) || 'text',
       delivery_status: normalizeStatus(next.delivery_status || next.deliveryStatus || next.transport_status || next.transportStatus, direction === 'incoming' ? 'received' : 'sent'),
       created_at: limitString(next.created_at || next.createdAt || '', MAX_TEXT_LENGTH),
@@ -234,6 +239,24 @@
           return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_MESSAGE_REF', 'message ref is required'));
         }
         return callAdapterMethod(target, 'getMessageStatus', [normalized]).then(function (receipt) {
+          return normalizeReceipt(receipt, normalized);
+        });
+      },
+      sendReadReceipt: function (message, options) {
+        var target;
+        try {
+          target = requireAdapter();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        if (typeof target.sendReadReceipt !== 'function') {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_READ_RECEIPT_UNAVAILABLE', 'read receipts are not available in this browser SimpleX transport'));
+        }
+        var normalized = normalizeOutboundMessage(message, options);
+        if (!normalized.message_ref && !normalized.read_message_ref) {
+          return Promise.reject(makeTransportError('SIMPLEX_WEB_TRANSPORT_EMPTY_MESSAGE_REF', 'message ref is required'));
+        }
+        return callAdapterMethod(target, 'sendReadReceipt', [normalized]).then(function (receipt) {
           return normalizeReceipt(receipt, normalized);
         });
       },
