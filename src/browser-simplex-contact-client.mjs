@@ -362,6 +362,8 @@ export class BrowserSimplexContactClient {
     contact.remoteProfile = request.profile || {};
     contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
     var accept = null;
+    var preparedAccept = null;
+    var acceptTaskId = '';
     if (acceptReply) {
       var reply = acceptReply.reply;
       var replyDh = acceptReply.replyDh;
@@ -372,7 +374,7 @@ export class BrowserSimplexContactClient {
         profile: options.acceptProfile || contact.profile || {},
         createdAt: nowIso()
       }));
-      accept = await this.client.sendInitialConfirmation({
+      preparedAccept = this.client.prepareInitialConfirmation({
         corrId: options.acceptCorrId || options.replyCorrId || ('accept-' + Date.now()),
         senderQueueId: reply.queueId,
         senderSignKey: options.acceptSenderSignKey,
@@ -386,10 +388,11 @@ export class BrowserSimplexContactClient {
       contact.outboundQueue = {
         server: reply.server,
         sndId: reply.queueId,
-        senderSignKey: accept.senderSignKey
+        senderSignKey: preparedAccept.senderSignKey
       };
       contact.outboxQueueId = contact.id + ':outbox';
       this.store.saveQueue(contact.outboxQueueId, contact.outboundQueue);
+      acceptTaskId = initialConfirmationTaskId(contact.id, preparedAccept.corrId);
     }
     this.store.saveContact(contact.id, contact);
     this.store.saveRatchet(contact.id, createRatchetState({
@@ -400,6 +403,26 @@ export class BrowserSimplexContactClient {
       // unset makes the receiver derive the receiving chain on that message.
       initializeSending: false
     }));
+    if (preparedAccept) {
+      try {
+        accept = await this.client.sendPreparedInitialConfirmation(preparedAccept, options);
+        this.scheduler.complete(acceptTaskId);
+      } catch (error) {
+        if (options.retryOnFailure !== false) {
+          // Accept confirmations use the same encrypted initial SEND shape as
+          // contact requests, so retry only the already-encrypted wire bytes.
+          this.scheduler.enqueue(acceptTaskId, {
+            type: 'initialConfirmation',
+            contactId: contact.id,
+            transmission: preparedAccept.transmission.bytes,
+            corrId: preparedAccept.corrId,
+            options: { timeoutMs: options.timeoutMs || 0 }
+          });
+          this.scheduler.fail(acceptTaskId, error);
+        }
+        throw error;
+      }
+    }
     return {
       contact,
       request,

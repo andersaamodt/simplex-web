@@ -155,6 +155,10 @@ Coverage added:
   requested contact, durable queues, and ratchet state, persist only the
   already-encrypted unsigned SMP `SEND`, avoid profile plaintext, and resend
   the same encrypted envelope during retry drain.
+- Accept-confirmation retry tests prove an inbound request that has already
+  been secured and ACKed saves active contact state, durable outbox queue, and
+  receiving ratchet state before a failed accept send is retried as encrypted
+  bytes without profile plaintext.
 - Missing-queue send tests prove corrupt outbound contact state fails before
   consuming a sending ratchet step or creating a retry task.
 - Replay tests cover duplicate received-message IDs with identical encrypted
