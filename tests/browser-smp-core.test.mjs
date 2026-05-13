@@ -209,6 +209,15 @@ test('SMP v4 and later transport blocks batch signed transmissions with strict p
   const v6Decoded = smp.decodeTransportBlock(6, v6Block);
   assert.equal(v6Decoded.length, 2);
   assert.equal(v6Decoded[0].command.type, 'PING');
+
+  const brokerTx = smp.encodeSignedTransmission(6, filled(32, 16), {
+    signature: new Uint8Array(),
+    corrId: smp.asciiBytes('pong-1'),
+    queueId: new Uint8Array(),
+    commandBytes: smp.encodeBrokerMessage(6, { type: 'PONG' })
+  });
+  const brokerDecoded = smp.decodeTransportBlock(6, smp.encodeTransportBlock(6, [brokerTx]), { kind: 'broker' });
+  assert.deepEqual(brokerDecoded[0].message, { type: 'PONG' });
 });
 
 test('handshake codecs choose the highest mutually supported SMP version', () => {
