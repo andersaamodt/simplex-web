@@ -209,6 +209,43 @@ test('message id nonce follows SimpleX truncate and zero-pad behavior', () => {
   assert.equal(smp.equalBytes(agent.messageIdNonce(filled(40, 9)), filled(24, 9)), true);
 });
 
+test('native SimpleX X3DH sender and receiver derive the same initial ratchet keys', () => {
+  const recipientKey1 = smp.generateX448KeyPair(filled(56, 40));
+  const recipientKey2 = smp.generateX448KeyPair(filled(56, 41));
+  const senderKey1 = smp.generateX448KeyPair(filled(56, 42));
+  const senderKey2 = smp.generateX448KeyPair(filled(56, 43));
+
+  const sender = agent.deriveNativeX3dhSender({
+    senderKey1,
+    senderKey2,
+    recipientKey1: smp.decodePublicKeyDer(recipientKey1.publicKeyDer),
+    recipientKey2: smp.decodePublicKeyDer(recipientKey2.publicKeyDer)
+  });
+  const receiver = agent.deriveNativeX3dhReceiver({
+    recipientKey1,
+    recipientKey2,
+    senderKey1: senderKey1.publicKeyDer,
+    senderKey2: senderKey2.publicKeyDer
+  });
+
+  assert.equal(smp.equalBytes(sender.associatedData, receiver.associatedData), true);
+  assert.equal(smp.equalBytes(sender.ratchetKey, receiver.ratchetKey), true);
+  assert.equal(smp.equalBytes(sender.sendHeaderKey, receiver.sendHeaderKey), true);
+  assert.equal(smp.equalBytes(sender.receiveNextHeaderKey, receiver.receiveNextHeaderKey), true);
+  assert.equal(sender.ratchetKey.length, 32);
+  assert.equal(sender.sendHeaderKey.length, 32);
+  assert.equal(sender.receiveNextHeaderKey.length, 32);
+  assert.throws(
+    () => agent.deriveNativeX3dhSender({
+      senderKey1,
+      senderKey2,
+      recipientKey1: smp.generateX25519KeyPair(filled(32, 44)).publicKey,
+      recipientKey2: recipientKey2.publicKey
+    }),
+    /X448/
+  );
+});
+
 test('agent envelope fuzzing preserves hostile binary bodies without changing header state', () => {
   fc.assert(fc.property(
     fc.uint8Array({ minLength: 0, maxLength: 512 }),

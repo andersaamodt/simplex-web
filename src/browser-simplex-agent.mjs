@@ -32,18 +32,24 @@ import {
   encryptSecretBox,
   equalBytes,
   generateEd25519KeyPair,
+  generateX448KeyPair,
   generateX25519KeyPair,
   parseBrokerMessage,
   parseCommand,
   parseSignedTransmission,
   decryptSecretBox,
   toBytes,
-  x25519SharedSecret
+  utf8Bytes,
+  x25519SharedSecret,
+  x448SharedSecret
 } from './browser-smp-core.mjs';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha512 } from '@noble/hashes/sha2.js';
 
 export const SIMPLEX_AGENT_MESSAGE_VERSION = 1;
 export const SIMPLEX_EMPTY_PRIVATE_HEADER = '_';
 export const SIMPLEX_CONFIRMATION_PRIVATE_HEADER = 'K';
+export const SIMPLEX_NATIVE_X3DH_INFO = 'SimpleXX3DH';
 
 class AgentProtocolError extends Error {
   constructor(code, message) {
@@ -115,6 +121,93 @@ function normalizePublicHeader(header) {
     version: normalizeVersion(h.version),
     e2ePubDhKey: h.e2ePubDhKey ? toBytes(h.e2ePubDhKey, 'E2E public DH key') : null
   };
+}
+
+function normalizeX448KeyPair(value, label) {
+  var key = value && typeof value === 'object' ? value : {};
+  var publicKey = key.publicKey || key.rawPublicKey || null;
+  if (!publicKey && key.publicKeyDer) {
+    var decodedPublic = decodePublicKeyDer(key.publicKeyDer);
+    if (decodedPublic.algorithm !== 'X448') fail('SIMPLEX_AGENT_X3DH', label + ' public key must be X448');
+    publicKey = decodedPublic.rawPublicKey;
+  }
+  var secretKey = key.secretKey || key.privateKey || null;
+  if (!secretKey) fail('SIMPLEX_AGENT_X3DH', label + ' secret key is missing');
+  var secret = toBytes(secretKey, label + ' secret key');
+  var pub = toBytes(publicKey || generateX448KeyPair(secret).publicKey, label + ' public key');
+  if (secret.length !== 56 || pub.length !== 56) fail('SIMPLEX_AGENT_X3DH', label + ' keys must be X448 keys');
+  return { secretKey: secret, publicKey: pub };
+}
+
+function normalizeX448PublicKey(value, label) {
+  if (value && typeof value === 'object') {
+    if (value.algorithm && value.algorithm !== 'X448') fail('SIMPLEX_AGENT_X3DH', label + ' must be X448');
+    if (value.rawPublicKey) return normalizeX448PublicKey(value.rawPublicKey, label);
+    if (value.publicKey) return normalizeX448PublicKey(value.publicKey, label);
+    if (value.publicKeyDer) return normalizeX448PublicKey(decodePublicKeyDer(value.publicKeyDer), label);
+  }
+  var key = toBytes(value, label);
+  if (key.length !== 56) {
+    try {
+      return normalizeX448PublicKey(decodePublicKeyDer(key), label);
+    } catch (_error) {
+      // Fall through to the stable X448 length error below.
+    }
+  }
+  if (key.length !== 56) fail('SIMPLEX_AGENT_X3DH', label + ' must be a 56-byte X448 public key');
+  return key;
+}
+
+function hkdf3(salt, ikm, info) {
+  var out = hkdf(sha512, salt, ikm, utf8Bytes(info), 96);
+  return {
+    ratchetKey: out.slice(0, 32),
+    sendHeaderKey: out.slice(32, 64),
+    receiveNextHeaderKey: out.slice(64, 96)
+  };
+}
+
+function simplexX3dh(firstPublicPair, dh1, dh2, dh3, kemSecret) {
+  var salt = new Uint8Array(64);
+  var ikm = concatBytes(dh1, dh2, dh3, kemSecret || new Uint8Array());
+  return {
+    associatedData: concatBytes(firstPublicPair[0], firstPublicPair[1]),
+    ...hkdf3(salt, ikm, SIMPLEX_NATIVE_X3DH_INFO)
+  };
+}
+
+export function deriveNativeX3dhSender(options = {}) {
+  // Upstream SimpleX uses this path for the peer joining an invitation:
+  // DH(rk1, spk2) || DH(rk2, spk1) || DH(rk2, spk2), HKDF-SHA512,
+  // where `rk*` are recipient invitation keys and `spk*` are sender keys.
+  var senderKey1 = normalizeX448KeyPair(options.senderKey1 || options.spk1, 'sender X3DH key 1');
+  var senderKey2 = normalizeX448KeyPair(options.senderKey2 || options.spk2, 'sender X3DH key 2');
+  var recipientKey1 = normalizeX448PublicKey(options.recipientKey1 || options.rk1, 'recipient X3DH key 1');
+  var recipientKey2 = normalizeX448PublicKey(options.recipientKey2 || options.rk2, 'recipient X3DH key 2');
+  return simplexX3dh(
+    [senderKey1.publicKey, recipientKey1],
+    x448SharedSecret(senderKey2.secretKey, recipientKey1),
+    x448SharedSecret(senderKey1.secretKey, recipientKey2),
+    x448SharedSecret(senderKey2.secretKey, recipientKey2),
+    options.kemSecret
+  );
+}
+
+export function deriveNativeX3dhReceiver(options = {}) {
+  // Upstream SimpleX uses this path for the invitation creator after receiving
+  // the joiner's reply: the same three DHs as the sender, evaluated from the
+  // opposite private keys.
+  var recipientKey1 = normalizeX448KeyPair(options.recipientKey1 || options.rpk1, 'recipient X3DH key 1');
+  var recipientKey2 = normalizeX448KeyPair(options.recipientKey2 || options.rpk2, 'recipient X3DH key 2');
+  var senderKey1 = normalizeX448PublicKey(options.senderKey1 || options.sk1, 'sender X3DH key 1');
+  var senderKey2 = normalizeX448PublicKey(options.senderKey2 || options.sk2, 'sender X3DH key 2');
+  return simplexX3dh(
+    [senderKey1, recipientKey1.publicKey],
+    x448SharedSecret(recipientKey1.secretKey, senderKey2),
+    x448SharedSecret(recipientKey2.secretKey, senderKey1),
+    x448SharedSecret(recipientKey2.secretKey, senderKey2),
+    options.kemSecret
+  );
 }
 
 export function encodePublicHeader(header = {}) {
@@ -424,6 +517,8 @@ export default {
   SIMPLEX_CONFIRMATION_PRIVATE_HEADER,
   SIMPLEX_EMPTY_PRIVATE_HEADER,
   completeNewQueueRequest,
+  deriveNativeX3dhReceiver,
+  deriveNativeX3dhSender,
   decryptClientMessageEnvelope,
   decryptRcvMessageBody,
   encodeClientMessage,
