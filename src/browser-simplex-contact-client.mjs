@@ -143,6 +143,10 @@ function ackTaskId(contactId, msgId) {
   return 'ack:' + encodeBase64Url(msgId).slice(0, 96) + ':' + encodeBase64Url(utf8Bytes(safeId(contactId))).slice(0, 48);
 }
 
+function initialConfirmationTaskId(contactId, corrId) {
+  return safeId(contactId) + ':initial:' + encodeBase64Url(corrId).slice(0, 64);
+}
+
 function receivedRecordId(contactId, msgId) {
   var digest = sha256Hash(concatBytes(
     utf8Bytes(safeId(contactId)),
@@ -154,6 +158,10 @@ function receivedRecordId(contactId, msgId) {
 
 function receivedBodyHash(body) {
   return encodeBase64Url(sha256Hash(toBytes(body || new Uint8Array(), 'received encrypted body')));
+}
+
+function retryBytes(value, label) {
+  return typeof value === 'string' ? decodeBase64Url(value, label) : toBytes(value, label);
 }
 
 function outboxQueueId(contact) {
@@ -254,7 +262,7 @@ export class BrowserSimplexContactClient {
       replyQueueUri: replyQueue ? invitationUriFromQueue(replyQueue) : '',
       createdAt: nowIso()
     }));
-    var confirmation = await this.client.sendInitialConfirmation({
+    var prepared = this.client.prepareInitialConfirmation({
       corrId: options.corrId,
       senderQueueId: parsed.queueId,
       senderSignKey: options.senderSignKey,
@@ -276,7 +284,7 @@ export class BrowserSimplexContactClient {
       outboundQueue: {
         server: parsed.server,
         sndId: parsed.queueId,
-        senderSignKey: confirmation.senderSignKey
+        senderSignKey: prepared.senderSignKey
       }
     };
     this.store.saveContact(cleanId, contact);
@@ -286,6 +294,26 @@ export class BrowserSimplexContactClient {
       ownDhKey,
       remoteDhPublicKey: recipientDh.rawPublicKey
     }));
+    var taskId = initialConfirmationTaskId(cleanId, prepared.corrId);
+    try {
+      await this.client.sendPreparedInitialConfirmation(prepared, options);
+      this.scheduler.complete(taskId);
+    } catch (error) {
+      if (options.retryOnFailure !== false) {
+        // Initial contact requests are retried as the already-encrypted
+        // unsigned SMP SEND. The retry task never stores profile JSON or other
+        // plaintext request material.
+        this.scheduler.enqueue(taskId, {
+          type: 'initialConfirmation',
+          contactId: cleanId,
+          transmission: prepared.transmission.bytes,
+          corrId: prepared.corrId,
+          options: { timeoutMs: options.timeoutMs || 0 }
+        });
+        this.scheduler.fail(taskId, error);
+      }
+      throw error;
+    }
     return contact;
   }
 
@@ -547,7 +575,7 @@ export class BrowserSimplexContactClient {
           type: 'sendPacket',
           contactId: contact.id,
           queueId: outboxQueueId(contact),
-          packet: encodeBase64Url(body),
+          packet: body,
           options: {
             clientMessageId: options.clientMessageId || '',
             timeoutMs: options.timeoutMs || 0,
@@ -712,7 +740,7 @@ export class BrowserSimplexContactClient {
     var results = [];
     for (var task of due) {
       if (!task || !task.payload) continue;
-      if (task.payload.type !== 'sendPacket' && task.payload.type !== 'ackMessage') continue;
+      if (task.payload.type !== 'sendPacket' && task.payload.type !== 'ackMessage' && task.payload.type !== 'initialConfirmation') continue;
       try {
         var response;
         if (task.payload.type === 'sendPacket') {
@@ -725,7 +753,16 @@ export class BrowserSimplexContactClient {
           if (!sendContact) fail('SIMPLEX_CONTACT_MISSING', 'contact does not exist');
           var sendQueue = options.queue || sendContact.outboundQueue || this.store.loadQueue(task.payload.queueId || outboxQueueId(sendContact));
           if (!sendQueue) fail('SIMPLEX_CONTACT_QUEUE', 'contact retry queue is missing');
-          response = await this.client.sendQueueMessage(sendQueue, decodeBase64Url(task.payload.packet, 'retry packet'), sendPacketOptions);
+          response = await this.client.sendQueueMessage(sendQueue, retryBytes(task.payload.packet, 'retry packet'), sendPacketOptions);
+        } else if (task.payload.type === 'initialConfirmation') {
+          response = await this.client.sendPreparedTransmission(
+            retryBytes(task.payload.transmission, 'retry initial confirmation transmission'),
+            retryBytes(task.payload.corrId, 'retry initial confirmation correlation id'),
+            {
+              ...(task.payload.options || {}),
+              ...(options.initialOptions || {})
+            }
+          );
         } else {
           // ACK retry tasks carry only enough metadata to repeat the SMP ACK.
           // They deliberately avoid storing the plaintext message or ratchet

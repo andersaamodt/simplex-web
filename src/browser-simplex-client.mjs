@@ -234,6 +234,12 @@ export class BrowserSimplexClient {
 
   async sendInitialConfirmation(options = {}) {
     var corrId = normalizeCorrId(options.corrId, this.makeCorrId('confirm'));
+    var prepared = this.prepareInitialConfirmation({ ...options, corrId });
+    return this.sendPreparedInitialConfirmation(prepared, options);
+  }
+
+  prepareInitialConfirmation(options = {}) {
+    var corrId = normalizeCorrId(options.corrId, this.makeCorrId('confirm'));
     var prepared = prepareInitialSenderMessage({
       version: this.version,
       sessionId: this.sessionId,
@@ -247,12 +253,24 @@ export class BrowserSimplexClient {
       body: options.body,
       flags: options.flags
     });
-    var response = await this.sendAndWait(prepared.transmission, corrId, options);
-    if (brokerType(response) !== 'OK') fail('SIMPLEX_CLIENT_PROTOCOL', 'initial confirmation expected OK response', response);
+    return { ...prepared, corrId };
+  }
+
+  async sendPreparedInitialConfirmation(prepared, options = {}) {
+    var p = prepared && typeof prepared === 'object' ? prepared : {};
+    var response = await this.sendPreparedTransmission(p.transmission, p.corrId, options);
     return {
-      senderSignKey: prepared.senderSignKey,
+      senderSignKey: p.senderSignKey,
       response
     };
+  }
+
+  async sendPreparedTransmission(transmission, corrId, options = {}) {
+    var cleanCorrId = normalizeCorrId(corrId, this.makeCorrId('prepared'));
+    var preparedTransmission = transmission && transmission.bytes ? transmission : { bytes: toBytes(transmission, 'prepared transmission') };
+    var response = await this.sendAndWait(preparedTransmission, cleanCorrId, options);
+    if (brokerType(response) !== 'OK') fail('SIMPLEX_CLIENT_PROTOCOL', 'prepared SEND expected OK response', response);
+    return response;
   }
 
   async sendQueueMessage(queueOrLabel, body, options = {}) {

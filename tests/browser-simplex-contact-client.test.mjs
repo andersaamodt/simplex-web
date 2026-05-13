@@ -181,6 +181,58 @@ test('contact client requests contact from invitation with encrypted initial con
   assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('Alice')), false);
 });
 
+test('contact client retries failed contact requests without storing plaintext profile data', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-request-retry' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 193));
+  const invitationUri = smp.formatSmpQueueUri({
+    server: { scheme: 'smp', keyHash: filled(32, 194), host: 'smp.example.test', port: '5223' },
+    queueId: filled(24, 195),
+    recipientDhPublicKey: recipientDh.publicKeyDer
+  });
+  const replyServerDh = smp.generateX25519KeyPair(filled(32, 196));
+
+  transport.pushResponse('reply-new-retry', {
+    type: 'IDS',
+    rcvId: filled(24, 197),
+    sndId: filled(24, 198),
+    rcvPublicDhKey: replyServerDh.publicKeyDer
+  });
+
+  await assert.rejects(() => contacts.requestContact('bob', invitationUri, {
+    replyCorrId: 'reply-new-retry',
+    replyRcvSignSeed: filled(32, 199),
+    replyRcvDhSeed: filled(32, 200),
+    corrId: 'req-pending',
+    ownDhSeed: filled(32, 201),
+    senderSignSeed: filled(32, 202),
+    nonce: filled(24, 203),
+    profile: { displayName: 'Alice Secret' }
+  }), /no fake responses/);
+
+  const pending = store.listPending()[0];
+  assert.equal(store.loadContact('bob').state, 'requested');
+  assert.equal(store.loadQueue('bob:inbox').rcvId.length, 24);
+  assert.equal(store.loadQueue('bob:outbox').sndId.length, 24);
+  assert.equal(store.loadRatchet('bob').rootKey.length, 32);
+  assert.equal(pending.payload.type, 'initialConfirmation');
+  assert.equal(JSON.stringify(pending).includes('Alice Secret'), false);
+  assert.equal(JSON.stringify(pending).includes('contact-request'), false);
+
+  const originalRequest = smp.parseSignedTransmission(4, transport.sent[1].bytes);
+  transport.pushResponse('req-pending', { type: 'OK' }, filled(24, 195));
+  const retried = await contacts.drainDueRetries({ now: Date.now() + 60000 });
+
+  assert.equal(retried.length, 1);
+  assert.equal(retried[0].ok, true);
+  assert.equal(store.listPending()[0].completedAt > 0, true);
+  const retryRequest = smp.parseSignedTransmission(4, transport.sent[2].bytes);
+  assert.equal(smp.equalBytes(originalRequest.command.body, retryRequest.command.body), true);
+  assert.equal(Buffer.from(retryRequest.command.body).includes(Buffer.from('Alice Secret')), false);
+});
+
 test('contact client persists caller supplied requester reply queue', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });
@@ -587,7 +639,8 @@ test('contact client schedules failed sends for retry', async () => {
   assert.equal(pending.payload.contactId, 'alice');
   assert.equal(JSON.stringify(pending).includes('retry me'), false);
   const sent = smp.parseSignedTransmission(4, transport.sent[0].bytes);
-  assert.equal(smp.encodeBase64Url(sent.command.body), pending.payload.packet);
+  assert.equal(pending.payload.packet instanceof Uint8Array, true);
+  assert.equal(smp.equalBytes(sent.command.body, pending.payload.packet), true);
 });
 
 test('contact client does not advance ratchet when outbound queue is missing', async () => {

@@ -149,8 +149,12 @@ Coverage added:
   hostile metadata cases exercise the same privacy cleanup path, including
   corrupt received-record cleanup.
 - Failed-send tests prove retry records contain the already-ratcheted packet
-  bytes, do not contain the outbound plaintext, and resend the same encrypted
-  packet during retry drain.
+  bytes as binary storage records, do not contain the outbound plaintext, and
+  resend the same encrypted packet during retry drain.
+- Initial contact retry tests prove failed encrypted contact requests keep a
+  requested contact, durable queues, and ratchet state, persist only the
+  already-encrypted unsigned SMP `SEND`, avoid profile plaintext, and resend
+  the same encrypted envelope during retry drain.
 - Missing-queue send tests prove corrupt outbound contact state fails before
   consuming a sending ratchet step or creating a retry task.
 - Replay tests cover duplicate received-message IDs with identical encrypted

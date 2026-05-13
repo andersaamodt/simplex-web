@@ -291,6 +291,9 @@ flows while remaining transport-agnostic:
 - `createQueue()` sends signed `NEW`, waits for matching `IDS`, derives queue state, and remembers the queue under an optional label.
 - `subscribeQueue()`, `acknowledgeMessage()`, `secureQueue()`, and `deleteQueue()` sign queue-scoped recipient commands.
 - `sendInitialConfirmation()` sends the unsigned initial sender `SEND` and requires an `OK` response.
+- `prepareInitialConfirmation()`, `sendPreparedInitialConfirmation()`, and
+  `sendPreparedTransmission()` let higher layers persist and retry an already
+  encrypted initial contact request without storing profile plaintext.
 - `sendQueueMessage()` sends encrypted payload bytes through a sender queue and requires an `OK` response.
 - broker `ERR` responses and unmatched correlation IDs fail closed before state is treated as successful.
 
@@ -310,7 +313,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
 - `src/browser-simplex-contact-client.mjs` creates invitations, activates
   contacts, sends encrypted contact requests from invitation URIs, verifies and
   accepts incoming contact requests, creates requester reply queues, sends and
-  receives encrypted accept confirmations, persists ratchets, sends
+  receives encrypted accept confirmations, persists ratchets, stores failed
+  contact requests as encrypted initial-confirmation retry tasks, sends
   active-contact messages only after outbound queue state is present, decrypts
   inbound queue messages, acknowledges received SMP messages, stores
   non-plaintext ACK retry tasks if ACK transport fails after decrypt, stores
@@ -319,7 +323,7 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   persisting ratchet advances, uploads encrypted XFTP file chunks,
   ratchet-sends file descriptors and root keys,
   downloads received encrypted files, stores failed
-  sends as already-ratcheted packet retry tasks instead of chat plaintext, and
+  sends as already-ratcheted binary packet retry tasks instead of chat plaintext, and
   can send remote SMP `DEL` for browser-owned inbox queues before scrubbing
   queue, ratchet, received-message fingerprint, and retry records when a contact
   is deleted.
