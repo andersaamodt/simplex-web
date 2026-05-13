@@ -172,6 +172,9 @@ Coverage added:
   task, and complete that ACK through the retry drain.
 - Accept-confirmation ACK-failure tests prove requester activation is saved
   before a failed ACK is retried as a non-plaintext ACK task.
+- Contact-request ACK-failure tests prove recipient activation, receiving
+  ratchet state, and accept-send can complete while the failed request ACK is
+  retried as a non-plaintext ACK task.
 - Contact request tests cover invitation URI generation, requester reply-queue
   creation, caller-supplied reply-queue persistence, encrypted initial
   confirmation sends, profile hiding from broker bodies, recipient confirmation

@@ -417,6 +417,82 @@ test('contact client retries failed accept confirmations after saving active con
   assert.equal(Buffer.from(retryAccept.command.body).includes(Buffer.from('Alice Secret')), false);
 });
 
+test('contact client saves request state sends accept and retries ACK after request ack failure', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-request-ack-retry' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 230));
+  const senderDh = smp.generateX25519KeyPair(filled(32, 231));
+  const replyDh = smp.generateX25519KeyPair(filled(32, 232));
+  const replyQueueId = filled(24, 233);
+  const replyQueueUri = smp.formatSmpQueueUri({
+    server: { scheme: 'smp', keyHash: filled(32, 234), host: 'smp.example.test', port: '5223' },
+    queueId: replyQueueId,
+    recipientDhPublicKey: replyDh.publicKeyDer
+  });
+  const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
+  const queue = {
+    rcvId: filled(24, 235),
+    sndId: filled(24, 236),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 237)),
+    rcvDhKey: recipientDh,
+    serverDhSecret: filled(32, 238)
+  };
+  store.saveContact('alice', { id: 'alice', state: 'invited', inboxQueueId: 'alice:inbox' });
+  store.saveQueue('alice:inbox', queue);
+
+  const prepared = prepareInitialSenderMessage({
+    version: 4,
+    sessionId: transport.sessionId,
+    corrId: smp.asciiBytes('request-ack-retry'),
+    senderQueueId: queue.sndId,
+    senderSignSeed: filled(32, 239),
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderDh.publicKeyDer,
+    nonce: filled(24, 240),
+    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-request', profile: { displayName: 'Bob' }, replyQueueUri }))
+  });
+  const msgId = filled(24, 241);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 791n,
+    body: prepared.envelope
+  });
+  transport.pushResponse('msg-request-ack-retry', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('key-request-ack-retry', { type: 'OK' }, queue.rcvId);
+  transport.pushResponse('accept-after-ack-pending', { type: 'OK' }, replyQueueId);
+
+  const accepted = await contacts.receiveContactRequest('alice', {
+    keyCorrId: 'key-request-ack-retry',
+    ackCorrId: 'ack-request-missing',
+    acceptCorrId: 'accept-after-ack-pending',
+    acceptDhSeed: filled(32, 242),
+    acceptSenderSignSeed: filled(32, 243),
+    acceptNonce: filled(24, 244)
+  });
+
+  assert.equal(accepted.contact.state, 'active');
+  assert.equal(accepted.acknowledged, false);
+  assert.equal(accepted.ackPending, true);
+  assert.equal(accepted.accept.response.message.type, 'OK');
+  assert.equal(store.loadContact('alice').state, 'active');
+  assert.equal(store.loadRatchet('alice').rootKey.length, 32);
+  assert.equal(store.listPending()[0].payload.type, 'ackMessage');
+
+  transport.pushResponse('request-ack-retry-ok', { type: 'OK' }, queue.rcvId);
+  const retried = await contacts.drainDueRetries({
+    now: Date.now() + 60000,
+    ackOptions: { corrId: 'request-ack-retry-ok' }
+  });
+  assert.equal(retried.length, 1);
+  assert.equal(retried[0].ok, true);
+  const retryAck = smp.parseSignedTransmission(4, transport.sent[3].bytes);
+  assert.equal(retryAck.command.type, 'ACK');
+  assert.equal(smp.equalBytes(retryAck.command.msgId, msgId), true);
+});
+
 test('contact client rejects malformed reply queue before request side effects', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });

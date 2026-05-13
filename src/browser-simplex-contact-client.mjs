@@ -351,12 +351,6 @@ export class BrowserSimplexContactClient {
       ...options,
       corrId: options.keyCorrId || options.corrId || ('key-' + Date.now())
     });
-    if (options.acknowledge !== false) {
-      await this.client.acknowledgeMessage(queue, received.message.msgId, {
-        ...options,
-        corrId: options.ackCorrId || ('ack-' + Date.now())
-      });
-    }
     contact.state = CONTACT_STATE_ACTIVE;
     contact.updatedAt = nowIso();
     contact.remoteProfile = request.profile || {};
@@ -403,6 +397,10 @@ export class BrowserSimplexContactClient {
       // unset makes the receiver derive the receiving chain on that message.
       initializeSending: false
     }));
+    var ack = await this.acknowledgeOrQueue(contact, queue, received.message.msgId, {
+      ...options,
+      corrId: options.ackCorrId || options.corrId || ('ack-' + Date.now())
+    });
     if (preparedAccept) {
       try {
         accept = await this.client.sendPreparedInitialConfirmation(preparedAccept, options);
@@ -428,7 +426,8 @@ export class BrowserSimplexContactClient {
       request,
       accept,
       msgId: received.message.msgId,
-      timestamp: decryptedBody.timestamp
+      timestamp: decryptedBody.timestamp,
+      ...ack
     };
   }
 

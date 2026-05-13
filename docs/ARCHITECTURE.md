@@ -318,7 +318,8 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   initial-confirmation retry tasks, sends active-contact messages only after
   outbound queue state is present, decrypts inbound queue messages, acknowledges
   received SMP messages, stores non-plaintext ACK retry tasks if ACK transport
-  fails after decrypting active messages or accept confirmations, stores
+  fails after decrypting contact requests, active messages, or accept
+  confirmations, stores
   metadata-only received-message fingerprints to suppress duplicate redelivery
   without replaying the ratchet, validates higher-level payloads before
   persisting ratchet advances, uploads encrypted XFTP file chunks,
