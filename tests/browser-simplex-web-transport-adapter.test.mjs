@@ -247,8 +247,12 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     port: '5223'
   }) + '/' + smp.encodeBase64Url(filled(24, 34)) +
     '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(smp.generateX25519KeyPair(filled(32, 35)).publicKeyDer)) + '&q=m&k=s';
+  var nativeX3dh = [
+    smp.generateX448KeyPair(filled(56, 36)).publicKeyDer,
+    smp.generateX448KeyPair(filled(56, 37)).publicKeyDer
+  ].map(smp.encodeBase64Url).join(',');
   var nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
-    '&e2e=' + encodeURIComponent('v=2-3&x3dh=native-agent-key-material');
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=' + nativeX3dh);
   await assert.rejects(
     () => adapter.sendText({ contact_id: 'alice', contact_link: nativeLink, text: 'not sent' }),
     /upstream agent\/X3DH handshake/

@@ -194,8 +194,12 @@ test('contact client rejects native SimpleX Chat invitations before side effects
     port: '5223'
   }) + '/' + smp.encodeBase64Url(filled(24, 215)) +
     '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientDh)) + '&q=m&k=s';
+  const nativeX3dh = [
+    smp.generateX448KeyPair(filled(56, 216)).publicKeyDer,
+    smp.generateX448KeyPair(filled(56, 217)).publicKeyDer
+  ].map(smp.encodeBase64Url).join(',');
   const nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
-    '&e2e=' + encodeURIComponent('v=2-3&x3dh=native-agent-key-material');
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=' + nativeX3dh);
 
   await assert.rejects(
     () => contacts.requestContact('bob', nativeLink, {

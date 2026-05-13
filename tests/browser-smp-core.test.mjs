@@ -55,8 +55,12 @@ test('SimpleX connection link parser separates browser queue and native agent in
 
   const nativeQueue = smp.formatProtocolServer(server) + '/' + smp.encodeBase64Url(queueId) +
     '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientDh)) + '&q=m&k=s&srv=onion.example';
+  const nativeX3dh = [
+    smp.generateX448KeyPair(filled(56, 13)).publicKeyDer,
+    smp.generateX448KeyPair(filled(56, 14)).publicKeyDer
+  ].map(smp.encodeBase64Url).join(',');
   const nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
-    '&e2e=' + encodeURIComponent('v=2-3&x3dh=native-key-material');
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=' + nativeX3dh);
   const parsedNative = smp.parseSimplexConnectionLink(nativeLink);
 
   assert.equal(parsedNative.scheme, 'simplex');
@@ -64,6 +68,9 @@ test('SimpleX connection link parser separates browser queue and native agent in
   assert.equal(parsedNative.browserProfile, false);
   assert.equal(parsedNative.nativeAgentProfile, true);
   assert.equal(parsedNative.queueUri, browserQueueUri);
+  assert.equal(parsedNative.nativeE2E.version, '2-3');
+  assert.equal(parsedNative.nativeE2E.x3dhKeys.length, 2);
+  assert.equal(parsedNative.nativeE2E.x3dhKeys[0].algorithm, 'X448');
   assert.equal(parsedNative.smpQueues[0].native.queueMode, 'm');
   assert.equal(parsedNative.smpQueues[0].native.onionHost, 'onion.example');
 });
@@ -249,6 +256,7 @@ test('browser crypto primitives perform protocol-sized authenticated round trips
 test('public key DER helpers keep SimpleX-compatible algorithm boundaries explicit', () => {
   const sign = smp.generateEd25519KeyPair(filled(32, 26));
   const dh = smp.generateX25519KeyPair(filled(32, 27));
+  const nativeDh = smp.generateX448KeyPair(filled(56, 28));
   assert.deepEqual(smp.decodePublicKeyDer(sign.publicKeyDer), {
     algorithm: 'Ed25519',
     rawPublicKey: sign.publicKey
@@ -257,6 +265,18 @@ test('public key DER helpers keep SimpleX-compatible algorithm boundaries explic
     algorithm: 'X25519',
     rawPublicKey: dh.publicKey
   });
+  assert.deepEqual(smp.decodePublicKeyDer(nativeDh.publicKeyDer), {
+    algorithm: 'X448',
+    rawPublicKey: nativeDh.publicKey
+  });
+  assert.equal(smp.x448SharedSecret(nativeDh.secretKey, nativeDh.publicKey).length, 56);
+
+  const nativeInvitationKey = smp.decodePublicKeyDer(smp.decodeBase64Url(
+    'MEIwBQYDK2VvAzkA6ZHuYWxY6d3F1plXngiNNcPC31joewTbzYanpjJlgLk8Cn5w7NSpvAjfd2NY6I7eaVAsPWfJ3ek',
+    'native invitation X448 key'
+  ));
+  assert.equal(nativeInvitationKey.algorithm, 'X448');
+  assert.equal(nativeInvitationKey.rawPublicKey.length, 56);
   assert.throws(() => smp.decodePublicKeyDer(filled(44, 255)), /unsupported public key DER/);
 });
 

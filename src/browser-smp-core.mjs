@@ -12,13 +12,14 @@
 // - fixed-size 16384-byte transport block padding
 // - SMP v3 single-transmission and SMP v4+ batched block framing
 // - command/response codecs for SMP queue operations
-// - Ed25519 signatures, X25519 DH, XSalsa20-Poly1305, AES-GCM, and SHA-256
+// - Ed25519 signatures, X25519/X448 DH, XSalsa20-Poly1305, AES-GCM, and SHA-256
 //
 // The code favors readable checks over cleverness because protocol code is a
 // trust boundary.  Every helper either returns bytes of one exact wire shape or
 // throws `SimplexSmpProtocolError` with a stable code.
 
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
+import { x448 } from '@noble/curves/ed448.js';
 import { gcm } from '@noble/ciphers/aes.js';
 import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
 import { randomBytes } from '@noble/ciphers/utils.js';
@@ -730,6 +731,27 @@ function parseNativeSmpQueueUri(value) {
   return parsed;
 }
 
+function parseNativeE2EParams(value) {
+  var text = String(value == null ? '' : value).trim();
+  if (!text) return null;
+  if (/[\x00-\x20\x7f]/.test(text)) fail('SMP_URI', 'native E2E parameters contain control or whitespace characters');
+  var params = new URLSearchParams(text);
+  var x3dhText = params.get('x3dh') || '';
+  if (!x3dhText) fail('SMP_URI', 'native E2E parameters are missing X3DH keys');
+  var keys = x3dhText.split(',').map((keyText) => {
+    var der = decodeBase64Url(keyText, 'native X3DH public key');
+    var parsed = decodePublicKeyDer(der);
+    if (parsed.algorithm !== 'X448') fail('SMP_URI', 'native X3DH public key must be X448');
+    return parsed;
+  });
+  if (keys.length < 2 || keys.length > 4) fail('SMP_URI', 'native E2E parameters must contain two to four X3DH keys');
+  return {
+    version: params.get('v') || '',
+    x3dhKeys: keys,
+    raw: text
+  };
+}
+
 export function parseSimplexConnectionLink(value) {
   var text = String(value == null ? '' : value).trim();
   if (/[\x00-\x20\x7f]/.test(text)) fail('SMP_URI', 'SimpleX connection link contains control or whitespace characters');
@@ -766,13 +788,16 @@ export function parseSimplexConnectionLink(value) {
     if (!q) fail('SMP_URI', 'SimpleX connection link contains an empty SMP queue');
     return q.includes('#/?') ? parseNativeSmpQueueUri(q) : parseSmpQueueUri(q);
   });
-  var nativeAgentProfile = !!params.get('e2e') || queues.some((queue) => !!(queue && queue.native));
+  var e2eText = params.get('e2e') || '';
+  var nativeAgentProfile = !!e2eText || queues.some((queue) => !!(queue && queue.native));
+  var nativeE2E = e2eText ? parseNativeE2EParams(e2eText) : null;
   return {
     scheme: simplexScheme ? 'simplex' : url.protocol.slice(0, -1),
     type: path,
     version: params.get('v') || '',
     smpQueues: queues,
-    e2e: params.get('e2e') || '',
+    e2e: e2eText,
+    nativeE2E,
     browserProfile: !nativeAgentProfile,
     nativeAgentProfile,
     queueUri: formatSmpQueueUri({
@@ -790,8 +815,10 @@ export function formatSmpQueueUri(queue) {
 
 const ED25519_SPKI_PREFIX = hexToBytes('302a300506032b6570032100');
 const X25519_SPKI_PREFIX = hexToBytes('302a300506032b656e032100');
+const X448_SPKI_PREFIX = hexToBytes('3042300506032b656f033900');
 const ED25519_PKCS8_PREFIX = hexToBytes('302e020100300506032b657004220420');
 const X25519_PKCS8_PREFIX = hexToBytes('302e020100300506032b656e04220420');
+const X448_PKCS8_PREFIX = hexToBytes('3047020100300506032b656f043b0439');
 
 export function hexToBytes(hex) {
   var text = String(hex == null ? '' : hex).trim();
@@ -843,6 +870,21 @@ function normalizeX25519PublicKey(value) {
   return normalizeRawKey(bytes, 32, 'X25519 public key');
 }
 
+function normalizeX448SecretKey(value) {
+  if (value && typeof value === 'object' && value.secretKey) return normalizeX448SecretKey(value.secretKey);
+  return normalizeRawKey(value, 56, 'X448 secret key');
+}
+
+function normalizeX448PublicKey(value) {
+  if (value && typeof value === 'object' && value.publicKey) return normalizeX448PublicKey(value.publicKey);
+  if (value && typeof value === 'object' && value.rawPublicKey) return normalizeX448PublicKey(value.rawPublicKey);
+  var bytes = toBytes(value, 'X448 public key');
+  if (bytes.length === X448_SPKI_PREFIX.length + 56 && hasPrefix(bytes, X448_SPKI_PREFIX)) {
+    return bytes.slice(X448_SPKI_PREFIX.length);
+  }
+  return normalizeRawKey(bytes, 56, 'X448 public key');
+}
+
 function hasPrefix(bytes, prefix) {
   if (bytes.length < prefix.length) return false;
   for (var i = 0; i < prefix.length; i += 1) {
@@ -855,6 +897,7 @@ export function encodePublicKeyDer(algorithm, rawPublicKey) {
   var alg = String(algorithm || '').toUpperCase();
   if (alg === 'ED25519') return concatBytes(ED25519_SPKI_PREFIX, normalizeRawKey(rawPublicKey, 32, 'Ed25519 public key'));
   if (alg === 'X25519') return concatBytes(X25519_SPKI_PREFIX, normalizeRawKey(rawPublicKey, 32, 'X25519 public key'));
+  if (alg === 'X448') return concatBytes(X448_SPKI_PREFIX, normalizeRawKey(rawPublicKey, 56, 'X448 public key'));
   fail('SMP_KEY', 'unsupported public key algorithm');
 }
 
@@ -866,6 +909,9 @@ export function decodePublicKeyDer(der) {
   if (bytes.length === X25519_SPKI_PREFIX.length + 32 && hasPrefix(bytes, X25519_SPKI_PREFIX)) {
     return { algorithm: 'X25519', rawPublicKey: bytes.slice(X25519_SPKI_PREFIX.length) };
   }
+  if (bytes.length === X448_SPKI_PREFIX.length + 56 && hasPrefix(bytes, X448_SPKI_PREFIX)) {
+    return { algorithm: 'X448', rawPublicKey: bytes.slice(X448_SPKI_PREFIX.length) };
+  }
   fail('SMP_KEY', 'unsupported public key DER');
 }
 
@@ -873,6 +919,7 @@ export function encodePrivateKeyDer(algorithm, rawSecretKey) {
   var alg = String(algorithm || '').toUpperCase();
   if (alg === 'ED25519') return concatBytes(ED25519_PKCS8_PREFIX, normalizeRawKey(rawSecretKey, 32, 'Ed25519 secret seed'));
   if (alg === 'X25519') return concatBytes(X25519_PKCS8_PREFIX, normalizeRawKey(rawSecretKey, 32, 'X25519 secret key'));
+  if (alg === 'X448') return concatBytes(X448_PKCS8_PREFIX, normalizeRawKey(rawSecretKey, 56, 'X448 secret key'));
   fail('SMP_KEY', 'unsupported private key algorithm');
 }
 
@@ -900,6 +947,18 @@ export function generateX25519KeyPair(seed) {
   };
 }
 
+export function generateX448KeyPair(seed) {
+  var secretKey = seed == null ? randomBytes(56) : normalizeRawKey(seed, 56, 'X448 secret key');
+  var publicKey = x448.getPublicKey(secretKey);
+  return {
+    algorithm: 'X448',
+    secretKey,
+    publicKey,
+    publicKeyDer: encodePublicKeyDer('X448', publicKey),
+    privateKeyDer: encodePrivateKeyDer('X448', secretKey)
+  };
+}
+
 export function ed25519Sign(privateKey, message) {
   return ed25519.sign(toBytes(message, 'message'), normalizeEd25519SecretKey(privateKey));
 }
@@ -914,6 +973,10 @@ export function ed25519Verify(publicKey, message, signature) {
 
 export function x25519SharedSecret(privateKey, publicKey) {
   return x25519.getSharedSecret(normalizeX25519SecretKey(privateKey), normalizeX25519PublicKey(publicKey));
+}
+
+export function x448SharedSecret(privateKey, publicKey) {
+  return x448.getSharedSecret(normalizeX448SecretKey(privateKey), normalizeX448PublicKey(publicKey));
 }
 
 export function sha256Hash(bytes) {
@@ -1035,6 +1098,7 @@ export default {
   formatProtocolServer,
   formatSmpQueueUri,
   generateEd25519KeyPair,
+  generateX448KeyPair,
   generateX25519KeyPair,
   hexToBytes,
   padBlock,
@@ -1053,5 +1117,6 @@ export default {
   toBytes,
   unpadBlock,
   verifyTransmissionSignature,
-  x25519SharedSecret
+  x25519SharedSecret,
+  x448SharedSecret
 };
