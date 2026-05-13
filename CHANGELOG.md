@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 - 2026-05-12
 
 - Removed the previous SimpleX Chat command API adapter, loopback file bridge,
   mock chat example, and live adapter tests so the package no longer ships a
