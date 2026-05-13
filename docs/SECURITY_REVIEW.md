@@ -170,6 +170,8 @@ Coverage added:
 - ACK-failure tests cover decrypt-success/ACK-failure ordering, prove the
   plaintext is returned to the caller, persist only a non-plaintext ACK retry
   task, and complete that ACK through the retry drain.
+- Accept-confirmation ACK-failure tests prove requester activation is saved
+  before a failed ACK is retried as a non-plaintext ACK task.
 - Contact request tests cover invitation URI generation, requester reply-queue
   creation, caller-supplied reply-queue persistence, encrypted initial
   confirmation sends, profile hiding from broker bodies, recipient confirmation

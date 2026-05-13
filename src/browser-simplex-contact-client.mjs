@@ -459,22 +459,21 @@ export class BrowserSimplexContactClient {
       ...options,
       corrId: options.keyCorrId || options.corrId || ('accept-key-' + Date.now())
     });
-    if (options.acknowledge !== false) {
-      await this.client.acknowledgeMessage(queue, received.message.msgId, {
-        ...options,
-        corrId: options.ackCorrId || ('accept-ack-' + Date.now())
-      });
-    }
     contact.state = CONTACT_STATE_ACTIVE;
     contact.updatedAt = nowIso();
     contact.remoteProfile = accept.profile || {};
     contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
     this.store.saveContact(contact.id, contact);
+    var ack = await this.acknowledgeOrQueue(contact, queue, received.message.msgId, {
+      ...options,
+      corrId: options.ackCorrId || options.corrId || ('accept-ack-' + Date.now())
+    });
     return {
       contact,
       accept,
       msgId: received.message.msgId,
-      timestamp: decryptedBody.timestamp
+      timestamp: decryptedBody.timestamp,
+      ...ack
     };
   }
 

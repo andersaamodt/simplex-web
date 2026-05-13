@@ -28,6 +28,7 @@
 - Added durable encrypted initial-contact retry handling so failed contact requests can be resent without storing profile plaintext.
 - Added durable encrypted accept-confirmation retry handling so inbound contact acceptance survives transport failure after request ACK.
 - Added durable ACK retry handling so inbound messages are not lost if decrypt succeeds but the queue ACK transport round-trip fails.
+- Added durable ACK retry handling for received accept confirmations so requester activation survives ACK transport failure.
 - Added metadata-only received-message fingerprints so duplicate SMP redelivery is ACKed without replaying the ratchet or redelivering plaintext, while same-id changed-body replay fails closed.
 - Hardened inbound contact receive so malformed higher-level payloads cannot persist a ratchet advance before ACK/fingerprint side effects.
 - Hardened outbound contact sends so missing/corrupt queue state fails before consuming a sending ratchet step.

@@ -540,6 +540,80 @@ test('contact client receives accept confirmation and secures requester reply qu
   assert.equal(smp.equalBytes(ackCommand.msgId, msgId), true);
 });
 
+test('contact client keeps accept confirmation state and retries ACK after ack transport failure', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-accept-ack-retry' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 219));
+  const senderDh = smp.generateX25519KeyPair(filled(32, 220));
+  const shared = smp.x25519SharedSecret(senderDh.secretKey, recipientDh.publicKey);
+  const queue = {
+    rcvId: filled(24, 221),
+    sndId: filled(24, 222),
+    rcvSignKey: smp.generateEd25519KeyPair(filled(32, 223)),
+    rcvDhKey: recipientDh,
+    serverDhSecret: filled(32, 224)
+  };
+  const outbox = {
+    sndId: filled(24, 225),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 226))
+  };
+  store.saveContact('alice', {
+    id: 'alice',
+    state: 'requested',
+    inboxQueueId: 'alice:inbox',
+    outboundQueue: outbox
+  });
+  store.saveQueue('alice:inbox', queue);
+  store.saveQueue('alice:outbox', outbox);
+
+  const prepared = prepareInitialSenderMessage({
+    version: 4,
+    sessionId: transport.sessionId,
+    corrId: smp.asciiBytes('accept-ack-retry'),
+    senderQueueId: queue.sndId,
+    senderSignSeed: filled(32, 227),
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderDh.publicKeyDer,
+    nonce: filled(24, 228),
+    body: smp.utf8Bytes(JSON.stringify({ type: 'contact-accept', profile: { displayName: 'Alice Secret' } }))
+  });
+  const msgId = filled(24, 229);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: queue.serverDhSecret,
+    msgId,
+    timestamp: 988n,
+    body: prepared.envelope
+  });
+  transport.pushResponse('accept-ack-msg', { type: 'MSG', msgId, body }, queue.rcvId);
+  transport.pushResponse('accept-key-ok', { type: 'OK' }, queue.rcvId);
+
+  const accepted = await contacts.receiveContactAccept('alice', {
+    keyCorrId: 'accept-key-ok',
+    ackCorrId: 'accept-ack-missing'
+  });
+
+  assert.equal(accepted.contact.state, 'active');
+  assert.equal(accepted.acknowledged, false);
+  assert.equal(accepted.ackPending, true);
+  assert.equal(store.loadContact('alice').remoteProfile.displayName, 'Alice Secret');
+  assert.equal(store.listPending()[0].payload.type, 'ackMessage');
+  assert.equal(JSON.stringify(store.listPending()[0]).includes('Alice Secret'), false);
+
+  transport.pushResponse('accept-ack-retry-ok', { type: 'OK' }, queue.rcvId);
+  const retried = await contacts.drainDueRetries({
+    now: Date.now() + 60000,
+    ackOptions: { corrId: 'accept-ack-retry-ok' }
+  });
+  assert.equal(retried.length, 1);
+  assert.equal(retried[0].ok, true);
+  assert.equal(store.listPending()[0].completedAt > 0, true);
+  const retryAck = smp.parseSignedTransmission(4, transport.sent[2].bytes);
+  assert.equal(retryAck.command.type, 'ACK');
+  assert.equal(smp.equalBytes(retryAck.command.msgId, msgId), true);
+});
+
 test('accepted contact can receive the requester first ratcheted message', async () => {
   const transport = new FakeTransport();
   const aliceClient = createBrowserSimplexClient({ transport });
