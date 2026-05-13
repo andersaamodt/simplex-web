@@ -42,6 +42,39 @@ test('SMP queue URI parser rejects command, whitespace, and path-shaped input', 
   assert.throws(() => smp.parseProtocolServer('smp://abc@../5223'), /protocol server/);
 });
 
+test('SimpleX connection link parser separates browser queue and native agent invitations', () => {
+  const server = { scheme: 'smp', keyHash: filled(32, 10), host: 'smp.example.net', port: '5223' };
+  const queueId = filled(24, 11);
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 12)).publicKeyDer;
+  const browserQueueUri = smp.formatSmpQueueUri({ server, queueId, recipientDhPublicKey: recipientDh });
+  const browserLink = smp.parseSimplexConnectionLink(browserQueueUri);
+
+  assert.equal(browserLink.browserProfile, true);
+  assert.equal(browserLink.nativeAgentProfile, false);
+  assert.equal(browserLink.queueUri, browserQueueUri);
+
+  const nativeQueue = smp.formatProtocolServer(server) + '/' + smp.encodeBase64Url(queueId) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientDh)) + '&q=m&k=s&srv=onion.example';
+  const nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=native-key-material');
+  const parsedNative = smp.parseSimplexConnectionLink(nativeLink);
+
+  assert.equal(parsedNative.scheme, 'simplex');
+  assert.equal(parsedNative.type, 'invitation');
+  assert.equal(parsedNative.browserProfile, false);
+  assert.equal(parsedNative.nativeAgentProfile, true);
+  assert.equal(parsedNative.queueUri, browserQueueUri);
+  assert.equal(parsedNative.smpQueues[0].native.queueMode, 'm');
+  assert.equal(parsedNative.smpQueues[0].native.onionHost, 'onion.example');
+});
+
+test('SimpleX connection link parser rejects hostile native link wrappers', () => {
+  assert.throws(() => smp.parseSimplexConnectionLink('simplex:/invitation#/?v=2-7'), /missing SMP/);
+  assert.throws(() => smp.parseSimplexConnectionLink('simplex:/invitation#/?smp=smp%3A%2F%2Fa%40host%2Fq%23%2F%3Fv%3D1-4'), /missing recipient DH/);
+  assert.throws(() => smp.parseSimplexConnectionLink('simplex:/unsupported#/?smp=x'), /type is unsupported/);
+  assert.throws(() => smp.parseSimplexConnectionLink('simplex:/invitation#/?smp=x%0Aforged%3D1'), /control or whitespace|protocol server|recipient key/);
+});
+
 test('command codecs encode and parse core recipient and sender operations', () => {
   const rcvSign = smp.generateEd25519KeyPair(filled(32, 4));
   const rcvDh = smp.generateX25519KeyPair(filled(32, 5));

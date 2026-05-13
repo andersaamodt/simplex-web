@@ -702,6 +702,87 @@ export function parseSmpQueueUri(value) {
   return { server, queueId, recipientDhPublicKey };
 }
 
+function parseNativeSmpQueueUri(value) {
+  var text = String(value == null ? '' : value).trim();
+  if (/[\x00-\x20\x7f]/.test(text)) fail('SMP_URI', 'native SMP queue URI contains control or whitespace characters');
+  var hashIndex = text.indexOf('#');
+  if (hashIndex < 0 || hashIndex !== text.lastIndexOf('#')) fail('SMP_URI', 'native SMP queue URI must contain one fragment');
+  var beforeHash = text.slice(0, hashIndex);
+  var fragment = text.slice(hashIndex + 1);
+  if (!fragment.startsWith('/?')) fail('SMP_URI', 'native SMP queue URI fragment must start with /?');
+  var params = new URLSearchParams(fragment.slice(2));
+  var dh = params.get('dh') || '';
+  if (!dh) fail('SMP_URI', 'native SMP queue URI is missing recipient DH key');
+  if (!beforeHash.startsWith('smp://')) fail('SMP_URI', 'native SMP queue URI must start with smp://');
+  var slashIndex = beforeHash.indexOf('/', 'smp://'.length);
+  if (slashIndex < 0 || slashIndex !== beforeHash.lastIndexOf('/')) fail('SMP_URI', 'native SMP queue URI must contain exactly one queue path');
+  var parsed = {
+    server: parseProtocolServer(beforeHash.slice(0, slashIndex)),
+    queueId: decodeBase64Url(beforeHash.slice(slashIndex + 1), 'sender queue id'),
+    recipientDhPublicKey: decodeBase64Url(dh, 'recipient DH public key'),
+    native: {
+      version: params.get('v') || '',
+      queueMode: params.get('q') || '',
+      senderCanSecure: params.get('k') || '',
+      onionHost: params.get('srv') || ''
+    }
+  };
+  return parsed;
+}
+
+export function parseSimplexConnectionLink(value) {
+  var text = String(value == null ? '' : value).trim();
+  if (/[\x00-\x20\x7f]/.test(text)) fail('SMP_URI', 'SimpleX connection link contains control or whitespace characters');
+  if (text.startsWith('smp://')) {
+    return {
+      scheme: 'smp',
+      type: 'queue',
+      smpQueues: [parseSmpQueueUri(text)],
+      e2e: '',
+      browserProfile: true,
+      nativeAgentProfile: false,
+      queueUri: text
+    };
+  }
+  var url;
+  try {
+    url = new URL(text);
+  } catch (_error) {
+    fail('SMP_URI', 'SimpleX connection link is invalid');
+  }
+  var simplexScheme = url.protocol === 'simplex:';
+  var webScheme = url.protocol === 'https:' || url.protocol === 'http:';
+  if (!simplexScheme && !webScheme) fail('SMP_URI', 'SimpleX connection link scheme is unsupported');
+  var path = url.pathname.replace(/^\/+/, '');
+  if (path !== 'invitation' && path !== 'contact') fail('SMP_URI', 'SimpleX connection link type is unsupported');
+  var hash = String(url.hash || '');
+  if (!hash.startsWith('#/?')) fail('SMP_URI', 'SimpleX connection link fragment must start with #/?');
+  var params = new URLSearchParams(hash.slice(3));
+  var smpParam = params.get('smp') || '';
+  if (!smpParam) fail('SMP_URI', 'SimpleX connection link is missing SMP queue data');
+  var queueTexts = smpParam.split(',');
+  var queues = queueTexts.map((queueText) => {
+    var q = String(queueText || '').trim();
+    if (!q) fail('SMP_URI', 'SimpleX connection link contains an empty SMP queue');
+    return q.includes('#/?') ? parseNativeSmpQueueUri(q) : parseSmpQueueUri(q);
+  });
+  var nativeAgentProfile = !!params.get('e2e') || queues.some((queue) => !!(queue && queue.native));
+  return {
+    scheme: simplexScheme ? 'simplex' : url.protocol.slice(0, -1),
+    type: path,
+    version: params.get('v') || '',
+    smpQueues: queues,
+    e2e: params.get('e2e') || '',
+    browserProfile: !nativeAgentProfile,
+    nativeAgentProfile,
+    queueUri: formatSmpQueueUri({
+      server: queues[0].server,
+      queueId: queues[0].queueId,
+      recipientDhPublicKey: queues[0].recipientDhPublicKey
+    })
+  };
+}
+
 export function formatSmpQueueUri(queue) {
   var q = queue && typeof queue === 'object' ? queue : {};
   return formatProtocolServer(q.server) + '/' + encodeBase64Url(q.queueId || new Uint8Array()) + '#' + encodeBase64Url(q.recipientDhPublicKey || new Uint8Array());
@@ -963,6 +1044,7 @@ export default {
   parseProtocolServer,
   parseServerHandshake,
   parseSignedTransmission,
+  parseSimplexConnectionLink,
   parseSmpQueueUri,
   randomBytes32,
   randomNonce24,

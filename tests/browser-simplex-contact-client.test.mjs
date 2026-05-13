@@ -181,6 +181,34 @@ test('contact client requests contact from invitation with encrypted initial con
   assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('Alice')), false);
 });
 
+test('contact client rejects native SimpleX Chat invitations before side effects', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-native-invite' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 213)).publicKeyDer;
+  const nativeQueue = smp.formatProtocolServer({
+    scheme: 'smp',
+    keyHash: filled(32, 214),
+    host: 'smp.example.test',
+    port: '5223'
+  }) + '/' + smp.encodeBase64Url(filled(24, 215)) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientDh)) + '&q=m&k=s';
+  const nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=native-agent-key-material');
+
+  await assert.rejects(
+    () => contacts.requestContact('bob', nativeLink, {
+      replyCorrId: 'native-reply',
+      corrId: 'native-req'
+    }),
+    /upstream agent\/X3DH handshake/
+  );
+  assert.equal(store.loadContact('bob'), null);
+  assert.equal(store.loadQueue('bob:inbox'), null);
+  assert.equal(transport.sent.length, 0);
+});
+
 test('contact client retries failed contact requests without storing plaintext profile data', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });

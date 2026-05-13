@@ -13,6 +13,7 @@ import {
   decodeBase64Url,
   encodeBase64Url,
   hexToBytes,
+  parseSimplexConnectionLink,
   toBytes
 } from './browser-smp-core.mjs';
 import { createBrowserSimplexClient } from './browser-simplex-client.mjs';
@@ -46,6 +47,19 @@ function safeContactId(value) {
     fail('SIMPLEX_WEB_ADAPTER_CONTACT', 'contact id is required and must be filename-safe ASCII');
   }
   return id;
+}
+
+function rejectUnsupportedNativeContactLink(message = {}) {
+  var linkText = String(message.contact_link || message.contactLink || message.invitation_uri || message.invitationUri || '').trim();
+  if (!linkText) return null;
+  var parsed = parseSimplexConnectionLink(linkText);
+  if (parsed.nativeAgentProfile) {
+    fail(
+      'SIMPLEX_WEB_ADAPTER_NATIVE_AGENT_UNSUPPORTED',
+      'native SimpleX Chat invitation links require the upstream agent/X3DH handshake, which simplex-web does not implement yet'
+    );
+  }
+  return parsed;
 }
 
 function safeMessageRef(value, fallback = '') {
@@ -255,6 +269,7 @@ export class SimplexWebTransportAdapter {
   }
 
   async sendText(message = {}) {
+    rejectUnsupportedNativeContactLink(message);
     var contacts = await this.ensureReady();
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
     var text = safeText(message.text);
@@ -278,6 +293,7 @@ export class SimplexWebTransportAdapter {
   }
 
   async sendFiles(message = {}) {
+    rejectUnsupportedNativeContactLink(message);
     var contacts = await this.ensureReady();
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
     var files = Array.isArray(message.files) ? message.files : Array.from(message.files || []);
@@ -319,6 +335,7 @@ export class SimplexWebTransportAdapter {
   }
 
   async getMessages(query = {}) {
+    rejectUnsupportedNativeContactLink(query);
     var contacts = await this.ensureReady();
     var contactId = safeContactId(query.contact_id || query.contactId || this.options.defaultContactId);
     var limit = Math.max(1, Math.min(200, Math.floor(Number(query.limit || query.count || DEFAULT_RECEIVE_LIMIT) || DEFAULT_RECEIVE_LIMIT)));
@@ -367,6 +384,7 @@ export class SimplexWebTransportAdapter {
   }
 
   async sendReadReceipt(message = {}) {
+    rejectUnsupportedNativeContactLink(message);
     var contacts = await this.ensureReady();
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
     var readRef = safeMessageRef(message.message_ref || message.messageRef || message.read_message_ref || message.readMessageRef);

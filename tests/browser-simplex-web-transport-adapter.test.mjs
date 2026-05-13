@@ -240,6 +240,21 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(receipt.message_ref, 'm1');
   assert.equal(sentText[0].text, 'hello');
 
+  var nativeQueue = smp.formatProtocolServer({
+    scheme: 'smp',
+    keyHash: filled(32, 33),
+    host: 'smp.example.test',
+    port: '5223'
+  }) + '/' + smp.encodeBase64Url(filled(24, 34)) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(smp.generateX25519KeyPair(filled(32, 35)).publicKeyDer)) + '&q=m&k=s';
+  var nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=native-agent-key-material');
+  await assert.rejects(
+    () => adapter.sendText({ contact_id: 'alice', contact_link: nativeLink, text: 'not sent' }),
+    /upstream agent\/X3DH handshake/
+  );
+  assert.equal(sentText.length, 1);
+
   var file = {
     name: 'notes.txt',
     type: 'text/plain',

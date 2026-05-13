@@ -15,6 +15,7 @@ import {
   encodeBase64Url,
   formatSmpQueueUri,
   generateX25519KeyPair,
+  parseSimplexConnectionLink,
   parseSmpQueueUri,
   sha256Hash,
   toBytes,
@@ -283,7 +284,14 @@ export class BrowserSimplexContactClient {
 
   async requestContact(id, invitationUri, options = {}) {
     var cleanId = safeId(id);
-    var parsed = parseSmpQueueUri(invitationUri);
+    var link = parseSimplexConnectionLink(invitationUri);
+    if (link.nativeAgentProfile && options.allowNativeAgentProfile !== true) {
+      fail(
+        'SIMPLEX_CONTACT_NATIVE_AGENT_UNSUPPORTED',
+        'native SimpleX Chat invitation links require the upstream agent/X3DH handshake, which simplex-web does not implement yet'
+      );
+    }
+    var parsed = link.smpQueues[0] || parseSmpQueueUri(invitationUri);
     var recipientDh = decodePublicKeyDer(parsed.recipientDhPublicKey);
     if (recipientDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_INVITATION', 'contact invitation DH key must be X25519');
     var replyQueue = options.replyQueue || null;
