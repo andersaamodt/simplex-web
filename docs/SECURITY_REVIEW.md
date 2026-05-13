@@ -151,6 +151,8 @@ Coverage added:
 - Failed-send tests prove retry records contain the already-ratcheted packet
   bytes, do not contain the outbound plaintext, and resend the same encrypted
   packet during retry drain.
+- Missing-queue send tests prove corrupt outbound contact state fails before
+  consuming a sending ratchet step or creating a retry task.
 - Replay tests cover duplicate received-message IDs with identical encrypted
   bodies, proving they are ACKed without ratchet replay or plaintext
   redelivery, and changed-body replays, proving no ACK side effect happens.

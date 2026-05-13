@@ -526,13 +526,13 @@ export class BrowserSimplexContactClient {
   async sendPlaintext(id, plaintext, options = {}) {
     var contact = this.store.loadContact(safeId(id));
     requireState(contact, [CONTACT_STATE_ACTIVE]);
+    var queue = options.queue || contact.outboundQueue || this.store.loadQueue(outboxQueueId(contact));
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact outbound queue is missing');
     var ratchet = this.store.loadRatchet(contact.id);
     if (!ratchet) fail('SIMPLEX_CONTACT_RATCHET', 'contact ratchet is missing');
     var encrypted = encryptRatchetMessage(ratchet, toBytes(plaintext, 'contact plaintext'), options);
     var body = packetBytes(encrypted.packet);
     this.store.saveRatchet(contact.id, encrypted.state);
-    var queue = options.queue || contact.outboundQueue || this.store.loadQueue(outboxQueueId(contact));
-    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact outbound queue is missing');
     var taskId = contact.id + ':send:' + (options.clientMessageId || Date.now());
     try {
       var response = await this.client.sendQueueMessage(queue, body, options);

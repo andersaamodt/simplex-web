@@ -311,12 +311,13 @@ store, scheduler, server-profile, ratchet, and contact-client modules.
   contacts, sends encrypted contact requests from invitation URIs, verifies and
   accepts incoming contact requests, creates requester reply queues, sends and
   receives encrypted accept confirmations, persists ratchets, sends
-  active-contact messages, decrypts inbound queue messages, acknowledges
-  received SMP messages, stores non-plaintext ACK retry tasks if ACK transport
-  fails after decrypt, stores metadata-only received-message fingerprints to
-  suppress duplicate redelivery without replaying the ratchet, validates
-  higher-level payloads before persisting ratchet advances, uploads encrypted
-  XFTP file chunks, ratchet-sends file descriptors and root keys,
+  active-contact messages only after outbound queue state is present, decrypts
+  inbound queue messages, acknowledges received SMP messages, stores
+  non-plaintext ACK retry tasks if ACK transport fails after decrypt, stores
+  metadata-only received-message fingerprints to suppress duplicate redelivery
+  without replaying the ratchet, validates higher-level payloads before
+  persisting ratchet advances, uploads encrypted XFTP file chunks,
+  ratchet-sends file descriptors and root keys,
   downloads received encrypted files, stores failed
   sends as already-ratcheted packet retry tasks instead of chat plaintext, and
   can send remote SMP `DEL` for browser-owned inbox queues before scrubbing

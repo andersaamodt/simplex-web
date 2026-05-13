@@ -590,6 +590,27 @@ test('contact client schedules failed sends for retry', async () => {
   assert.equal(smp.encodeBase64Url(sent.command.body), pending.payload.packet);
 });
 
+test('contact client does not advance ratchet when outbound queue is missing', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-missing-send-queue' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  store.saveContact('alice', { id: 'alice', state: 'active' });
+  store.saveRatchet('alice', {
+    rootKey: filled(32, 189),
+    ownDhKey: smp.generateX25519KeyPair(filled(32, 190)),
+    remoteDhPublicKey: smp.generateX25519KeyPair(filled(32, 191)).publicKey,
+    sendingChainKey: filled(32, 192),
+    sendCount: 0
+  });
+
+  await assert.rejects(() => contacts.sendText('alice', 'should not consume a ratchet step'), /outbound queue/i);
+
+  assert.equal(store.loadRatchet('alice').sendCount, 0);
+  assert.equal(store.listPending().length, 0);
+  assert.equal(transport.sent.length, 0);
+});
+
 test('contact client receives decrypts and acknowledges queue messages', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport });
