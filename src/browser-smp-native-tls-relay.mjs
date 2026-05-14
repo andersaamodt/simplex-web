@@ -242,7 +242,7 @@ async function startNativeConnection(wsSocket, nativeStream, options) {
   await new Promise((resolve) => setTimeout(resolve, 50));
   var nativeHandshakeBlock = await readExact(nativeStream, SMP_BLOCK_SIZE, timeoutMs);
   var nativeHandshake = parseNativeServerHandshake(nativeHandshakeBlock);
-  var maxVersion = Math.min(Number(options.maxVersion || 6), nativeHandshake.maxVersion);
+  var maxVersion = Math.min(Number(options.maxVersion || 15), nativeHandshake.maxVersion);
   var browserHandshake = padBlock(encodeServerHandshake({
     minVersion: nativeHandshake.minVersion,
     maxVersion,
@@ -362,7 +362,8 @@ export function relayOptionsFromEnv(env = process.env) {
     },
     allowedOrigins: envList('SIMPLEX_WEB_SMP_RELAY_ALLOWED_ORIGINS'),
     rejectUnauthorized: text(env.SIMPLEX_WEB_SMP_TARGET_REJECT_UNAUTHORIZED || 'true') !== 'false',
-    timeoutMs: Number(env.SIMPLEX_WEB_SMP_RELAY_TIMEOUT_MS || 15000) || 15000
+    timeoutMs: Number(env.SIMPLEX_WEB_SMP_RELAY_TIMEOUT_MS || 15000) || 15000,
+    maxVersion: Number(env.SIMPLEX_WEB_SMP_RELAY_MAX_VERSION || 15) || 15
   };
 }
 

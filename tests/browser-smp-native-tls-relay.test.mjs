@@ -132,7 +132,8 @@ async function withRelay(native, fn) {
     connectNative(options) {
       return net.connect(options.target.port, options.target.host);
     },
-    timeoutMs: 5000
+    timeoutMs: 5000,
+    maxVersion: 6
   });
   const sockets = new Set();
   relay.on('connection', (socket) => {

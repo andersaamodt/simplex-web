@@ -651,7 +651,8 @@ export function prepareNewQueueRequest(options = {}) {
   var command = {
     type: 'NEW',
     rcvPublicVerifyKey: rcvSignKey.publicKeyDer,
-    rcvPublicDhKey: rcvDhKey.publicKeyDer
+    rcvPublicDhKey: rcvDhKey.publicKeyDer,
+    queueMode: options.queueMode || 'messaging'
   };
   var transmission = encodeSignedTransmission(options.version || 4, options.sessionId || new Uint8Array(), {
     privateKey: rcvSignKey.secretKey,
@@ -661,6 +662,7 @@ export function prepareNewQueueRequest(options = {}) {
   });
   return {
     server: options.server || null,
+    queueMode: options.queueMode || 'messaging',
     rcvSignKey,
     rcvDhKey,
     command,
@@ -690,7 +692,8 @@ export function completeNewQueueRequest(pending, brokerMessage, options = {}) {
     rcvDhKey: request.rcvDhKey,
     serverDhPublicKeyDer: ids.rcvPublicDhKey,
     serverDhPublicKey: serverDhPublic.rawPublicKey,
-    serverDhSecret: x25519SharedSecret(request.rcvDhKey.secretKey, serverDhPublic.rawPublicKey)
+    serverDhSecret: x25519SharedSecret(request.rcvDhKey.secretKey, serverDhPublic.rawPublicKey),
+    queueMode: ids.queueMode || request.queueMode || options.queueMode || 'messaging'
   };
 }
 
@@ -757,9 +760,18 @@ function nativeInvitationUriFromQueue(queue, x3dhKey1, x3dhKey2, options = {}) {
 function nativeProfileConnInfo(profile = {}) {
   // The SimpleX Chat layer expects agent connection info to be a serialized
   // ChatMessage. For a basic profile exchange that is the `x.info` event.
+  var input = profile && typeof profile === 'object' ? profile : {};
+  var displayName = String(input.displayName || input.display_name || input.fullName || input.full_name || 'simplex-web').trim() || 'simplex-web';
+  var fullName = String(input.fullName || input.full_name || displayName).trim();
   return utf8Bytes(JSON.stringify({
     event: 'x.info',
-    params: { profile: profile && typeof profile === 'object' ? profile : {} }
+    params: {
+      profile: {
+        ...input,
+        displayName,
+        fullName
+      }
+    }
   }));
 }
 

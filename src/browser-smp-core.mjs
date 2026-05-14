@@ -21,8 +21,9 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { x448 } from '@noble/curves/ed448.js';
 import { gcm } from '@noble/ciphers/aes.js';
-import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
+import { hsalsa, salsa20 } from '@noble/ciphers/salsa.js';
 import { randomBytes } from '@noble/ciphers/utils.js';
+import { poly1305 } from '@noble/ciphers/_poly1305.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 
 export const SMP_BLOCK_SIZE = 16384;
@@ -265,6 +266,77 @@ function encodeBoolFlag(value) {
   return asciiBytes(value ? 'T' : 'F');
 }
 
+function parseBoolFlag(reader, label) {
+  var value = reader.takeByte(label || 'boolean flag');
+  if (value === 0x54) return true;
+  if (value === 0x46) return false;
+  fail('SMP_BOOL', (label || 'boolean flag') + ' must be T or F');
+}
+
+function encodeMaybeSmallBytes(value) {
+  if (value == null) return asciiBytes('0');
+  return concatBytes('1', encodeSmallBytes(value));
+}
+
+function parseMaybeSmallBytes(reader, label) {
+  var tag = reader.takeByte(label || 'optional bytes');
+  if (tag === 0x30) return null;
+  if (tag === 0x31) return reader.takeSmall(label || 'optional bytes');
+  fail('SMP_MAYBE', (label || 'optional bytes') + ' must use Maybe tag 0 or 1');
+}
+
+function encodeQueueModeForNew(value) {
+  // SMP v9 represents the queue mode as the older sender-can-secure boolean:
+  // true means a messaging queue, false means a contact-address queue.
+  var mode = String(value || 'messaging').toLowerCase();
+  if (mode === 'm' || mode === 'messaging' || mode === 'message') return encodeBoolFlag(true);
+  if (mode === 'c' || mode === 'contact') return encodeBoolFlag(false);
+  fail('SMP_QUEUE_MODE', 'NEW queue mode must be messaging or contact');
+}
+
+function encodeMaybeQueueReqData(value) {
+  var mode = String(value || 'messaging').toLowerCase();
+  var tag;
+  if (mode === 'm' || mode === 'messaging' || mode === 'message') tag = 'M';
+  else if (mode === 'c' || mode === 'contact') tag = 'C';
+  else fail('SMP_QUEUE_MODE', 'NEW queue mode must be messaging or contact');
+  // The full v15 queue request can carry short-link data. simplex-web only
+  // needs ordinary one-time queues here, so it sends `Just (mode Nothing)`.
+  return asciiBytes('1' + tag + '0');
+}
+
+function parseMaybeQueueReqData(reader) {
+  var tag = reader.takeByte('NEW queue request tag');
+  if (tag === 0x30) return null;
+  if (tag !== 0x31) fail('SMP_QUEUE_MODE', 'NEW queue request Maybe tag must be 0 or 1');
+  var mode = reader.takeByte('NEW queue mode');
+  if (mode !== 0x4d && mode !== 0x43) fail('SMP_QUEUE_MODE', 'NEW queue mode must be M or C');
+  var dataTag = reader.takeByte('NEW queue link data tag');
+  if (dataTag !== 0x30) fail('SMP_QUEUE_MODE', 'NEW short-link queue data is not supported');
+  return mode === 0x4d ? 'messaging' : 'contact';
+}
+
+function encodeMaybeQueueMode(value) {
+  var mode = String(value || 'messaging').toLowerCase();
+  if (mode === 'm' || mode === 'messaging' || mode === 'message') return asciiBytes('1M');
+  if (mode === 'c' || mode === 'contact') return asciiBytes('1C');
+  fail('SMP_QUEUE_MODE', 'IDS queue mode must be messaging or contact');
+}
+
+function parseMaybeQueueMode(reader) {
+  var tag = reader.takeByte('IDS queue mode tag');
+  if (tag === 0x30) return null;
+  if (tag !== 0x31) fail('SMP_QUEUE_MODE', 'IDS queue mode Maybe tag must be 0 or 1');
+  var mode = reader.takeByte('IDS queue mode');
+  if (mode === 0x4d) return 'messaging';
+  if (mode === 0x43) return 'contact';
+  fail('SMP_QUEUE_MODE', 'IDS queue mode must be M or C');
+}
+
+function queueModeFromSenderCanSecure(value) {
+  return value ? 'messaging' : 'contact';
+}
+
 function encodeSubscriptionMode(value) {
   // SMP relay protocol v6 added an explicit queue subscription mode to NEW.
   // `S` asks the server to create and subscribe immediately, matching the
@@ -304,14 +376,13 @@ export function encodeCommand(version, command) {
   var cmd = command && typeof command === 'object' ? command : {};
   switch (String(cmd.type || '').toUpperCase()) {
     case 'NEW':
-      if (v >= 7) {
-        fail('SMP_VERSION', 'SMP NEW v7+ authenticated command encryption is not implemented yet');
-      }
       return concatBytes(
         'NEW ',
         encodeSmallBytes(cmd.rcvPublicVerifyKey),
         encodeSmallBytes(cmd.rcvPublicDhKey),
-        v >= 6 ? encodeSubscriptionMode(cmd.subscriptionMode || cmd.subMode) : new Uint8Array()
+        v >= 7 ? encodeMaybeSmallBytes(cmd.authPublicKey || cmd.auth) : new Uint8Array(),
+        v >= 6 ? encodeSubscriptionMode(cmd.subscriptionMode || cmd.subMode) : new Uint8Array(),
+        v >= 15 ? encodeMaybeQueueReqData(cmd.queueMode) : (v >= 9 ? encodeQueueModeForNew(cmd.queueMode) : new Uint8Array())
       );
     case 'SUB':
       return asciiBytes('SUB');
@@ -348,10 +419,16 @@ export function parseCommand(version, bytes) {
     case 'NEW': {
       var rcvPublicVerifyKey = reader.takeSmall('recipient signature public key');
       var rcvPublicDhKey = reader.takeSmall('recipient DH public key');
+      var authPublicKey = v >= 7 ? parseMaybeSmallBytes(reader, 'NEW auth key') : null;
       var subscriptionMode = v >= 6 ? parseSubscriptionMode(reader) : null;
+      var queueMode = v >= 15
+        ? parseMaybeQueueReqData(reader)
+        : (v >= 9 ? queueModeFromSenderCanSecure(parseBoolFlag(reader, 'NEW sender-can-secure flag')) : null);
       reader.assertDone('NEW');
       var result = { type: 'NEW', rcvPublicVerifyKey, rcvPublicDhKey };
+      if (authPublicKey) result.authPublicKey = authPublicKey;
       if (subscriptionMode) result.subscriptionMode = subscriptionMode;
+      if (queueMode) result.queueMode = queueMode;
       return result;
     }
     case 'SUB':
@@ -408,7 +485,14 @@ export function encodeBrokerMessage(version, message) {
   var msg = message && typeof message === 'object' ? message : {};
   switch (String(msg.type || '').toUpperCase()) {
     case 'IDS':
-      return concatBytes('IDS ', encodeSmallBytes(msg.rcvId), encodeSmallBytes(msg.sndId), encodeSmallBytes(msg.rcvPublicDhKey));
+      return concatBytes(
+        'IDS ',
+        encodeSmallBytes(msg.rcvId),
+        encodeSmallBytes(msg.sndId),
+        encodeSmallBytes(msg.rcvPublicDhKey),
+        v >= 15 ? encodeMaybeQueueMode(msg.queueMode) : (v >= 9 ? encodeBoolFlag(String(msg.queueMode || 'messaging').toLowerCase() !== 'contact') : new Uint8Array()),
+        v >= 15 ? encodeMaybeSmallBytes(msg.linkId || null) : new Uint8Array()
+      );
     case 'MSG':
       if (v === 1) {
         return concatBytes('MSG ', encodeSmallBytes(msg.msgId), encodeWord64(msg.timestamp || 0), toBytes(msg.body || new Uint8Array(), 'message body'));
@@ -443,8 +527,15 @@ export function parseBrokerMessage(version, bytes) {
       var rcvId = reader.takeSmall('recipient queue id');
       var sndId = reader.takeSmall('sender queue id');
       var rcvPublicDhKey = reader.takeSmall('server DH public key');
+      var queueMode = v >= 15
+        ? parseMaybeQueueMode(reader)
+        : (v >= 9 ? queueModeFromSenderCanSecure(parseBoolFlag(reader, 'IDS sender-can-secure flag')) : null);
+      var linkId = v >= 15 ? parseMaybeSmallBytes(reader, 'IDS link id') : null;
       reader.assertDone('IDS');
-      return { type: 'IDS', rcvId, sndId, rcvPublicDhKey };
+      var ids = { type: 'IDS', rcvId, sndId, rcvPublicDhKey };
+      if (queueMode) ids.queueMode = queueMode;
+      if (linkId) ids.linkId = linkId;
+      return ids;
     }
     case 'MSG': {
       var msgId = reader.takeSmall('message id');
@@ -549,8 +640,25 @@ export function parseSignedTransmission(version, bytes, options = {}) {
   var signedReader = new ByteReader(signed, 'signed transmission body');
   var sessionId = signedReader.takeSmall('session id');
   var corrId = signedReader.takeSmall('correlation id');
-  var queueId = signedReader.takeSmall('queue id');
-  var commandBytes = signedReader.takeTail();
+  var queueId;
+  var commandBytes;
+  if (options.kind === 'broker') {
+    var rest = signedReader.takeTail();
+    var noEntityBrokerMessage =
+      (rest[0] === 0x45 && rest[1] === 0x52 && rest[2] === 0x52 && rest[3] === 0x20) ||
+      (rest[0] === 0x50 && rest[1] === 0x4f && rest[2] === 0x4e && rest[3] === 0x47);
+    if (noEntityBrokerMessage) {
+      queueId = new Uint8Array();
+      commandBytes = rest;
+    } else {
+      var brokerReader = new ByteReader(rest, 'broker transmission body');
+      queueId = brokerReader.takeSmall('queue id');
+      commandBytes = brokerReader.takeTail();
+    }
+  } else {
+    queueId = signedReader.takeSmall('queue id');
+    commandBytes = signedReader.takeTail();
+  }
   var parsed = {
     signature,
     signed,
@@ -653,9 +761,12 @@ export function chooseCompatibleVersion(serverRange, clientRange = {}) {
 
 export function encodeClientHandshake(handshake) {
   var hs = handshake && typeof handshake === 'object' ? handshake : {};
+  var version = assertSafeInteger(hs.version, 'client version', 1, 0xffff);
   return concatBytes(
-    encodeWord16(assertSafeInteger(hs.version, 'client version', 1, 0xffff)),
-    encodeSmallBytes(hs.keyHash || new Uint8Array())
+    encodeWord16(version),
+    encodeSmallBytes(hs.keyHash || new Uint8Array()),
+    version >= 7 && hs.authPublicKey ? encodeSmallBytes(hs.authPublicKey) : new Uint8Array(),
+    version >= 14 ? encodeBoolFlag(hs.proxyServer === true) : new Uint8Array()
   );
 }
 
@@ -663,8 +774,13 @@ export function parseClientHandshake(bytes) {
   var reader = new ByteReader(bytes, 'client handshake');
   var version = decodeWord16(reader.take(2, 'client version'));
   var keyHash = reader.takeSmall('server key hash');
+  var authPublicKey = null;
+  if (version >= 7 && reader.remaining() > (version >= 14 ? 1 : 0)) {
+    authPublicKey = reader.takeSmall('client auth public key');
+  }
+  var proxyServer = version >= 14 ? parseBoolFlag(reader, 'client proxy flag') : false;
   reader.assertDone('client handshake');
-  return { version, keyHash };
+  return { version, keyHash, authPublicKey, proxyServer };
 }
 
 export function encodeBase64Url(bytes) {
@@ -1038,22 +1154,114 @@ export function unpadMessage(message) {
   return input.slice(2, 2 + length);
 }
 
+const SALSA_SIGMA_WORDS = new Uint32Array([0x61707865, 0x3320646e, 0x79622d32, 0x6b206574]);
+
+function words32(bytes, label) {
+  var input = normalizeRawKey(bytes, 16, label);
+  var out = new Uint32Array(4);
+  for (var i = 0; i < 4; i += 1) out[i] = decodeWord32Le(input, i * 4);
+  return out;
+}
+
+function keyWords32(bytes, label) {
+  var input = normalizeRawKey(bytes, 32, label);
+  var out = new Uint32Array(8);
+  for (var i = 0; i < 8; i += 1) out[i] = decodeWord32Le(input, i * 4);
+  return out;
+}
+
+function decodeWord32Le(bytes, offset) {
+  return (
+    bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24)
+  ) >>> 0;
+}
+
+function wordsToBytes(words) {
+  var out = new Uint8Array(words.length * 4);
+  for (var i = 0; i < words.length; i += 1) {
+    var word = words[i];
+    out[i * 4] = word & 0xff;
+    out[i * 4 + 1] = (word >>> 8) & 0xff;
+    out[i * 4 + 2] = (word >>> 16) & 0xff;
+    out[i * 4 + 3] = (word >>> 24) & 0xff;
+  }
+  return out;
+}
+
+function simpleXHsalsa(key, input) {
+  var out = new Uint32Array(8);
+  hsalsa(SALSA_SIGMA_WORDS, keyWords32(key, 'HSalsa key'), words32(input, 'HSalsa input'), out);
+  return wordsToBytes(out);
+}
+
+function simpleXXsalsa20State(key, nonce) {
+  // SimpleX/cryptonite uses a double-HSalsa cascade:
+  // HSalsa(key, zero16), then HSalsa(subkey, nonce[0:16]), then Salsa20 with
+  // nonce[16:24]. This differs from the standard XSalsa20 helper exported by
+  // Noble and libsodium.
+  var nonceBytes = normalizeRawKey(nonce, 24, 'XSalsa20-Poly1305 nonce');
+  var subkey1 = simpleXHsalsa(key, new Uint8Array(16));
+  var subkey2 = simpleXHsalsa(subkey1, nonceBytes.slice(0, 16));
+  return { subkey: subkey2, nonce8: nonceBytes.slice(16, 24) };
+}
+
+function simpleXXsalsa20Xor(state, data) {
+  var input = toBytes(data, 'XSalsa20 data');
+  var out = new Uint8Array(input.length);
+  var offset = 0;
+  var counter = 0;
+  var first = salsa20(state.subkey, state.nonce8, new Uint8Array(64), undefined, counter);
+  var firstBytes = first.slice(32);
+  var firstCount = Math.min(firstBytes.length, input.length);
+  for (var i = 0; i < firstCount; i += 1) out[i] = input[i] ^ firstBytes[i];
+  offset += firstCount;
+  counter += 1;
+  while (offset < input.length) {
+    var blockLength = Math.min(64, input.length - offset);
+    var stream = salsa20(state.subkey, state.nonce8, new Uint8Array(64), undefined, counter);
+    for (var j = 0; j < blockLength; j += 1) out[offset + j] = input[offset + j] ^ stream[j];
+    offset += blockLength;
+    counter += 1;
+  }
+  return out;
+}
+
+function simpleXSecretBox(key, nonce, plaintext) {
+  var state = simpleXXsalsa20State(key, nonce);
+  var first = salsa20(state.subkey, state.nonce8, new Uint8Array(64), undefined, 0);
+  var authKey = first.slice(0, 32);
+  var ciphertext = simpleXXsalsa20Xor(state, plaintext);
+  return concatBytes(poly1305(ciphertext, authKey), ciphertext);
+}
+
+function simpleXSecretBoxOpen(key, nonce, packet) {
+  var input = toBytes(packet, 'secretbox packet');
+  if (input.length < 16) fail('SMP_DECRYPT', 'XSalsa20-Poly1305 packet is too short');
+  var state = simpleXXsalsa20State(key, nonce);
+  var first = salsa20(state.subkey, state.nonce8, new Uint8Array(64), undefined, 0);
+  var authKey = first.slice(0, 32);
+  var tag = input.slice(0, 16);
+  var ciphertext = input.slice(16);
+  var expected = poly1305(ciphertext, authKey);
+  if (!equalBytes(tag, expected)) fail('SMP_DECRYPT', 'XSalsa20-Poly1305 authentication failed');
+  return simpleXXsalsa20Xor(state, ciphertext);
+}
+
 export function encryptSecretBox(sharedSecret, nonce, plaintext, paddedLength) {
   var key = normalizeRawKey(sharedSecret, 32, 'XSalsa20-Poly1305 key');
   var nonceBytes = normalizeRawKey(nonce, 24, 'XSalsa20-Poly1305 nonce');
   var padded = padMessage(plaintext, paddedLength);
-  // Noble's XSalsa20-Poly1305 helper already matches SimpleX's Haskell
-  // `cryptoBox` wire shape: `poly1305_tag || ciphertext`.
-  return xsalsa20poly1305(key, nonceBytes).encrypt(padded);
+  return simpleXSecretBox(key, nonceBytes, padded);
 }
 
 export function decryptSecretBox(sharedSecret, nonce, packet) {
   var key = normalizeRawKey(sharedSecret, 32, 'XSalsa20-Poly1305 key');
   var nonceBytes = normalizeRawKey(nonce, 24, 'XSalsa20-Poly1305 nonce');
   try {
-    var simplexPacket = toBytes(packet, 'secretbox packet');
-    if (simplexPacket.length < 16) fail('SMP_DECRYPT', 'XSalsa20-Poly1305 packet is too short');
-    return unpadMessage(xsalsa20poly1305(key, nonceBytes).decrypt(simplexPacket));
+    return unpadMessage(simpleXSecretBoxOpen(key, nonceBytes, packet));
   } catch (error) {
     if (error instanceof SimplexSmpProtocolError) throw error;
     fail('SMP_DECRYPT', 'XSalsa20-Poly1305 decryption failed');

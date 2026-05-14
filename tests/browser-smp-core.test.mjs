@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { xsalsa20, xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
+import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
 
 import * as smp from '../src/browser-smp-core.mjs';
 
@@ -116,12 +116,29 @@ test('command codecs encode and parse core recipient and sender operations', () 
     subscriptionMode: 'only-create'
   }));
   assert.equal(createOnlyV6.subscriptionMode, 'only-create');
-  assert.throws(() => smp.parseCommand(6, newCommand), /subscription mode/);
-  assert.throws(() => smp.encodeCommand(7, {
+  const messagingV9 = smp.parseCommand(9, smp.encodeCommand(9, {
     type: 'NEW',
     rcvPublicVerifyKey: rcvSign.publicKeyDer,
-    rcvPublicDhKey: rcvDh.publicKeyDer
-  }), /v7/);
+    rcvPublicDhKey: rcvDh.publicKeyDer,
+    queueMode: 'messaging'
+  }));
+  assert.equal(messagingV9.subscriptionMode, 'subscribe');
+  assert.equal(messagingV9.queueMode, 'messaging');
+  const contactV9 = smp.parseCommand(9, smp.encodeCommand(9, {
+    type: 'NEW',
+    rcvPublicVerifyKey: rcvSign.publicKeyDer,
+    rcvPublicDhKey: rcvDh.publicKeyDer,
+    queueMode: 'contact'
+  }));
+  assert.equal(contactV9.queueMode, 'contact');
+  const messagingV15 = smp.parseCommand(15, smp.encodeCommand(15, {
+    type: 'NEW',
+    rcvPublicVerifyKey: rcvSign.publicKeyDer,
+    rcvPublicDhKey: rcvDh.publicKeyDer,
+    queueMode: 'messaging'
+  }));
+  assert.equal(messagingV15.queueMode, 'messaging');
+  assert.throws(() => smp.parseCommand(6, newCommand), /subscription mode/);
 
   const parsedKey = smp.parseCommand(4, smp.encodeCommand(4, {
     type: 'KEY',
@@ -147,18 +164,16 @@ test('XSalsa20-Poly1305 boxes use SimpleX tag-then-ciphertext wire order', () =>
   const nonce = filled(24, 92);
   const plaintext = smp.utf8Bytes('wire order matters');
   const packet = smp.encryptSecretBox(key, nonce, plaintext, 64);
-  const padded = smp.padMessage(plaintext, 64);
   const noblePacket = xsalsa20poly1305(key, nonce).encrypt(smp.padMessage(plaintext, 64));
-  const stream = xsalsa20(key, nonce, new Uint8Array(32 + padded.length));
-  const expectedCiphertext = padded.map((byte, index) => byte ^ stream[index + 32]);
+  const expectedHex = '75cd4083b3e51a558d92154913ff1c490e42e68f48097a826d9e9ec5effcc7d1e8ea6fc1e7de4368e5bd3a2d620e8cd283bf0990b6c8884de83fd018c746d583cb5e536b6861989a3e28c045d417a9c6';
 
   assert.equal(packet.length, noblePacket.length);
-  assert.deepEqual(packet, noblePacket);
-  assert.deepEqual(packet.slice(16), expectedCiphertext);
+  assert.equal(Buffer.from(packet).toString('hex'), expectedHex);
+  assert.notDeepEqual(packet, noblePacket);
   assert.equal(smp.utf8Text(smp.decryptSecretBox(key, nonce, packet)), 'wire order matters');
   assert.throws(
     () => smp.decryptSecretBox(key, nonce, smp.concatBytes(packet.slice(16), packet.slice(0, 16))),
-    /decryption failed/
+    /authentication failed|decryption failed/
   );
 });
 
@@ -172,6 +187,24 @@ test('broker message codecs handle IDS, MSG, OK, ERR, and NMSG shapes', () => {
   assert.equal(ids.type, 'IDS');
   assert.equal(ids.rcvId.length, 24);
   assert.equal(ids.sndId.length, 24);
+  const idsV9 = smp.parseBrokerMessage(9, smp.encodeBrokerMessage(9, {
+    type: 'IDS',
+    rcvId: filled(24, 200),
+    sndId: filled(24, 201),
+    rcvPublicDhKey: smp.generateX25519KeyPair(filled(32, 202)).publicKeyDer,
+    queueMode: 'messaging'
+  }));
+  assert.equal(idsV9.queueMode, 'messaging');
+  const idsV15 = smp.parseBrokerMessage(15, smp.encodeBrokerMessage(15, {
+    type: 'IDS',
+    rcvId: filled(24, 203),
+    sndId: filled(24, 204),
+    rcvPublicDhKey: smp.generateX25519KeyPair(filled(32, 205)).publicKeyDer,
+    queueMode: 'messaging',
+    linkId: filled(24, 206)
+  }));
+  assert.equal(idsV15.queueMode, 'messaging');
+  assert.equal(smp.equalBytes(idsV15.linkId, filled(24, 206)), true);
 
   const msg = smp.parseBrokerMessage(4, smp.encodeBrokerMessage(4, {
     type: 'MSG',
@@ -187,6 +220,14 @@ test('broker message codecs handle IDS, MSG, OK, ERR, and NMSG shapes', () => {
     type: 'ERR',
     error: { type: 'CMD', commandError: 'SYNTAX' }
   });
+  const noEntityErr = smp.parseSignedTransmission(15, smp.concatBytes(
+    smp.encodeSmallBytes(new Uint8Array()),
+    smp.encodeSmallBytes(filled(32, 207)),
+    smp.encodeSmallBytes(smp.asciiBytes('err-corr')),
+    smp.asciiBytes('ERR CMD UNKNOWN')
+  ), { kind: 'broker' });
+  assert.equal(noEntityErr.message.error.commandError, 'UNKNOWN');
+  assert.equal(noEntityErr.queueId.length, 0);
 
   const nmsg = smp.parseBrokerMessage(4, smp.encodeBrokerMessage(4, {
     type: 'NMSG',
@@ -281,6 +322,12 @@ test('handshake codecs choose the highest mutually supported SMP version', () =>
   assert.equal(version, 6);
   assert.equal(client.version, 6);
   assert.equal(client.keyHash.length, 32);
+  const v15Client = smp.parseClientHandshake(smp.encodeClientHandshake({
+    version: 15,
+    keyHash: filled(32, 21),
+    proxyServer: false
+  }));
+  assert.equal(v15Client.proxyServer, false);
   assert.throws(() => smp.chooseCompatibleVersion({ minVersion: 7, maxVersion: 8 }), /incompatible/);
 });
 

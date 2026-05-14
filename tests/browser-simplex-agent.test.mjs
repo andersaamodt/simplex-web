@@ -76,7 +76,7 @@ test('client message envelope encrypts and decrypts confirmation bodies', () => 
 
   const tampered = new Uint8Array(envelope);
   tampered[tampered.length - 1] ^= 1;
-  assert.throws(() => agent.decryptClientMessageEnvelope({ sharedSecret: sharedByRecipient, envelope: tampered }), /decryption failed/);
+  assert.throws(() => agent.decryptClientMessageEnvelope({ sharedSecret: sharedByRecipient, envelope: tampered }), /authentication failed|decryption failed/);
 });
 
 test('received message body decrypts server metadata and encrypted client envelope', () => {
@@ -104,7 +104,7 @@ test('received message body decrypts server metadata and encrypted client envelo
     serverDhSecret: filled(32, 8),
     msgId,
     encryptedBody
-  }), /decryption failed/);
+  }), /authentication failed|decryption failed/);
 });
 
 test('new queue request signs NEW and derives queue state from IDS', () => {
@@ -380,7 +380,7 @@ test('native invitation join prepares an Owl-compatible X3DH confirmation envelo
   assert.equal(conn.replyQueues[0].queueMode, 'M');
   assert.deepEqual(JSON.parse(smp.utf8Text(conn.connInfo)), {
     event: 'x.info',
-    params: { profile: { displayName: 'Browser' } }
+    params: { profile: { displayName: 'Browser', fullName: 'Browser' } }
   });
 });
 
@@ -431,7 +431,7 @@ test('native contact address request sends an AgentInvitation with an empty priv
   assert.equal(nativeEnvelope.type, 'invitation');
   assert.deepEqual(JSON.parse(smp.utf8Text(nativeEnvelope.connInfo)), {
     event: 'x.info',
-    params: { profile: { displayName: 'Browser' } }
+    params: { profile: { displayName: 'Browser', fullName: 'Browser' } }
   });
   const connReq = smp.utf8Text(nativeEnvelope.connReq);
   assert.equal(connReq.startsWith('simplex:/invitation#/?'), true);
