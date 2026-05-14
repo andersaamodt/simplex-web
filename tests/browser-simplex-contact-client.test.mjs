@@ -206,11 +206,61 @@ test('contact client rejects native SimpleX Chat invitations before side effects
       replyCorrId: 'native-reply',
       corrId: 'native-req'
     }),
-    /upstream agent\/X3DH handshake/
+    /allowNativeAgentProfile/
   );
   assert.equal(store.loadContact('bob'), null);
   assert.equal(store.loadQueue('bob:inbox'), null);
   assert.equal(transport.sent.length, 0);
+});
+
+test('contact client can prepare and send a native SimpleX invitation join when explicitly enabled', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-native-join' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const recipientDh = smp.generateX25519KeyPair(filled(32, 223)).publicKeyDer;
+  const nativeQueue = smp.formatProtocolServer({
+    scheme: 'smp',
+    keyHash: filled(32, 224),
+    host: 'smp.example.test',
+    port: '5223'
+  }) + '/' + smp.encodeBase64Url(filled(24, 225)) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientDh)) + '&q=m&k=s';
+  const nativeX3dh = [
+    smp.generateX448KeyPair(filled(56, 226)).publicKeyDer,
+    smp.generateX448KeyPair(filled(56, 227)).publicKeyDer
+  ].map(smp.encodeBase64Url).join(',');
+  const nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=' + nativeX3dh);
+  const replyServerDh = smp.generateX25519KeyPair(filled(32, 228));
+  transport.pushResponse('native-reply', {
+    type: 'IDS',
+    rcvId: filled(24, 229),
+    sndId: filled(24, 230),
+    rcvPublicDhKey: replyServerDh.publicKeyDer
+  });
+  transport.pushResponse('native-req', { type: 'OK' }, filled(24, 225));
+
+  const contact = await contacts.requestContact('bob', nativeLink, {
+    allowNativeAgentProfile: true,
+    replyCorrId: 'native-reply',
+    corrId: 'native-req',
+    ownDhSeed: filled(32, 231),
+    senderX3dhSeed1: filled(56, 232),
+    senderX3dhSeed2: filled(56, 233),
+    senderRatchetSeed: filled(56, 234),
+    senderSignSeed: filled(32, 235),
+    nonce: filled(24, 236),
+    profile: { displayName: 'Browser' }
+  });
+
+  assert.equal(contact.state, 'requested');
+  assert.equal(contact.nativeAgentProfile, true);
+  assert.equal(store.loadQueue('bob:inbox').sndId.length, 24);
+  assert.equal(store.loadQueue('bob:outbox').nativeRatchet.sendCount, 1);
+  const sent = lastParsedCommand(transport, 'SEND');
+  assert.equal(smp.equalBytes(sent.queueId, filled(24, 225)), true);
+  assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('Browser')), false);
 });
 
 test('contact client retries failed contact requests without storing plaintext profile data', async () => {

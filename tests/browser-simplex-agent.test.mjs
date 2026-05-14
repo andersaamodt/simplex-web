@@ -4,6 +4,10 @@ import fc from 'fast-check';
 
 import * as smp from '../src/browser-smp-core.mjs';
 import * as agent from '../src/browser-simplex-agent.mjs';
+import {
+  createNativeReceivingRatchet,
+  decryptNativeRatchetMessage
+} from '../src/browser-simplex-native-ratchet.mjs';
 
 const FUZZ_SEED = 0x46554c4c;
 
@@ -301,6 +305,80 @@ test('native SimpleX X3DH sender and receiver derive the same initial ratchet ke
     }),
     /X448/
   );
+});
+
+test('native invitation join prepares an Owl-compatible X3DH confirmation envelope', () => {
+  const recipientQueueDh = smp.generateX25519KeyPair(filled(32, 50));
+  const recipientX3dh1 = smp.generateX448KeyPair(filled(56, 51));
+  const recipientX3dh2 = smp.generateX448KeyPair(filled(56, 52));
+  const nativeQueue = smp.formatProtocolServer({
+    scheme: 'smp',
+    keyHash: filled(32, 53),
+    host: 'smp.example.test',
+    port: '5223'
+  }) + '/' + smp.encodeBase64Url(filled(24, 54)) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientQueueDh.publicKeyDer)) + '&q=m&k=s';
+  const nativeX3dh = [
+    recipientX3dh1.publicKeyDer,
+    recipientX3dh2.publicKeyDer
+  ].map(smp.encodeBase64Url).join(',');
+  const nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
+    '&e2e=' + encodeURIComponent('v=2-3&x3dh=' + nativeX3dh);
+  const replyQueue = {
+    server: {
+      scheme: 'smp',
+      keyHash: filled(32, 55),
+      host: 'reply.example.test',
+      port: '5223'
+    },
+    sndId: filled(24, 56),
+    rcvDhKey: smp.generateX25519KeyPair(filled(32, 57)),
+    queueMode: 'm'
+  };
+
+  const prepared = agent.prepareNativeInvitationJoin({
+    invitationUri: nativeLink,
+    replyQueue,
+    ownDhSeed: filled(32, 58),
+    senderX3dhSeed1: filled(56, 59),
+    senderX3dhSeed2: filled(56, 60),
+    senderRatchetSeed: filled(56, 61),
+    senderSignSeed: filled(32, 62),
+    nonce: filled(24, 63),
+    corrId: smp.asciiBytes('native-req'),
+    profile: { displayName: 'Browser' }
+  });
+  const tx = smp.parseSignedTransmission(4, prepared.transmission.bytes);
+  assert.equal(tx.command.type, 'SEND');
+  assert.equal(tx.signature.length, 0);
+  const perQueueShared = smp.x25519SharedSecret(recipientQueueDh.secretKey, prepared.senderQueueDh.publicKey);
+  const decryptedOuter = agent.decryptClientMessageEnvelope({
+    sharedSecret: perQueueShared,
+    envelope: tx.command.body
+  });
+  assert.equal(decryptedOuter.privateHeader.type, 'confirmation');
+  const nativeEnvelope = agent.parseNativeAgentEnvelope(decryptedOuter.body);
+  assert.equal(nativeEnvelope.type, 'confirmation');
+  assert.equal(nativeEnvelope.agentVersion, agent.SIMPLEX_NATIVE_AGENT_MESSAGE_VERSION);
+  const e2e = agent.parseNativeE2ERatchetParams(nativeEnvelope.e2eEncryption);
+  const receiverInit = agent.deriveNativeX3dhReceiver({
+    recipientKey1: recipientX3dh1,
+    recipientKey2: recipientX3dh2,
+    senderKey1: e2e.key1,
+    senderKey2: e2e.key2
+  });
+  const receiverRatchet = createNativeReceivingRatchet({
+    version: agent.SIMPLEX_NATIVE_E2E_VERSION,
+    init: receiverInit,
+    ownDhKey: recipientX3dh1
+  });
+  const decryptedInner = decryptNativeRatchetMessage(receiverRatchet, nativeEnvelope.encConnInfo);
+  const conn = agent.parseNativeAgentConnInfo(decryptedInner.plaintext);
+  assert.equal(conn.type, 'reply');
+  assert.equal(conn.replyQueues.length, 1);
+  assert.equal(conn.replyQueues[0].server.host, 'reply.example.test');
+  assert.equal(conn.replyQueues[0].queueMode, 'M');
+  assert.equal(smp.utf8Text(conn.connInfo), '{"displayName":"Browser"}');
 });
 
 test('agent envelope fuzzing preserves hostile binary bodies without changing header state', () => {

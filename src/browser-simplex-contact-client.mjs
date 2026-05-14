@@ -285,11 +285,14 @@ export class BrowserSimplexContactClient {
   async requestContact(id, invitationUri, options = {}) {
     var cleanId = safeId(id);
     var link = parseSimplexConnectionLink(invitationUri);
-    if (link.nativeAgentProfile && options.allowNativeAgentProfile !== true) {
-      fail(
-        'SIMPLEX_CONTACT_NATIVE_AGENT_UNSUPPORTED',
-        'native SimpleX Chat invitation links require the upstream agent/X3DH handshake, which simplex-web does not implement yet'
-      );
+    if (link.nativeAgentProfile) {
+      if (options.allowNativeAgentProfile !== true) {
+        fail(
+          'SIMPLEX_CONTACT_NATIVE_AGENT_UNSUPPORTED',
+          'native SimpleX Chat invitation links require allowNativeAgentProfile while the native browser agent is being completed'
+        );
+      }
+      return this.requestNativeContact(cleanId, String(invitationUri), link, options);
     }
     var parsed = link.smpQueues[0] || parseSmpQueueUri(invitationUri);
     var recipientDh = decodePublicKeyDer(parsed.recipientDhPublicKey);
@@ -354,6 +357,70 @@ export class BrowserSimplexContactClient {
         // Initial contact requests are retried as the already-encrypted
         // unsigned SMP SEND. The retry task never stores profile JSON or other
         // plaintext request material.
+        this.scheduler.enqueue(taskId, {
+          type: 'initialConfirmation',
+          contactId: cleanId,
+          transmission: prepared.transmission.bytes,
+          corrId: prepared.corrId,
+          options: { timeoutMs: options.timeoutMs || 0 }
+        });
+        this.scheduler.fail(taskId, error);
+      }
+      throw error;
+    }
+    return contact;
+  }
+
+  async requestNativeContact(cleanId, invitationUri, link, options = {}) {
+    var parsed = link.smpQueues[0];
+    if (!parsed) fail('SIMPLEX_CONTACT_INVITATION', 'native invitation does not contain an SMP queue');
+    var replyQueue = options.replyQueue || null;
+    if (!replyQueue && options.createReplyQueue !== false) {
+      replyQueue = await this.client.createQueue({
+        label: cleanId + ':inbox',
+        corrId: options.replyCorrId || options.reply_corr_id || this.client.makeCorrId('reply'),
+        rcvSignSeed: options.replyRcvSignSeed,
+        rcvDhSeed: options.replyRcvDhSeed,
+        server: options.replyServer || parsed.server
+      });
+    }
+    if (!replyQueue) {
+      fail('SIMPLEX_CONTACT_NATIVE_AGENT_UNSUPPORTED', 'native SimpleX invitation joins require a reply queue');
+    }
+    this.store.saveQueue(cleanId + ':inbox', replyQueue);
+    var prepared = this.client.prepareNativeInvitationJoin({
+      ...options,
+      link,
+      invitationUri,
+      replyQueue,
+      profile: options.profile || {}
+    });
+    var contact = {
+      id: cleanId,
+      state: CONTACT_STATE_REQUESTED,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      invitationUri,
+      inboxQueueId: cleanId + ':inbox',
+      profile: options.profile || {},
+      nativeAgentProfile: true,
+      outboundQueue: {
+        server: parsed.server,
+        sndId: parsed.queueId,
+        senderSignKey: prepared.senderSignKey,
+        nativeRatchet: prepared.nativeRatchet,
+        senderX3dhPublicKey1: prepared.senderX3dhKey1.publicKey,
+        senderX3dhPublicKey2: prepared.senderX3dhKey2.publicKey
+      }
+    };
+    this.store.saveContact(cleanId, contact);
+    this.store.saveQueue(cleanId + ':outbox', contact.outboundQueue);
+    var taskId = initialConfirmationTaskId(cleanId, prepared.corrId);
+    try {
+      await this.client.sendPreparedInitialConfirmation(prepared, options);
+      this.scheduler.complete(taskId);
+    } catch (error) {
+      if (options.retryOnFailure !== false) {
         this.scheduler.enqueue(taskId, {
           type: 'initialConfirmation',
           contactId: cleanId,

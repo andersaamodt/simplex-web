@@ -37,6 +37,7 @@ import {
   generateEd25519KeyPair,
   generateX448KeyPair,
   generateX25519KeyPair,
+  parseSimplexConnectionLink,
   parseBrokerMessage,
   parseCommand,
   parseSignedTransmission,
@@ -46,10 +47,18 @@ import {
   x25519SharedSecret,
   x448SharedSecret
 } from './browser-smp-core.mjs';
+import { randomBytes } from '@noble/ciphers/utils.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512 } from '@noble/hashes/sha2.js';
+import {
+  createNativeSendingRatchet,
+  encryptNativeRatchetMessage
+} from './browser-simplex-native-ratchet.mjs';
 
 export const SIMPLEX_AGENT_MESSAGE_VERSION = 1;
+export const SIMPLEX_NATIVE_AGENT_MESSAGE_VERSION = 7;
+export const SIMPLEX_NATIVE_E2E_VERSION = 2;
+export const SIMPLEX_NATIVE_ENC_CONN_INFO_LENGTH = 14832;
 export const SIMPLEX_EMPTY_PRIVATE_HEADER = '_';
 export const SIMPLEX_CONFIRMATION_PRIVATE_HEADER = 'K';
 export const SIMPLEX_NATIVE_X3DH_INFO = 'SimpleXX3DH';
@@ -359,6 +368,98 @@ function normalizeX448PublicDer(value, label) {
   return der;
 }
 
+function encodeProtocolServerBinary(server = {}) {
+  var host = String(server.host || '').trim();
+  if (!host || /[:,;\/\s]/.test(host)) fail('SIMPLEX_AGENT_QUEUE', 'protocol server host is invalid');
+  return concatBytes(
+    new Uint8Array([1]),
+    encodeSmallBytes(asciiBytes(host)),
+    encodeSmallBytes(asciiBytes(server.port || '')),
+    encodeSmallBytes(server.keyHash || new Uint8Array())
+  );
+}
+
+function encodeQueueMode(value) {
+  var mode = String(value || 'm').toLowerCase();
+  if (mode === 'm' || mode === 'messaging') return asciiBytes('M');
+  if (mode === 'c' || mode === 'contact') return asciiBytes('C');
+  fail('SIMPLEX_AGENT_QUEUE', 'native queue mode is unsupported');
+}
+
+function normalizeReplyQueue(queue = {}) {
+  if (!queue.server) fail('SIMPLEX_AGENT_QUEUE', 'native reply queue requires a server');
+  var senderId = queue.senderId || queue.sndId || queue.queueId;
+  var dhPublicKey = queue.dhPublicKey || queue.recipientDhPublicKey ||
+    (queue.rcvDhKey && queue.rcvDhKey.publicKeyDer);
+  return {
+    clientVersion: Number(queue.clientVersion || 4),
+    server: queue.server,
+    senderId: toBytes(senderId, 'reply queue sender id'),
+    dhPublicKey: toBytes(dhPublicKey, 'reply queue DH public key'),
+    queueMode: queue.queueMode || 'm'
+  };
+}
+
+export function encodeNativeSmpQueueInfo(queue = {}) {
+  var q = normalizeReplyQueue(queue);
+  if (q.clientVersion < 4) fail('SIMPLEX_AGENT_QUEUE', 'native reply queue must use SMP client version 4 or newer');
+  return concatBytes(
+    encodeWord16(q.clientVersion),
+    encodeProtocolServerBinary(q.server),
+    encodeSmallBytes(q.senderId),
+    encodeSmallBytes(q.dhPublicKey),
+    encodeQueueMode(q.queueMode)
+  );
+}
+
+export function encodeNativeAgentConnInfo(message = {}) {
+  var type = String(message.type || (message.replyQueues ? 'reply' : 'info')).toLowerCase();
+  var connInfo = toBytes(message.connInfo || new Uint8Array(), 'native connection info');
+  if (type === 'info') return concatBytes(asciiBytes('I'), connInfo);
+  if (type === 'reply' || type === 'conn-info-reply') {
+    var queues = Array.isArray(message.replyQueues) ? message.replyQueues : [message.replyQueue].filter(Boolean);
+    if (!queues.length || queues.length > 255) fail('SIMPLEX_AGENT_QUEUE', 'native connection reply requires one to 255 reply queues');
+    return concatBytes(
+      asciiBytes('D'),
+      new Uint8Array([queues.length]),
+      ...queues.map(encodeNativeSmpQueueInfo),
+      connInfo
+    );
+  }
+  fail('SIMPLEX_AGENT_MESSAGE', 'native connection info message type is unsupported');
+}
+
+export function parseNativeAgentConnInfo(bytes) {
+  var reader = new Reader(bytes, 'native connection info message');
+  var tag = reader.takeByte('native connection info tag');
+  if (tag === 0x49) return { type: 'info', connInfo: reader.tail() };
+  if (tag !== 0x44) fail('SIMPLEX_AGENT_MESSAGE', 'native connection info tag is unsupported');
+  var count = reader.takeByte('native reply queue count');
+  if (!count) fail('SIMPLEX_AGENT_QUEUE', 'native connection reply queue list is empty');
+  var queues = [];
+  for (var i = 0; i < count; i += 1) {
+    var clientVersion = decodeWord16(reader.take(2, 'reply queue client version'));
+    var hostCount = reader.takeByte('reply queue host count');
+    if (!hostCount) fail('SIMPLEX_AGENT_QUEUE', 'reply queue host list is empty');
+    var hosts = [];
+    for (var h = 0; h < hostCount; h += 1) hosts.push(asciiText(reader.takeSmall('reply queue host')));
+    queues.push({
+      clientVersion,
+      server: {
+        scheme: 'smp',
+        host: hosts[0],
+        hosts,
+        port: asciiText(reader.takeSmall('reply queue port')),
+        keyHash: reader.takeSmall('reply queue server identity hash')
+      },
+      senderId: reader.takeSmall('reply queue sender id'),
+      dhPublicKey: reader.takeSmall('reply queue DH public key'),
+      queueMode: asciiText(reader.take(1, 'reply queue mode'))
+    });
+  }
+  return { type: 'reply', replyQueues: queues, connInfo: reader.tail() };
+}
+
 export function encodeNativeE2ERatchetParams(params = {}) {
   var version = normalizeVersion(params.version || 2);
   if (version >= 3 && params.kem) fail('SIMPLEX_AGENT_X3DH', 'native PQ ratchet params are not implemented yet');
@@ -610,7 +711,7 @@ export function prepareInitialSenderMessage(options = {}) {
   var senderSignKey = options.senderSignKey || generateEd25519KeyPair(options.senderSignSeed);
   var envelope = encryptClientMessage({
     sharedSecret: options.e2eSharedSecret,
-    nonce: options.nonce,
+    nonce: options.nonce || randomBytes(24),
     publicHeader: {
       version: options.agentVersion || SIMPLEX_AGENT_MESSAGE_VERSION,
       e2ePubDhKey: options.senderE2ePubDhKey || null
@@ -633,6 +734,90 @@ export function prepareInitialSenderMessage(options = {}) {
     command
   });
   return { senderSignKey, envelope, command, transmission };
+}
+
+export function prepareNativeInvitationJoin(options = {}) {
+  var link = options.link && typeof options.link === 'object'
+    ? options.link
+    : parseSimplexConnectionLink(options.invitationUri || options.invitation_uri || options.contactLink || options.contact_link);
+  if (!link.nativeAgentProfile || !link.nativeE2E) {
+    fail('SIMPLEX_AGENT_NATIVE_JOIN', 'native invitation join requires a native SimpleX invitation link');
+  }
+  var invitationQueue = link.smpQueues[0];
+  if (!invitationQueue) fail('SIMPLEX_AGENT_NATIVE_JOIN', 'native invitation does not contain an SMP queue');
+  var recipientQueueDh = decodePublicKeyDer(invitationQueue.recipientDhPublicKey);
+  if (recipientQueueDh.algorithm !== 'X25519') fail('SIMPLEX_AGENT_NATIVE_JOIN', 'native invitation queue DH key must be X25519');
+  var recipientE2eKey1 = link.nativeE2E.x3dhKeys[0];
+  var recipientE2eKey2 = link.nativeE2E.x3dhKeys[1];
+  if (!recipientE2eKey1 || !recipientE2eKey2) fail('SIMPLEX_AGENT_NATIVE_JOIN', 'native invitation is missing X3DH keys');
+
+  var senderQueueDh = options.senderQueueDhKey || options.ownDhKey || generateX25519KeyPair(options.ownDhSeed);
+  var senderX3dhKey1 = options.senderX3dhKey1 || generateX448KeyPair(options.senderX3dhSeed1);
+  var senderX3dhKey2 = options.senderX3dhKey2 || generateX448KeyPair(options.senderX3dhSeed2);
+  var senderRatchetDh = options.senderRatchetDhKey || generateX448KeyPair(options.senderRatchetSeed);
+  var init = deriveNativeX3dhSender({
+    senderKey1: senderX3dhKey1,
+    senderKey2: senderX3dhKey2,
+    recipientKey1: recipientE2eKey1,
+    recipientKey2: recipientE2eKey2
+  });
+  var nativeRatchet = createNativeSendingRatchet({
+    version: options.nativeE2EVersion || SIMPLEX_NATIVE_E2E_VERSION,
+    init,
+    ownDhKey: senderRatchetDh,
+    remoteDhPublicKey: recipientE2eKey1.rawPublicKey
+  });
+  var connInfo = options.connInfo == null
+    ? utf8Bytes(JSON.stringify(options.profile || {}))
+    : toBytes(options.connInfo, 'native connection info');
+  var agentConnInfo = encodeNativeAgentConnInfo({
+    type: 'reply',
+    replyQueues: [options.replyQueue],
+    connInfo
+  });
+  var encryptedConnInfo = encryptNativeRatchetMessage(nativeRatchet, agentConnInfo, {
+    paddedLength: options.encConnInfoLength || SIMPLEX_NATIVE_ENC_CONN_INFO_LENGTH,
+    headerIv: options.nativeHeaderIv
+  });
+  var e2eEncryption = encodeNativeE2ERatchetParams({
+    version: options.nativeE2EVersion || SIMPLEX_NATIVE_E2E_VERSION,
+    key1: senderX3dhKey1,
+    key2: senderX3dhKey2
+  });
+  var body = encodeNativeAgentEnvelope({
+    type: 'confirmation',
+    version: options.nativeAgentVersion || SIMPLEX_NATIVE_AGENT_MESSAGE_VERSION,
+    e2eEncryption,
+    encConnInfo: encryptedConnInfo.packet
+  });
+  var shared = x25519SharedSecret(senderQueueDh.secretKey, recipientQueueDh.rawPublicKey);
+  var prepared = prepareInitialSenderMessage({
+    version: options.version || 4,
+    sessionId: options.sessionId || new Uint8Array(),
+    corrId: options.corrId || new Uint8Array(),
+    senderQueueId: invitationQueue.queueId,
+    senderSignKey: options.senderSignKey,
+    senderSignSeed: options.senderSignSeed,
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderQueueDh.publicKeyDer,
+    nonce: options.nonce,
+    body,
+    flags: options.flags
+  });
+  return {
+    ...prepared,
+    link,
+    invitationQueue,
+    perQueueSharedSecret: shared,
+    senderQueueDh,
+    senderX3dhKey1,
+    senderX3dhKey2,
+    senderRatchetDh,
+    nativeRatchet: encryptedConnInfo.state,
+    e2eEncryption,
+    encConnInfo: encryptedConnInfo.packet,
+    agentEnvelope: body
+  };
 }
 
 export function prepareSenderMessage(queue, options = {}) {
@@ -687,6 +872,9 @@ export default {
   SIMPLEX_AGENT_MESSAGE_VERSION,
   SIMPLEX_CONFIRMATION_PRIVATE_HEADER,
   SIMPLEX_EMPTY_PRIVATE_HEADER,
+  SIMPLEX_NATIVE_AGENT_MESSAGE_VERSION,
+  SIMPLEX_NATIVE_E2E_VERSION,
+  SIMPLEX_NATIVE_ENC_CONN_INFO_LENGTH,
   completeNewQueueRequest,
   deriveNativeX3dhReceiver,
   deriveNativeX3dhSender,
@@ -703,17 +891,21 @@ export default {
   inspectSignedCommand,
   messageIdNonce,
   encodeNativeAgentEnvelope,
+  encodeNativeAgentConnInfo,
   encodeNativeAgentMessage,
   encodeNativeE2ERatchetParams,
+  encodeNativeSmpQueueInfo,
   parseClientMessage,
   parseClientMessageEnvelope,
   parseNativeAgentEnvelope,
+  parseNativeAgentConnInfo,
   parseNativeAgentMessage,
   parseNativeE2ERatchetParams,
   parsePrivateHeader,
   parsePublicHeader,
   parseRcvMessageBody,
   prepareInitialSenderMessage,
+  prepareNativeInvitationJoin,
   prepareNewQueueRequest,
   prepareRecipientCommand,
   prepareSenderMessage,
