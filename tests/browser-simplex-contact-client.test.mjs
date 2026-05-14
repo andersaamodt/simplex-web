@@ -261,6 +261,17 @@ test('contact client can prepare and send a native SimpleX invitation join when 
   const sent = lastParsedCommand(transport, 'SEND');
   assert.equal(smp.equalBytes(sent.queueId, filled(24, 225)), true);
   assert.equal(Buffer.from(sent.command.body).includes(Buffer.from('Browser')), false);
+
+  contact.state = 'active';
+  store.saveContact('bob', contact);
+  transport.pushResponse('native-send', { type: 'OK' }, filled(24, 225));
+  await contacts.sendText('bob', 'hello Owl', {
+    corrId: 'native-send',
+    clientMessageId: 'native-msg'
+  });
+  const nativeMessage = lastParsedCommand(transport, 'SEND');
+  assert.equal(smp.equalBytes(nativeMessage.queueId, filled(24, 225)), true);
+  assert.equal(Buffer.from(nativeMessage.command.body).includes(Buffer.from('hello Owl')), false);
 });
 
 test('contact client retries failed contact requests without storing plaintext profile data', async () => {
