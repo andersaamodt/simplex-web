@@ -192,7 +192,7 @@ function encodeNativeChatBody(plaintext) {
   if (payload.type === 'file') {
     fail(
       'SIMPLEX_CONTACT_NATIVE_FILE',
-      'native SimpleX file attachments require native XFTP file invitations and are not implemented yet'
+      'native SimpleX file attachments must be sent with sendFile so XFTP invitations are generated'
     );
   }
   return encodeNativeChatJson({
@@ -246,8 +246,14 @@ function nativeXftpYaml(description = {}) {
   var desc = description && typeof description === 'object' ? description : {};
   var chunks = Array.isArray(desc.chunks) ? desc.chunks.slice() : [];
   if (!chunks.length) fail('SIMPLEX_CONTACT_NATIVE_FILE', 'native XFTP description has no chunks');
+  var digest = nativeXftpBytes(desc.digest, 'native XFTP file digest', 64, 64);
+  var key = nativeXftpBytes(desc.key, 'native XFTP file key', 32, 32);
+  var nonce = nativeXftpBytes(desc.nonce, 'native XFTP file nonce', 24, 24);
   chunks.sort((left, right) => Number(left.chunkNo || 0) - Number(right.chunkNo || 0));
   var defaultChunkSize = Number(desc.chunkSize || (chunks[0] && chunks[0].chunkSize) || 0);
+  if (!Number.isSafeInteger(defaultChunkSize) || defaultChunkSize <= 0) {
+    fail('SIMPLEX_CONTACT_NATIVE_FILE', 'native XFTP chunk size is invalid');
+  }
   var grouped = new Map();
   for (var chunk of chunks) {
     var replicas = Array.isArray(chunk.replicas) ? chunk.replicas : [];
@@ -256,11 +262,13 @@ function nativeXftpYaml(description = {}) {
       var replica = replicas[index];
       var server = String(replica.server || '');
       if (!server.startsWith('xftp://')) fail('SIMPLEX_CONTACT_NATIVE_FILE', 'native XFTP replica server is invalid');
+      var replicaId = nativeXftpBytes(replica.replicaId, 'native XFTP replica id', 1, 255);
+      var replicaKey = nativeXftpBytes(replica.replicaKey, 'native XFTP replica key', 32, 128);
       var record = String(Math.max(1, Math.floor(Number(chunk.chunkNo || 0) || 0))) +
-        ':' + base64UrlPadded(replica.replicaId || new Uint8Array()) +
-        ':' + base64UrlPadded(replica.replicaKey || new Uint8Array());
+        ':' + base64UrlPadded(replicaId) +
+        ':' + base64UrlPadded(replicaKey);
       if (index === 0) {
-        record += ':' + base64UrlPadded(chunk.digest || new Uint8Array());
+        record += ':' + base64UrlPadded(nativeXftpBytes(chunk.digest, 'native XFTP chunk digest', 32, 32));
         if (Number(chunk.chunkSize || 0) !== defaultChunkSize) record += ':' + formatNativeXftpSize(chunk.chunkSize);
       }
       if (!grouped.has(server)) grouped.set(server, []);
@@ -269,9 +277,9 @@ function nativeXftpYaml(description = {}) {
   }
   var lines = [
     'chunkSize: ' + formatNativeXftpSize(defaultChunkSize),
-    'digest: ' + base64UrlPadded(desc.digest || new Uint8Array()),
-    'key: ' + base64UrlPadded(desc.key || new Uint8Array()),
-    'nonce: ' + base64UrlPadded(desc.nonce || new Uint8Array()),
+    'digest: ' + base64UrlPadded(digest),
+    'key: ' + base64UrlPadded(key),
+    'nonce: ' + base64UrlPadded(nonce),
     'party: recipient',
     'replicas:'
   ];
@@ -282,6 +290,12 @@ function nativeXftpYaml(description = {}) {
   }
   lines.push('size: ' + formatNativeXftpSize(desc.size));
   return lines.join('\n') + '\n';
+}
+
+function nativeXftpBytes(value, label, minLength, maxLength) {
+  var bytes = toBytes(value || new Uint8Array(), label);
+  if (bytes.length < minLength || bytes.length > maxLength) fail('SIMPLEX_CONTACT_NATIVE_FILE', label + ' length is invalid');
+  return bytes;
 }
 
 function nativeFileName(file, fallback = 'file') {
