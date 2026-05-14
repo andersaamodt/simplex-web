@@ -84,8 +84,9 @@ Primary attacker capabilities tested:
 - Route queue commands to the SMP relay that owns the queue, including native
   SimpleX accept replies where the reply queue is on a different relay.
 - Exercise a local live SimpleX Chat/Owl interop run through contact request,
-  accept decrypt, per-relay SKEY, client-message wrapped SEND, and
-  broker-accepted SEND without exposing chat plaintext to the relay.
+  accept decrypt, per-relay SKEY, reply-queue confirmation, client-message
+  wrapped SEND, broker-accepted SEND, and Owl `newChatItems` text delivery
+  without exposing chat plaintext to the relay.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
 - Downgrade production browser XFTP server profiles to plaintext, missing
@@ -97,16 +98,20 @@ Primary attacker capabilities tested:
 
 ## Findings
 
-### Open: native Owl post-accept reply-queue keys are not synchronized yet
+### Fixed in local live run: native Owl post-accept text delivery
 
 The browser can now send the contact request to Owl, decrypt Owl's native accept,
-route the reply queue to the correct SMP relay, secure that queue with SKEY, and
-get broker OK responses for post-accept SEND. The outbound body is now wrapped
-as a native client-message envelope and text is encoded as a SimpleX Chat
-`x.msg.new` JSON body, but Owl still emits `AGENT A_PROHIBITED` / `msg: no keys`
-for the post-accept reply queue. Browser-to-Owl readable chat is therefore not
-complete yet. This blocks claiming complete native SimpleX Chat/Owl
-interoperability.
+route the reply queue to the correct SMP relay, secure that queue with SKEY,
+send the reply-queue confirmation that establishes Owl's E2E key, and deliver a
+post-accept text message that Owl stores as `newChatItems`. The relay still only
+sees encrypted SMP blocks.
+
+### Open: native Owl feature parity is not complete
+
+The successful local live pass covers browser-to-Owl text delivery. Native file
+attachments, native read receipts, longer bidirectional conversations, and
+browser receipt/receive handling against Owl still need live passes before
+claiming broader SimpleX Chat/Owl compatibility.
 
 ### Fixed: legacy plaintext paths removed
 

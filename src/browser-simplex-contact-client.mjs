@@ -34,12 +34,14 @@ import {
   deriveNativeX3dhReceiver,
   encryptClientMessage,
   encodeNativeAgentEnvelope,
+  encodeNativeAgentConnInfo,
   encodeNativeAgentMessage,
   parseClientMessageEnvelope,
   parseNativeAgentConnInfo,
   parseNativeAgentEnvelope,
   parseNativeAgentMessage,
   parseNativeE2ERatchetParams,
+  SIMPLEX_NATIVE_ENC_CONN_INFO_LENGTH,
   SIMPLEX_NATIVE_E2E_VERSION
 } from './browser-simplex-agent.mjs';
 import { createRatchetState, decryptRatchetMessage, encryptRatchetMessage } from './browser-simplex-ratchet.mjs';
@@ -265,6 +267,22 @@ function profileFromNativeConnInfo(bytes) {
     return decoded.params.profile && typeof decoded.params.profile === 'object' ? decoded.params.profile : {};
   }
   return decoded && typeof decoded === 'object' ? decoded : {};
+}
+
+function nativeProfileConnInfo(profile = {}) {
+  var input = profile && typeof profile === 'object' ? profile : {};
+  var displayName = String(input.displayName || input.display_name || input.fullName || input.full_name || 'simplex-web').trim() || 'simplex-web';
+  var fullName = String(input.fullName || input.full_name || displayName).trim();
+  return utf8Bytes(JSON.stringify({
+    event: 'x.info',
+    params: {
+      profile: {
+        ...input,
+        displayName,
+        fullName
+      }
+    }
+  }));
 }
 
 function ackTaskId(contactId, msgId) {
@@ -816,41 +834,37 @@ export class BrowserSimplexContactClient {
       };
       if (String(replyQueue.queueMode || '').toUpperCase() === 'M') {
         contact.outboundQueue = prepareNativeOutboundQueue(contact.outboundQueue, options);
-        contact.outboundQueue.nativeE2ePubDhKeyPending = false;
         await this.client.secureSenderQueue(contact.outboundQueue, {
           ...options,
           corrId: options.skeyCorrId || options.corrId || ('native-reply-skey-' + Date.now())
         });
-        var helloMsgId = ratchet.nativeNextSndMsgId || 1;
-        var helloPrevHash = ratchet.nativePrevMsgHash || new Uint8Array();
-        var helloMessage = encodeNativeAgentMessage({
-          type: 'hello',
-          sndMsgId: helloMsgId,
-          prevMsgHash: helloPrevHash
+        var infoMessage = encodeNativeAgentConnInfo({
+          type: 'info',
+          connInfo: nativeProfileConnInfo(options.profile || contact.profile || {})
         });
-        var helloHash = sha256Hash(helloMessage);
-        var helloEncrypted = encryptNativeRatchetMessage(ratchet, helloMessage, {
-          paddedLength: options.nativePaddedLength || NATIVE_AGENT_MESSAGE_PADDED_LENGTH,
+        var infoHash = sha256Hash(infoMessage);
+        var infoEncrypted = encryptNativeRatchetMessage(ratchet, infoMessage, {
+          paddedLength: options.nativeEncConnInfoLength || options.encConnInfoLength || SIMPLEX_NATIVE_ENC_CONN_INFO_LENGTH,
           nextDhKey: options.nativeNextDhKey,
           ownDhKey: options.nativeOwnDhKey,
           ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
         });
         ratchet = {
           nativeAgentProfile: true,
-          nativeNextSndMsgId: helloMsgId + 1,
-          nativePrevMsgHash: helloHash,
-          ...helloEncrypted.state
+          nativeNextSndMsgId: 2,
+          nativePrevMsgHash: infoHash,
+          ...infoEncrypted.state
         };
-        var helloAgentEnvelope = encodeNativeAgentEnvelope({
-          type: 'message',
+        var infoAgentEnvelope = encodeNativeAgentEnvelope({
+          type: 'confirmation',
           version: options.nativeAgentVersion || 7,
-          encAgentMessage: helloEncrypted.packet
+          encConnInfo: infoEncrypted.packet
         });
-        var helloClientEnvelope = encodeNativeQueueClientMessage(contact.outboundQueue, helloAgentEnvelope, options);
-        contact.outboundQueue = helloClientEnvelope.queue;
-        await this.client.sendQueueMessage(contact.outboundQueue, helloClientEnvelope.body, {
+        var infoClientEnvelope = encodeNativeQueueClientMessage(contact.outboundQueue, infoAgentEnvelope, options);
+        contact.outboundQueue = infoClientEnvelope.queue;
+        await this.client.sendQueueMessage(contact.outboundQueue, infoClientEnvelope.body, {
           ...options,
-          corrId: options.helloCorrId || options.corrId || ('native-reply-hello-' + Date.now())
+          corrId: options.infoCorrId || options.confirmationCorrId || options.helloCorrId || options.corrId || ('native-reply-info-' + Date.now())
         });
       }
       this.store.saveQueue(outboxQueueId(contact), contact.outboundQueue);

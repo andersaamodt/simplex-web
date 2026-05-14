@@ -25,9 +25,9 @@
   relay for local/server-side interop with existing native SMP relays without
   exposing SimpleX Chat plaintext.
 - Advanced live Owl interop through contact request, native accept decrypt,
-  per-relay SKEY, client-message wrapped post-accept SEND, and SimpleX Chat JSON
-  body encoding. Readable post-accept Owl chat still returns
-  `AGENT A_PROHIBITED` / `msg: no keys` on the reply queue and remains open.
+  per-relay SKEY, reply-queue confirmation, client-message wrapped post-accept
+  SEND, and SimpleX Chat JSON body encoding. The current live local run reaches
+  Owl `contactConnected` and `newChatItems` for a delivered text message.
 - Added focused transport tests for URL policy, binary handshakes, block sending/receiving, malformed frames, and session mismatch handling.
 - Added live loopback WebSocket SMP transport coverage using a real local WebSocket upgrade server and Node's browser-compatible WebSocket client.
 - Added `src/browser-simplex-store.mjs` for durable browser queue, contact, ratchet, and pending-task state.

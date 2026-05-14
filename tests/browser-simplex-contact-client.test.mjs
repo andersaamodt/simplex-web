@@ -381,13 +381,16 @@ test('contact client requests native SimpleX contact addresses and activates aft
   assert.equal(smp.equalBytes(store.loadContact('bob').outboundQueue.sndId, owlReplyQueue.sndId), true);
   const helloCommand = parsedCommandByCorr(transport, 'native-accept-hello');
   const helloEnvelope = parseClientMessageEnvelope(helloCommand.command.body);
-  assert.equal(helloEnvelope.publicHeader.e2ePubDhKey, null);
+  assert.ok(helloEnvelope.publicHeader.e2ePubDhKey);
   const helloPlain = decryptClientMessageEnvelope({
-    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
+    sharedSecret: smp.x25519SharedSecret(
+      owlReplyQueue.rcvDhKey.secretKey,
+      smp.decodePublicKeyDer(helloEnvelope.publicHeader.e2ePubDhKey).rawPublicKey
+    ),
     envelope: helloCommand.command.body
   });
   assert.equal(helloPlain.privateHeader.type, 'empty');
-  assert.equal(parseNativeAgentEnvelope(helloPlain.body).type, 'message');
+  assert.equal(parseNativeAgentEnvelope(helloPlain.body).type, 'confirmation');
 
   transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendText('bob', 'hello after accept', {
