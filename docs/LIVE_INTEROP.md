@@ -106,6 +106,7 @@ adapter only: it opens native TLS SMP, exposes padded binary SMP blocks over
 WebSocket, and never handles SimpleX Chat plaintext.
 
 Current local Owl status: contact request, native accept decrypt, per-relay
-SKEY, native HELLO, and broker-accepted SEND work through the relay. Owl still
-reports `AGENT A_MESSAGE` for the post-accept native message payload, so this is
-not yet a completed browser-to-Owl readable chat interop pass.
+SKEY, client-message wrapped post-accept SEND, and SimpleX Chat JSON body
+encoding work through the relay. Owl still reports `AGENT A_PROHIBITED` /
+`msg: no keys` for the post-accept reply queue, so this is not yet a completed
+browser-to-Owl readable chat interop pass.

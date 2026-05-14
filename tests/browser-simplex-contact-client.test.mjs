@@ -37,6 +37,14 @@ function lastParsedCommand(transport, type) {
   throw new Error('no sent command found');
 }
 
+function parsedCommandByCorr(transport, corrId) {
+  for (const sent of transport.sent) {
+    const parsed = smp.parseSignedTransmission(4, sent.bytes);
+    if (smp.utf8Text(parsed.corrId) === corrId) return parsed;
+  }
+  throw new Error('no sent command found for ' + corrId);
+}
+
 class FakeTransport {
   constructor() {
     this.version = 4;
@@ -371,6 +379,15 @@ test('contact client requests native SimpleX contact addresses and activates aft
   assert.equal(accepted.contact.state, 'active');
   assert.equal(accepted.accept.profile.displayName, 'Owl');
   assert.equal(smp.equalBytes(store.loadContact('bob').outboundQueue.sndId, owlReplyQueue.sndId), true);
+  const helloCommand = parsedCommandByCorr(transport, 'native-accept-hello');
+  const helloEnvelope = parseClientMessageEnvelope(helloCommand.command.body);
+  assert.equal(helloEnvelope.publicHeader.e2ePubDhKey, null);
+  const helloPlain = decryptClientMessageEnvelope({
+    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
+    envelope: helloCommand.command.body
+  });
+  assert.equal(helloPlain.privateHeader.type, 'empty');
+  assert.equal(parseNativeAgentEnvelope(helloPlain.body).type, 'message');
 
   transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendText('bob', 'hello after accept', {
@@ -380,6 +397,14 @@ test('contact client requests native SimpleX contact addresses and activates aft
   });
   const sentMessage = lastParsedCommand(transport, 'SEND');
   assert.equal(smp.equalBytes(sentMessage.queueId, owlReplyQueue.sndId), true);
+  const sentEnvelope = parseClientMessageEnvelope(sentMessage.command.body);
+  assert.equal(sentEnvelope.publicHeader.e2ePubDhKey, null);
+  const sentPlain = decryptClientMessageEnvelope({
+    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
+    envelope: sentMessage.command.body
+  });
+  assert.equal(sentPlain.privateHeader.type, 'empty');
+  assert.equal(parseNativeAgentEnvelope(sentPlain.body).type, 'message');
   assert.equal(Buffer.from(sentMessage.command.body).includes(Buffer.from('hello after accept')), false);
 });
 

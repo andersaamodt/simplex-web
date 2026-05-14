@@ -263,11 +263,14 @@ export class SimplexWebTransportAdapter {
       ...config,
       transport: this.transport,
       transportForServer: config.transportForServer || (typeof config.smpWebSocketUrlForServer === 'function'
-        ? async (server) => attachTransportServer(await connectBrowserSmpWebSocketTransport({
-            ...(config.smp || {}),
-            url: config.smpWebSocketUrlForServer(server),
-            keyHash: toBytes(server.keyHash || new Uint8Array(), 'SMP server key hash')
-          }), server)
+        ? async (server) => {
+            var url = await config.smpWebSocketUrlForServer(server);
+            return attachTransportServer(await connectBrowserSmpWebSocketTransport({
+              ...(config.smp || {}),
+              url,
+              keyHash: toBytes(server.keyHash || new Uint8Array(), 'SMP server key hash')
+            }), server);
+          }
         : null)
     });
     this.store = this.store || config.store || createBrowserSimplexStore({

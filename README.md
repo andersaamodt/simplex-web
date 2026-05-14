@@ -78,10 +78,11 @@ What works locally today:
 What is still required before claiming full production SimpleX browser-client
 interoperability:
 
-- Native SimpleX Chat/Owl post-accept `A_MSG` compatibility. Contact request,
-  accept decrypt, reply-queue routing, SKEY, native HELLO, and broker SEND now
-  reach the right relays, but Owl still reports `AGENT A_MESSAGE` for the
-  post-accept native message payload in the current live local run.
+- Native SimpleX Chat/Owl post-accept reply-queue key synchronization. Contact
+  request, accept decrypt, reply-queue routing, SKEY, client-message wrapping,
+  SimpleX Chat JSON body encoding, and broker-accepted SEND now reach the right
+  relays, but Owl still reports `AGENT A_PROHIBITED` / `msg: no keys` for the
+  post-accept reply queue in the current live local run.
 - Reviewed non-loopback browser-profile SMP and XFTP servers.
 - Passing live compatibility runs against those servers.
 - Upstream-certified SimpleX protocol vectors for every encoded layer.

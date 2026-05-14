@@ -18,6 +18,7 @@ import {
   generateX25519KeyPair,
   parseSimplexConnectionLink,
   parseSmpQueueUri,
+  randomNonce24,
   sha256Hash,
   toBytes,
   utf8Bytes,
@@ -31,6 +32,7 @@ import {
   decryptClientMessageEnvelope,
   decryptRcvMessageBody,
   deriveNativeX3dhReceiver,
+  encryptClientMessage,
   encodeNativeAgentEnvelope,
   encodeNativeAgentMessage,
   parseClientMessageEnvelope,
@@ -51,6 +53,7 @@ export const CONTACT_STATE_SUSPENDED = 'suspended';
 export const CONTACT_STATE_DELETED = 'deleted';
 export const CONTACT_PAYLOAD_PREFIX = 'simplex-web:payload:v1\n';
 const MAX_MESSAGE_REF_LENGTH = 256;
+const NATIVE_AGENT_MESSAGE_PADDED_LENGTH = 14800;
 
 export class BrowserSimplexContactError extends Error {
   constructor(code, message) {
@@ -169,6 +172,65 @@ export function decodeContactPayload(text) {
   fail('SIMPLEX_CONTACT_PAYLOAD', 'contact payload type is unsupported');
 }
 
+function encodeNativeChatBody(plaintext) {
+  var text = utf8Text(toBytes(plaintext, 'native chat plaintext'));
+  var payload = decodeContactPayload(text);
+  if (payload.type === 'text') {
+    return utf8Bytes(JSON.stringify({
+      v: '1',
+      event: 'x.msg.new',
+      params: {
+        content: {
+          type: 'text',
+          text: payload.text
+        }
+      }
+    }));
+  }
+  if (payload.type === 'file') {
+    var fileName = payload.file && payload.file.manifest && payload.file.manifest.name
+      ? String(payload.file.manifest.name)
+      : 'file attachment';
+    return utf8Bytes(JSON.stringify({
+      v: '1',
+      event: 'x.msg.new',
+      params: {
+        content: {
+          type: 'file',
+          text: fileName
+        }
+      }
+    }));
+  }
+  return utf8Bytes(JSON.stringify({
+    v: '1',
+    event: 'x.msg.new',
+    params: {
+      content: {
+        type: 'text',
+        text
+      }
+    }
+  }));
+}
+
+function decodeNativeChatBody(bytes) {
+  var text = utf8Text(toBytes(bytes, 'native chat body'));
+  try {
+    var parsed = JSON.parse(text);
+    var content = parsed && parsed.params && parsed.params.content;
+    if (parsed && parsed.event === 'x.msg.new' && content && typeof content === 'object') {
+      if (content.type === 'text') return { text: String(content.text == null ? '' : content.text), payload: { type: 'text', text: String(content.text == null ? '' : content.text), messageRef: '', createdAt: '' } };
+      if (content.type === 'file') return { text: String(content.text == null ? '' : content.text), payload: { type: 'file', file: { name: String(content.text == null ? '' : content.text) }, messageRef: '', createdAt: '' } };
+    }
+  } catch (_error) {
+    // simplex-web peers may still send the private payload envelope; fall back
+    // to that decoder so mixed browser-native conversations remain readable.
+  }
+  var payload = decodeContactPayload(text);
+  return { text: payload.type === 'text' ? payload.text : text, payload };
+}
+
 function requireXftpClient(client) {
   if (!client || typeof client.uploadFile !== 'function' || typeof client.downloadFile !== 'function') {
     fail('SIMPLEX_CONTACT_XFTP', 'contact file transfer requires a browser XFTP client');
@@ -228,6 +290,42 @@ function receivedBodyHash(body) {
 
 function retryBytes(value, label) {
   return typeof value === 'string' ? decodeBase64Url(value, label) : toBytes(value, label);
+}
+
+function prepareNativeOutboundQueue(queue, options = {}) {
+  var q = { ...(queue || {}) };
+  if (q.e2eSharedSecret && q.senderE2eKey) return q;
+  var recipientDh = decodePublicKeyDer(q.recipientDhPublicKey || q.dhPublicKey);
+  if (recipientDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_NATIVE_QUEUE', 'native outbound queue DH key must be X25519');
+  var senderE2eKey = options.senderE2eKey || options.senderE2eDhKey || generateX25519KeyPair(options.senderE2eSeed || options.replySenderE2eSeed);
+  return {
+    ...q,
+    senderE2eKey,
+    e2eSharedSecret: x25519SharedSecret(senderE2eKey.secretKey, recipientDh.rawPublicKey),
+    nativeE2ePubDhKeyPending: q.nativeE2ePubDhKeyPending !== false,
+    smpClientVersion: Number(q.smpClientVersion || options.smpClientVersion || 4)
+  };
+}
+
+function encodeNativeQueueClientMessage(queue, nativeAgentEnvelope, options = {}) {
+  var q = prepareNativeOutboundQueue(queue, options);
+  var includeSenderDh = q.nativeE2ePubDhKeyPending !== false;
+  return {
+    queue: {
+      ...q,
+      nativeE2ePubDhKeyPending: false
+    },
+    body: encryptClientMessage({
+      sharedSecret: q.e2eSharedSecret,
+      nonce: options.clientNonce || options.nativeClientNonce || randomNonce24(),
+      publicHeader: {
+        version: q.smpClientVersion || options.smpClientVersion || 4,
+        e2ePubDhKey: includeSenderDh ? q.senderE2eKey.publicKeyDer : null
+      },
+      privateHeader: { type: 'empty' },
+      body: nativeAgentEnvelope
+    })
+  };
 }
 
 function outboxQueueId(contact) {
@@ -440,6 +538,8 @@ export class BrowserSimplexContactClient {
         server: parsed.server,
         sndId: parsed.queueId,
         senderSignKey: prepared.senderSignKey,
+        recipientDhPublicKey: parsed.recipientDhPublicKey,
+        queueMode: parsed.native && parsed.native.queueMode,
         nativeRatchet: prepared.nativeRatchet || null,
         senderX3dhPublicKey1: prepared.senderX3dhKey1 ? prepared.senderX3dhKey1.publicKey : null,
         senderX3dhPublicKey2: prepared.senderX3dhKey2 ? prepared.senderX3dhKey2.publicKey : null
@@ -710,10 +810,13 @@ export class BrowserSimplexContactClient {
         sndId: replyQueue.senderId,
         senderSignKey: replySenderSignKey,
         recipientDhPublicKey: replyQueue.dhPublicKey,
+        smpClientVersion: replyQueue.smpClientVersion || replyQueue.clientVersion || 4,
         queueMode: replyQueue.queueMode,
         nativeReplyQueue: true
       };
       if (String(replyQueue.queueMode || '').toUpperCase() === 'M') {
+        contact.outboundQueue = prepareNativeOutboundQueue(contact.outboundQueue, options);
+        contact.outboundQueue.nativeE2ePubDhKeyPending = false;
         await this.client.secureSenderQueue(contact.outboundQueue, {
           ...options,
           corrId: options.skeyCorrId || options.corrId || ('native-reply-skey-' + Date.now())
@@ -727,7 +830,7 @@ export class BrowserSimplexContactClient {
         });
         var helloHash = sha256Hash(helloMessage);
         var helloEncrypted = encryptNativeRatchetMessage(ratchet, helloMessage, {
-          paddedLength: options.nativePaddedLength || 15840,
+          paddedLength: options.nativePaddedLength || NATIVE_AGENT_MESSAGE_PADDED_LENGTH,
           nextDhKey: options.nativeNextDhKey,
           ownDhKey: options.nativeOwnDhKey,
           ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
@@ -738,11 +841,14 @@ export class BrowserSimplexContactClient {
           nativePrevMsgHash: helloHash,
           ...helloEncrypted.state
         };
-        await this.client.sendQueueMessage(contact.outboundQueue, encodeNativeAgentEnvelope({
+        var helloAgentEnvelope = encodeNativeAgentEnvelope({
           type: 'message',
           version: options.nativeAgentVersion || 7,
           encAgentMessage: helloEncrypted.packet
-        }), {
+        });
+        var helloClientEnvelope = encodeNativeQueueClientMessage(contact.outboundQueue, helloAgentEnvelope, options);
+        contact.outboundQueue = helloClientEnvelope.queue;
+        await this.client.sendQueueMessage(contact.outboundQueue, helloClientEnvelope.body, {
           ...options,
           corrId: options.helloCorrId || options.corrId || ('native-reply-hello-' + Date.now())
         });
@@ -752,7 +858,7 @@ export class BrowserSimplexContactClient {
     this.store.saveContact(contact.id, contact);
     this.store.saveRatchet(contact.id, {
       nativeAgentProfile: true,
-      ...nativePlain.state
+      ...ratchet
     });
     var ack = await this.acknowledgeOrQueue(contact, queue, received.message.msgId, {
       ...options,
@@ -883,26 +989,34 @@ export class BrowserSimplexContactClient {
         type: 'message',
         sndMsgId: nativeSndMsgId,
         prevMsgHash: nativePrevMsgHash,
-        body: toBytes(plaintext, 'native contact plaintext')
+        body: encodeNativeChatBody(plaintext)
       });
       var nativeMsgHash = sha256Hash(nativeMessage);
       var nativeEncrypted = encryptNativeRatchetMessage(ratchet, nativeMessage, {
-        paddedLength: options.nativePaddedLength || 15840,
+        paddedLength: options.nativePaddedLength || NATIVE_AGENT_MESSAGE_PADDED_LENGTH,
         nextDhKey: options.nativeNextDhKey,
         ownDhKey: options.nativeOwnDhKey,
         ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
       });
-      var nativeBody = encodeNativeAgentEnvelope({
+      var nativeAgentEnvelope = encodeNativeAgentEnvelope({
         type: 'message',
         version: options.nativeAgentVersion || 7,
         encAgentMessage: nativeEncrypted.packet
       });
+      var nativeClientEnvelope = encodeNativeQueueClientMessage(queue, nativeAgentEnvelope, options);
+      queue = nativeClientEnvelope.queue;
+      var nativeBody = nativeClientEnvelope.body;
       this.store.saveRatchet(contact.id, {
         nativeAgentProfile: true,
         nativeNextSndMsgId: nativeSndMsgId + 1,
         nativePrevMsgHash: nativeMsgHash,
         ...nativeEncrypted.state
       });
+      if (!options.queue) {
+        contact.outboundQueue = queue;
+        this.store.saveContact(contact.id, contact);
+        this.store.saveQueue(outboxQueueId(contact), queue);
+      }
       var nativeTaskId = contact.id + ':send:' + (options.clientMessageId || Date.now());
       try {
         var nativeResponse = await this.client.sendQueueMessage(queue, nativeBody, options);
@@ -1072,8 +1186,9 @@ export class BrowserSimplexContactClient {
       var nativeDecrypted = decryptNativeRatchetMessage(ratchet, nativeEnvelope.encAgentMessage);
       var nativeAgentMessage = parseNativeAgentMessage(nativeDecrypted.plaintext);
       if (nativeAgentMessage.type !== 'message') fail('SIMPLEX_CONTACT_MESSAGE', 'native incoming agent message type is unsupported');
-      var nativeText = utf8Text(nativeAgentMessage.body);
-      var nativePayload = decodeContactPayload(nativeText);
+      var nativeChat = decodeNativeChatBody(nativeAgentMessage.body);
+      var nativeText = nativeChat.text;
+      var nativePayload = nativeChat.payload;
       this.store.saveRatchet(contact.id, {
         nativeAgentProfile: true,
         ...nativeDecrypted.state
