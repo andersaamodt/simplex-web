@@ -269,6 +269,21 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(requestCalls[0].options.allowNativeAgentProfile, true);
   assert.equal(sentText.length, 1);
 
+  var acceptedNativeReceipt = await adapter.sendText({
+    contact_id: 'carol',
+    contact_link: nativeLink,
+    text: 'sent after accept',
+    client_message_id: 'native-2',
+    status_timeout_ms: 100,
+    send_corr_id: 'native-send-after-accept'
+  });
+  assert.equal(acceptedNativeReceipt.transport_status, 'sent');
+  assert.equal(requestCalls[1].id, 'carol');
+  assert.equal(acceptCalls[0].id, 'carol');
+  assert.equal(sentText[1].id, 'carol');
+  assert.equal(sentText[1].text, 'sent after accept');
+  assert.equal(sentText[1].options.corrId, 'native-send-after-accept');
+
   var file = {
     name: 'notes.txt',
     type: 'text/plain',
@@ -291,8 +306,8 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(readReceipt.read_message_ref, 'sender-msg-1');
   assert.equal(sentReceipts[0].messageRef, 'sender-msg-1');
   await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
-  assert.equal(acceptCalls[0].id, 'alice');
-  assert.equal(acceptCalls[0].options.ackCorrId, 'accept-ack');
+  assert.equal(acceptCalls[1].id, 'alice');
+  assert.equal(acceptCalls[1].options.ackCorrId, 'accept-ack');
   var deleted = await adapter.deleteContact({ contact_id: 'alice', corr_id: 'delete-1' });
   assert.deepEqual(deleted.remoteDeletedQueues, ['alice:inbox']);
   assert.equal(deleteCalls[0].id, 'alice');

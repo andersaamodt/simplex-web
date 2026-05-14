@@ -132,6 +132,15 @@ function timeoutError(error) {
   return error && error.code === 'SIMPLEX_CLIENT_TIMEOUT';
 }
 
+function statusTimeoutMs(message = {}) {
+  var ms = Number(message.status_timeout_ms || message.statusTimeoutMs || 0);
+  return Number.isFinite(ms) && ms > 0 ? Math.min(120000, Math.floor(ms)) : 0;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms))));
+}
+
 function makeReceipt(ref, status = 'sent') {
   return {
     accepted: true,
@@ -284,6 +293,29 @@ export class SimplexWebTransportAdapter {
     };
   }
 
+  async waitForContactAccept(contacts, contactId, message = {}) {
+    var timeoutMs = statusTimeoutMs(message);
+    if (!timeoutMs) return false;
+    var deadline = Date.now() + timeoutMs;
+    var attempt = 0;
+    while (Date.now() < deadline) {
+      var remaining = deadline - Date.now();
+      try {
+        await contacts.receiveContactAccept(contactId, {
+          ...message,
+          corrId: message.accept_corr_id || message.acceptCorrId || message.status_corr_id || message.statusCorrId || ('accept-' + Date.now().toString(36) + '-' + attempt),
+          timeoutMs: Math.max(250, Math.min(Number(message.accept_timeout_ms || message.acceptTimeoutMs || 5000) || 5000, remaining))
+        });
+        return true;
+      } catch (error) {
+        if (!timeoutError(error)) throw error;
+        await sleep(Math.min(500, Math.max(50, deadline - Date.now())));
+      }
+      attempt += 1;
+    }
+    return false;
+  }
+
   async sendText(message = {}) {
     var contacts = await this.ensureReady();
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
@@ -298,6 +330,24 @@ export class SimplexWebTransportAdapter {
         corrId: message.contact_corr_id || message.contactCorrId || message.corr_id || message.corrId,
         profile: message.profile || this.options.profile || {}
       });
+      if (await this.waitForContactAccept(contacts, contactId, message)) {
+        await contacts.sendText(contactId, text, {
+          clientMessageId: ref,
+          corrId: message.send_corr_id || message.sendCorrId || message.corr_id || message.corrId,
+          timeoutMs: message.timeout_ms || message.timeoutMs
+        });
+        var sentAfterAccept = makeReceipt(ref, 'sent');
+        this.receipts.set(ref, sentAfterAccept);
+        this.history.push({
+          direction: 'outgoing',
+          message_ref: ref,
+          message_kind: 'text',
+          delivery_status: 'sent',
+          created_at: new Date().toISOString(),
+          text
+        });
+        return sentAfterAccept;
+      }
       var requested = {
         ...makeReceipt(ref, 'contact-requested'),
         delivery_status: 'contact-requested',
@@ -345,13 +395,17 @@ export class SimplexWebTransportAdapter {
         profile: message.profile || this.options.profile || {}
       });
       var pendingRef = String(message.client_message_id || message.clientMessageId || generatedMessageRef('file'));
-      var pending = {
-        ...makeReceipt(pendingRef, 'contact-requested'),
-        delivery_status: 'contact-requested',
-        contact_state: 'requested'
-      };
-      this.receipts.set(pendingRef, pending);
-      return [pending];
+      if (await this.waitForContactAccept(contacts, contactId, message)) {
+        message = { ...message, client_message_id: pendingRef };
+      } else {
+        var pending = {
+          ...makeReceipt(pendingRef, 'contact-requested'),
+          delivery_status: 'contact-requested',
+          contact_state: 'requested'
+        };
+        this.receipts.set(pendingRef, pending);
+        return [pending];
+      }
     }
     var files = Array.isArray(message.files) ? message.files : Array.from(message.files || []);
     if (!files.length) fail('SIMPLEX_WEB_ADAPTER_FILE', 'at least one file is required');
