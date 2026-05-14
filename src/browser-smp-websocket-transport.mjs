@@ -210,7 +210,7 @@ export async function connectBrowserSmpWebSocketTransport(options = {}) {
   }
   var version = chooseCompatibleVersion(serverHandshake, {
     minVersion: options.minVersion || 3,
-    maxVersion: options.maxVersion || 4
+    maxVersion: options.maxVersion || 6
   });
   var keyHash = toBytes(options.keyHash || new Uint8Array(), 'SMP server identity hash');
   socketSend(socket, padBlock(encodeClientHandshake({ version, keyHash })));
