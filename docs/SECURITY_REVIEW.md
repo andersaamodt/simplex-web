@@ -111,9 +111,11 @@ sees encrypted SMP blocks.
 The successful local live pass covers browser-to-Owl text delivery. The
 deterministic native interop harness now also covers Owl-to-browser text receive
 and encrypted native `A_RCVD` receipt generation, including receipt hash
-verification against the simulated Owl-side ratchet state. Native file
-attachments and live Owl app passes for receive/receipt handling still need to
-land before claiming broader SimpleX Chat/Owl compatibility.
+verification against the simulated Owl-side ratchet state. It also covers native
+file invitation sends using `x.msg.new` and `x.msg.file.descr` messages with
+XFTP YAML descriptions. Live Owl app passes for receive, receipts, and file
+attachments against a compatible XFTP server still need to land before claiming
+broader SimpleX Chat/Owl compatibility.
 
 ### Fixed: legacy plaintext paths removed
 

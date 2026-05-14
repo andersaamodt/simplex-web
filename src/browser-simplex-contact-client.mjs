@@ -178,7 +178,7 @@ function encodeNativeChatBody(plaintext) {
   var text = utf8Text(toBytes(plaintext, 'native chat plaintext'));
   var payload = decodeContactPayload(text);
   if (payload.type === 'text') {
-    return utf8Bytes(JSON.stringify({
+    return encodeNativeChatJson({
       v: '1',
       event: 'x.msg.new',
       params: {
@@ -187,7 +187,7 @@ function encodeNativeChatBody(plaintext) {
           text: payload.text
         }
       }
-    }));
+    });
   }
   if (payload.type === 'file') {
     fail(
@@ -195,7 +195,7 @@ function encodeNativeChatBody(plaintext) {
       'native SimpleX file attachments require native XFTP file invitations and are not implemented yet'
     );
   }
-  return utf8Bytes(JSON.stringify({
+  return encodeNativeChatJson({
     v: '1',
     event: 'x.msg.new',
     params: {
@@ -204,7 +204,7 @@ function encodeNativeChatBody(plaintext) {
         text
       }
     }
-  }));
+  });
 }
 
 function decodeNativeChatBody(bytes) {
@@ -222,6 +222,80 @@ function decodeNativeChatBody(bytes) {
   }
   var payload = decodeContactPayload(text);
   return { text: payload.type === 'text' ? payload.text : text, payload };
+}
+
+function encodeNativeChatJson(value) {
+  return utf8Bytes(JSON.stringify(value));
+}
+
+function base64UrlPadded(bytes) {
+  var text = encodeBase64Url(bytes);
+  while (text.length % 4) text += '=';
+  return text;
+}
+
+function formatNativeXftpSize(value) {
+  var n = Math.max(0, Math.floor(Number(value || 0) || 0));
+  if (n >= 1024 * 1024 * 1024 && n % (1024 * 1024 * 1024) === 0) return String(n / (1024 * 1024 * 1024)) + 'gb';
+  if (n >= 1024 * 1024 && n % (1024 * 1024) === 0) return String(n / (1024 * 1024)) + 'mb';
+  if (n >= 1024 && n % 1024 === 0) return String(n / 1024) + 'kb';
+  return String(n);
+}
+
+function nativeXftpYaml(description = {}) {
+  var desc = description && typeof description === 'object' ? description : {};
+  var chunks = Array.isArray(desc.chunks) ? desc.chunks.slice() : [];
+  if (!chunks.length) fail('SIMPLEX_CONTACT_NATIVE_FILE', 'native XFTP description has no chunks');
+  chunks.sort((left, right) => Number(left.chunkNo || 0) - Number(right.chunkNo || 0));
+  var defaultChunkSize = Number(desc.chunkSize || (chunks[0] && chunks[0].chunkSize) || 0);
+  var grouped = new Map();
+  for (var chunk of chunks) {
+    var replicas = Array.isArray(chunk.replicas) ? chunk.replicas : [];
+    if (!replicas.length) fail('SIMPLEX_CONTACT_NATIVE_FILE', 'native XFTP chunk has no replicas');
+    for (var index = 0; index < replicas.length; index += 1) {
+      var replica = replicas[index];
+      var server = String(replica.server || '');
+      if (!server.startsWith('xftp://')) fail('SIMPLEX_CONTACT_NATIVE_FILE', 'native XFTP replica server is invalid');
+      var record = String(Math.max(1, Math.floor(Number(chunk.chunkNo || 0) || 0))) +
+        ':' + base64UrlPadded(replica.replicaId || new Uint8Array()) +
+        ':' + base64UrlPadded(replica.replicaKey || new Uint8Array());
+      if (index === 0) {
+        record += ':' + base64UrlPadded(chunk.digest || new Uint8Array());
+        if (Number(chunk.chunkSize || 0) !== defaultChunkSize) record += ':' + formatNativeXftpSize(chunk.chunkSize);
+      }
+      if (!grouped.has(server)) grouped.set(server, []);
+      grouped.get(server).push(record);
+    }
+  }
+  var lines = [
+    'chunkSize: ' + formatNativeXftpSize(defaultChunkSize),
+    'digest: ' + base64UrlPadded(desc.digest || new Uint8Array()),
+    'key: ' + base64UrlPadded(desc.key || new Uint8Array()),
+    'nonce: ' + base64UrlPadded(desc.nonce || new Uint8Array()),
+    'party: recipient',
+    'replicas:'
+  ];
+  for (var [server, records] of grouped.entries()) {
+    lines.push('- chunks:');
+    for (var record of records) lines.push('  - ' + record);
+    lines.push('  server: ' + server);
+  }
+  lines.push('size: ' + formatNativeXftpSize(desc.size));
+  return lines.join('\n') + '\n';
+}
+
+function nativeFileName(file, fallback = 'file') {
+  var manifest = file && file.manifest && typeof file.manifest === 'object' ? file.manifest : {};
+  var name = String(manifest.fileName || manifest.name || fallback || 'file').trim();
+  name = name.replace(/[\\/\u0000-\u001f\u007f]/g, '_').slice(0, 255);
+  return name || 'file';
+}
+
+function splitNativeFileDescription(text, maxPartSize) {
+  var limit = Math.max(1024, Math.floor(Number(maxPartSize || 12000) || 12000));
+  var parts = [];
+  for (var offset = 0; offset < text.length; offset += limit) parts.push(text.slice(offset, offset + limit));
+  return parts.length ? parts : [''];
 }
 
 function requireXftpClient(client) {
@@ -1009,58 +1083,7 @@ export class BrowserSimplexContactClient {
     var ratchet = this.store.loadRatchet(contact.id);
     if (!ratchet) fail('SIMPLEX_CONTACT_RATCHET', 'contact ratchet is missing');
     if (contact.nativeAgentProfile || ratchet.nativeAgentProfile) {
-      var nativeSndMsgId = ratchet.nativeNextSndMsgId || 1;
-      var nativePrevMsgHash = ratchet.nativePrevMsgHash || new Uint8Array();
-      var nativeMessage = encodeNativeAgentMessage({
-        type: 'message',
-        sndMsgId: nativeSndMsgId,
-        prevMsgHash: nativePrevMsgHash,
-        body: encodeNativeChatBody(plaintext)
-      });
-      var nativeMsgHash = sha256Hash(nativeMessage);
-      var nativeEncrypted = encryptNativeRatchetMessage(ratchet, nativeMessage, {
-        paddedLength: options.nativePaddedLength || NATIVE_AGENT_MESSAGE_PADDED_LENGTH,
-        nextDhKey: options.nativeNextDhKey,
-        ownDhKey: options.nativeOwnDhKey,
-        ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
-      });
-      var nativeAgentEnvelope = encodeNativeAgentEnvelope({
-        type: 'message',
-        version: options.nativeAgentVersion || 7,
-        encAgentMessage: nativeEncrypted.packet
-      });
-      var nativeClientEnvelope = encodeNativeQueueClientMessage(queue, nativeAgentEnvelope, options);
-      queue = nativeClientEnvelope.queue;
-      var nativeBody = nativeClientEnvelope.body;
-      this.store.saveRatchet(contact.id, {
-        nativeAgentProfile: true,
-        nativeNextSndMsgId: nativeSndMsgId + 1,
-        nativePrevMsgHash: nativeMsgHash,
-        ...nativeEncrypted.state
-      });
-      if (!options.queue) {
-        contact.outboundQueue = queue;
-        this.store.saveContact(contact.id, contact);
-        this.store.saveQueue(outboxQueueId(contact), queue);
-      }
-      var nativeTaskId = contact.id + ':send:' + (options.clientMessageId || Date.now());
-      try {
-        var nativeResponse = await this.client.sendQueueMessage(queue, nativeBody, options);
-        this.scheduler.complete(nativeTaskId);
-        return nativeResponse;
-      } catch (error) {
-        if (options.retryOnFailure !== false) {
-          this.scheduler.enqueue(nativeTaskId, {
-            type: 'sendPacket',
-            contactId: contact.id,
-            queueId: outboxQueueId(contact),
-            packet: encodeBase64Url(nativeBody),
-            options: { timeoutMs: options.timeoutMs || 0 }
-          });
-          this.scheduler.fail(nativeTaskId, error);
-        }
-        throw error;
-      }
+      return this.sendNativeChatBody(contact, encodeNativeChatBody(plaintext), options);
     }
     var encrypted = encryptRatchetMessage(ratchet, toBytes(plaintext, 'contact plaintext'), options);
     var body = packetBytes(encrypted.packet);
@@ -1102,11 +1125,23 @@ export class BrowserSimplexContactClient {
       rootKey: options.fileRootKey || options.xftpRootKey,
       profile: options.xftpProfile
     });
+    var contact = this.store.loadContact(safeId(id));
+    var ratchet = contact ? this.store.loadRatchet(contact.id) : null;
     var file = {
       manifest: upload.manifest,
       rootKey: encodeBase64Url(upload.rootKey),
       uploadedChunks: upload.uploadedChunks
     };
+    if (contact && (contact.nativeAgentProfile || (ratchet && ratchet.nativeAgentProfile))) {
+      return this.sendNativeFileInvitation(contact, file, bytes, {
+        ...options,
+        nativeRecipientDescription: {
+          ...(upload.manifest || {}),
+          key: upload.rootKey,
+          party: 'recipient'
+        }
+      });
+    }
     var payloadText = encodeContactPayload({
       type: 'file',
       file,
@@ -1115,6 +1150,114 @@ export class BrowserSimplexContactClient {
     });
     var response = await this.sendPlaintext(id, utf8Bytes(payloadText), options);
     return { ...response, file };
+  }
+
+  async sendNativeChatBody(contact, nativeChatBody, options = {}) {
+    requireState(contact, [CONTACT_STATE_ACTIVE]);
+    var queue = options.queue || contact.outboundQueue || this.store.loadQueue(outboxQueueId(contact));
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact outbound queue is missing');
+    var ratchet = this.store.loadRatchet(contact.id);
+    if (!ratchet || !ratchet.nativeAgentProfile) fail('SIMPLEX_CONTACT_RATCHET', 'native contact ratchet is missing');
+    var nativeSndMsgId = ratchet.nativeNextSndMsgId || 1;
+    var nativeMessage = encodeNativeAgentMessage({
+      type: 'message',
+      sndMsgId: nativeSndMsgId,
+      prevMsgHash: ratchet.nativePrevMsgHash || new Uint8Array(),
+      body: nativeChatBody
+    });
+    var nativeMsgHash = sha256Hash(nativeMessage);
+    var nativeEncrypted = encryptNativeRatchetMessage(ratchet, nativeMessage, {
+      paddedLength: options.nativePaddedLength || NATIVE_AGENT_MESSAGE_PADDED_LENGTH,
+      nextDhKey: options.nativeNextDhKey,
+      ownDhKey: options.nativeOwnDhKey,
+      ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
+    });
+    var nativeAgentEnvelope = encodeNativeAgentEnvelope({
+      type: 'message',
+      version: options.nativeAgentVersion || 7,
+      encAgentMessage: nativeEncrypted.packet
+    });
+    var nativeClientEnvelope = encodeNativeQueueClientMessage(queue, nativeAgentEnvelope, options);
+    queue = nativeClientEnvelope.queue;
+    var nativeBody = nativeClientEnvelope.body;
+    this.store.saveRatchet(contact.id, {
+      nativeAgentProfile: true,
+      nativeNextSndMsgId: nativeSndMsgId + 1,
+      nativePrevMsgHash: nativeMsgHash,
+      ...nativeEncrypted.state
+    });
+    if (!options.queue) {
+      contact.outboundQueue = queue;
+      this.store.saveContact(contact.id, contact);
+      this.store.saveQueue(outboxQueueId(contact), queue);
+    }
+    var nativeTaskId = contact.id + ':send:' + (options.clientMessageId || Date.now());
+    try {
+      var nativeResponse = await this.client.sendQueueMessage(queue, nativeBody, options);
+      this.scheduler.complete(nativeTaskId);
+      return nativeResponse;
+    } catch (error) {
+      if (options.retryOnFailure !== false) {
+        this.scheduler.enqueue(nativeTaskId, {
+          type: 'sendPacket',
+          contactId: contact.id,
+          queueId: outboxQueueId(contact),
+          packet: encodeBase64Url(nativeBody),
+          options: { timeoutMs: options.timeoutMs || 0 }
+        });
+        this.scheduler.fail(nativeTaskId, error);
+      }
+      throw error;
+    }
+  }
+
+  async sendNativeFileInvitation(contact, file, bytes, options = {}) {
+    var desc = nativeXftpYaml(options.nativeRecipientDescription);
+    var sharedMsgId = base64UrlPadded(options.sharedMsgId || randomNonce24());
+    var fileName = nativeFileName(file, options.name || options.clientMessageId || 'file');
+    var fileSize = toBytes(bytes, 'native file bytes').length;
+    var fileDescr = {
+      fileDescrText: '',
+      fileDescrPartNo: 0,
+      fileDescrComplete: false
+    };
+    var invite = await this.sendNativeChatBody(contact, encodeNativeChatJson({
+      v: '1',
+      msgId: sharedMsgId,
+      event: 'x.msg.new',
+      params: {
+        content: { type: 'file', text: String(options.text || '') },
+        file: {
+          fileName,
+          fileSize,
+          fileDescr
+        }
+      }
+    }), {
+      ...options,
+      clientMessageId: options.clientMessageId || sharedMsgId
+    });
+    var parts = splitNativeFileDescription(desc, options.nativeXftpDescrPartSize);
+    var descriptions = [];
+    for (var i = 0; i < parts.length; i += 1) {
+      descriptions.push(await this.sendNativeChatBody(contact, encodeNativeChatJson({
+        v: '1',
+        event: 'x.msg.file.descr',
+        params: {
+          msgId: sharedMsgId,
+          fileDescr: {
+            fileDescrText: parts[i],
+            fileDescrPartNo: i,
+            fileDescrComplete: i === parts.length - 1
+          }
+        }
+      }), {
+        ...options,
+        corrId: (Array.isArray(options.descrCorrIds) && options.descrCorrIds[i]) || options.descrCorrId || options.corrId,
+        clientMessageId: (options.clientMessageId || sharedMsgId) + ':descr:' + i
+      }));
+    }
+    return { ...invite, file, nativeFileDescription: desc, nativeFileDescriptionSends: descriptions };
   }
 
   async sendReadReceipt(id, messageRef, options = {}) {

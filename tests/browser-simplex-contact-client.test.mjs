@@ -399,16 +399,74 @@ test('contact client requests native SimpleX contact addresses and activates aft
   assert.equal(browserInfoEnvelope.type, 'confirmation');
   const browserInfoPlain = decryptNativeRatchetMessage(preparedAccept.nativeRatchet, browserInfoEnvelope.encConnInfo);
   let owlRatchet = browserInfoPlain.state;
-  const sentBeforeNativeFile = transport.sent.length;
-  await assert.rejects(
-    () => contacts.sendPlaintext('bob', smp.utf8Bytes(encodeContactPayload({
-      type: 'file',
-      file: { manifest: { name: 'not-fake.txt', size: 5 } },
-      messageRef: 'native-file'
-    })), { corrId: 'native-file-fake' }),
-    /native XFTP file invitations/
-  );
-  assert.equal(transport.sent.length, sentBeforeNativeFile);
+
+  const nativeXftpClient = {
+    async uploadFile() {
+      return {
+        manifest: {
+          party: 'recipient',
+          size: 64,
+          digest: filled(64, 32),
+          nonce: filled(24, 33),
+          chunkSize: 64,
+          fileName: 'owl-native.txt',
+          chunks: [{
+            chunkNo: 1,
+            offset: 0,
+            chunkSize: 64,
+            digest: filled(32, 34),
+            replicas: [{
+              server: 'xftp://abc=@xftp.example.test',
+              replicaId: filled(24, 35),
+              replicaKey: smp.encodePrivateKeyDer('Ed25519', filled(32, 36))
+            }]
+          }]
+        },
+        rootKey: filled(32, 37),
+        uploadedChunks: 1
+      };
+    },
+    async downloadFile() {
+      throw new Error('not used');
+    }
+  };
+  transport.pushResponse('native-file-invite', { type: 'OK' }, owlReplyQueue.sndId);
+  transport.pushResponse('native-file-descr', { type: 'OK' }, owlReplyQueue.sndId);
+  await contacts.sendFile('bob', smp.utf8Bytes('file body'), {
+    xftpClient: nativeXftpClient,
+    corrId: 'native-file-invite',
+    descrCorrIds: ['native-file-descr'],
+    clientMessageId: 'native-file-msg'
+  });
+  const fileInviteCommand = parsedCommandByCorr(transport, 'native-file-invite');
+  const fileInvitePlain = decryptClientMessageEnvelope({
+    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
+    envelope: fileInviteCommand.command.body
+  });
+  let fileInviteNative = parseNativeAgentEnvelope(fileInvitePlain.body);
+  let fileInviteDecrypted = decryptNativeRatchetMessage(owlRatchet, fileInviteNative.encAgentMessage);
+  let fileInviteAgent = parseNativeAgentMessage(fileInviteDecrypted.plaintext);
+  let fileInviteJson = JSON.parse(smp.utf8Text(fileInviteAgent.body));
+  assert.equal(fileInviteJson.event, 'x.msg.new');
+  assert.equal(fileInviteJson.params.content.type, 'file');
+  assert.equal(fileInviteJson.params.file.fileName, 'owl-native.txt');
+  assert.equal(fileInviteJson.params.file.fileDescr.fileDescrComplete, false);
+  owlRatchet = fileInviteDecrypted.state;
+  const fileDescrCommand = parsedCommandByCorr(transport, 'native-file-descr');
+  const fileDescrPlain = decryptClientMessageEnvelope({
+    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
+    envelope: fileDescrCommand.command.body
+  });
+  let fileDescrNative = parseNativeAgentEnvelope(fileDescrPlain.body);
+  let fileDescrDecrypted = decryptNativeRatchetMessage(owlRatchet, fileDescrNative.encAgentMessage);
+  let fileDescrAgent = parseNativeAgentMessage(fileDescrDecrypted.plaintext);
+  let fileDescrJson = JSON.parse(smp.utf8Text(fileDescrAgent.body));
+  assert.equal(fileDescrJson.event, 'x.msg.file.descr');
+  assert.equal(fileDescrJson.params.msgId, fileInviteJson.msgId);
+  assert.equal(fileDescrJson.params.fileDescr.fileDescrComplete, true);
+  assert.match(fileDescrJson.params.fileDescr.fileDescrText, /party: recipient/);
+  assert.match(fileDescrJson.params.fileDescr.fileDescrText, /server: xftp:\/\/abc=@xftp.example.test/);
+  owlRatchet = fileDescrDecrypted.state;
 
   transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendText('bob', 'hello after accept', {

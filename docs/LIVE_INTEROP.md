@@ -111,5 +111,7 @@ SimpleX Chat JSON body encoding work through the relay. The current local run
 reaches Owl `contactConnected` and `newChatItems` for a delivered browser-to-Owl
 text message. Deterministic protocol tests now also cover Owl-to-browser native
 text receive plus encrypted `A_RCVD` receipt generation and hash verification.
-Native file attachments and live Owl app passes for the receive/receipt path
-still need to land before claiming broader Owl feature parity.
+They also cover native file invitation sends: browser XFTP uploads are announced
+with native `x.msg.new` file invitations and `x.msg.file.descr` YAML parts. Live
+Owl app passes for receive, receipts, and file attachments against a compatible
+XFTP server still need to land before claiming broader Owl feature parity.
