@@ -261,6 +261,23 @@ function encodeBoolFlag(value) {
   return asciiBytes(value ? 'T' : 'F');
 }
 
+function encodeSubscriptionMode(value) {
+  // SMP relay protocol v6 added an explicit queue subscription mode to NEW.
+  // `S` asks the server to create and subscribe immediately, matching the
+  // upstream `SMSubscribe` path used by SimpleX Chat for ordinary queues.
+  var mode = String(value || 'subscribe').toLowerCase();
+  if (mode === 'subscribe' || mode === 's' || mode === 'smsubscribe') return asciiBytes('S');
+  if (mode === 'only-create' || mode === 'create' || mode === 'c' || mode === 'smonlycreate') return asciiBytes('C');
+  fail('SMP_SUBSCRIPTION_MODE', 'NEW subscription mode must be subscribe or only-create');
+}
+
+function parseSubscriptionMode(reader) {
+  var mode = reader.takeByte('NEW subscription mode');
+  if (mode === 0x53) return 'subscribe';
+  if (mode === 0x43) return 'only-create';
+  fail('SMP_SUBSCRIPTION_MODE', 'NEW subscription mode must be S or C');
+}
+
 function parseMsgFlags(params) {
   var reader = new ByteReader(params, 'SEND parameters');
   var notification = reader.takeByte('notification flag');
@@ -283,7 +300,15 @@ export function encodeCommand(version, command) {
   var cmd = command && typeof command === 'object' ? command : {};
   switch (String(cmd.type || '').toUpperCase()) {
     case 'NEW':
-      return concatBytes('NEW ', encodeSmallBytes(cmd.rcvPublicVerifyKey), encodeSmallBytes(cmd.rcvPublicDhKey));
+      if (v >= 7) {
+        fail('SMP_VERSION', 'SMP NEW v7+ authenticated command encryption is not implemented yet');
+      }
+      return concatBytes(
+        'NEW ',
+        encodeSmallBytes(cmd.rcvPublicVerifyKey),
+        encodeSmallBytes(cmd.rcvPublicDhKey),
+        v >= 6 ? encodeSubscriptionMode(cmd.subscriptionMode || cmd.subMode) : new Uint8Array()
+      );
     case 'SUB':
       return asciiBytes('SUB');
     case 'KEY':
@@ -319,8 +344,11 @@ export function parseCommand(version, bytes) {
     case 'NEW': {
       var rcvPublicVerifyKey = reader.takeSmall('recipient signature public key');
       var rcvPublicDhKey = reader.takeSmall('recipient DH public key');
+      var subscriptionMode = v >= 6 ? parseSubscriptionMode(reader) : null;
       reader.assertDone('NEW');
-      return { type: 'NEW', rcvPublicVerifyKey, rcvPublicDhKey };
+      var result = { type: 'NEW', rcvPublicVerifyKey, rcvPublicDhKey };
+      if (subscriptionMode) result.subscriptionMode = subscriptionMode;
+      return result;
     }
     case 'SUB':
       reader.assertDone('SUB');

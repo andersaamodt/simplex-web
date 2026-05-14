@@ -98,6 +98,30 @@ test('command codecs encode and parse core recipient and sender operations', () 
   assert.equal(smp.equalBytes(parsedNew.rcvPublicVerifyKey, rcvSign.publicKeyDer), true);
   assert.equal(smp.equalBytes(parsedNew.rcvPublicDhKey, rcvDh.publicKeyDer), true);
 
+  const newCommandV6 = smp.encodeCommand(6, {
+    type: 'NEW',
+    rcvPublicVerifyKey: rcvSign.publicKeyDer,
+    rcvPublicDhKey: rcvDh.publicKeyDer
+  });
+  const parsedNewV6 = smp.parseCommand(6, newCommandV6);
+  assert.equal(parsedNewV6.type, 'NEW');
+  assert.equal(parsedNewV6.subscriptionMode, 'subscribe');
+  assert.equal(newCommandV6[newCommandV6.length - 1], 'S'.charCodeAt(0));
+
+  const createOnlyV6 = smp.parseCommand(6, smp.encodeCommand(6, {
+    type: 'NEW',
+    rcvPublicVerifyKey: rcvSign.publicKeyDer,
+    rcvPublicDhKey: rcvDh.publicKeyDer,
+    subscriptionMode: 'only-create'
+  }));
+  assert.equal(createOnlyV6.subscriptionMode, 'only-create');
+  assert.throws(() => smp.parseCommand(6, newCommand), /subscription mode/);
+  assert.throws(() => smp.encodeCommand(7, {
+    type: 'NEW',
+    rcvPublicVerifyKey: rcvSign.publicKeyDer,
+    rcvPublicDhKey: rcvDh.publicKeyDer
+  }), /v7/);
+
   const parsedKey = smp.parseCommand(4, smp.encodeCommand(4, {
     type: 'KEY',
     sndPublicVerifyKey: sndSign.publicKeyDer
