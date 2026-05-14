@@ -49,6 +49,22 @@ function safeContactId(value) {
   return id;
 }
 
+function contactLinkText(message = {}) {
+  return String(message.contact_link || message.contactLink || message.invitation_uri || message.invitationUri || '').trim();
+}
+
+function parseOptionalContactLink(message = {}) {
+  var linkText = contactLinkText(message);
+  return linkText ? parseSimplexConnectionLink(linkText) : null;
+}
+
+function contactState(contacts, id) {
+  if (!contacts || typeof contacts.listContacts !== 'function') return '';
+  var rows = contacts.listContacts() || [];
+  var found = rows.find((contact) => contact && String(contact.id || '') === id);
+  return found ? String(found.state || '') : '';
+}
+
 function rejectUnsupportedNativeContactLink(message = {}) {
   var linkText = String(message.contact_link || message.contactLink || message.invitation_uri || message.invitationUri || '').trim();
   if (!linkText) return null;
@@ -269,11 +285,35 @@ export class SimplexWebTransportAdapter {
   }
 
   async sendText(message = {}) {
-    rejectUnsupportedNativeContactLink(message);
     var contacts = await this.ensureReady();
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
     var text = safeText(message.text);
     var ref = String(message.client_message_id || message.clientMessageId || message.message_ref || generatedMessageRef('snd'));
+    var linkText = contactLinkText(message);
+    var parsedLink = parseOptionalContactLink(message);
+    if (parsedLink && parsedLink.nativeAgentProfile && contactState(contacts, contactId) !== 'active') {
+      await contacts.requestContact(contactId, linkText, {
+        ...message,
+        allowNativeAgentProfile: true,
+        corrId: message.contact_corr_id || message.contactCorrId || message.corr_id || message.corrId,
+        profile: message.profile || this.options.profile || {}
+      });
+      var requested = {
+        ...makeReceipt(ref, 'contact-requested'),
+        delivery_status: 'contact-requested',
+        contact_state: 'requested'
+      };
+      this.receipts.set(ref, requested);
+      this.history.push({
+        direction: 'outgoing',
+        message_ref: ref,
+        message_kind: 'text',
+        delivery_status: 'contact-requested',
+        created_at: new Date().toISOString(),
+        text
+      });
+      return requested;
+    }
     await contacts.sendText(contactId, text, {
       clientMessageId: ref,
       corrId: message.corr_id || message.corrId,
@@ -293,9 +333,26 @@ export class SimplexWebTransportAdapter {
   }
 
   async sendFiles(message = {}) {
-    rejectUnsupportedNativeContactLink(message);
     var contacts = await this.ensureReady();
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
+    var linkText = contactLinkText(message);
+    var parsedLink = parseOptionalContactLink(message);
+    if (parsedLink && parsedLink.nativeAgentProfile && contactState(contacts, contactId) !== 'active') {
+      await contacts.requestContact(contactId, linkText, {
+        ...message,
+        allowNativeAgentProfile: true,
+        corrId: message.contact_corr_id || message.contactCorrId || message.corr_id || message.corrId,
+        profile: message.profile || this.options.profile || {}
+      });
+      var pendingRef = String(message.client_message_id || message.clientMessageId || generatedMessageRef('file'));
+      var pending = {
+        ...makeReceipt(pendingRef, 'contact-requested'),
+        delivery_status: 'contact-requested',
+        contact_state: 'requested'
+      };
+      this.receipts.set(pendingRef, pending);
+      return [pending];
+    }
     var files = Array.isArray(message.files) ? message.files : Array.from(message.files || []);
     if (!files.length) fail('SIMPLEX_WEB_ADAPTER_FILE', 'at least one file is required');
     var maxBytes = Math.max(1, Math.floor(Number(message.max_file_bytes || message.maxFileBytes || this.options.maxFileBytes || (25 * 1024 * 1024)) || (25 * 1024 * 1024)));

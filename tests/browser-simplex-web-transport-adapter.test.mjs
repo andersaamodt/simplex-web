@@ -187,6 +187,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   var sentText = [];
   var sentFiles = [];
   var sentReceipts = [];
+  var requestCalls = [];
   var acceptCalls = [];
   var deleteCalls = [];
   var localDeleteCalls = [];
@@ -216,6 +217,10 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     sendReadReceipt(id, messageRef, options) {
       sentReceipts.push({ id, messageRef, options });
       return Promise.resolve({ message: { type: 'OK' } });
+    },
+    requestContact(id, invitationUri, options) {
+      requestCalls.push({ id, invitationUri, options });
+      return Promise.resolve({ id, state: 'requested' });
     },
     receiveNext() {
       if (received.length) return Promise.resolve(received.shift());
@@ -253,10 +258,15 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   ].map(smp.encodeBase64Url).join(',');
   var nativeLink = 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(nativeQueue) +
     '&e2e=' + encodeURIComponent('v=2-3&x3dh=' + nativeX3dh);
-  await assert.rejects(
-    () => adapter.sendText({ contact_id: 'alice', contact_link: nativeLink, text: 'not sent' }),
-    /upstream agent\/X3DH handshake/
-  );
+  var nativeReceipt = await adapter.sendText({
+    contact_id: 'bob',
+    contact_link: nativeLink,
+    text: 'not sent yet',
+    client_message_id: 'native-1'
+  });
+  assert.equal(nativeReceipt.delivery_status, 'contact-requested');
+  assert.equal(requestCalls[0].id, 'bob');
+  assert.equal(requestCalls[0].options.allowNativeAgentProfile, true);
   assert.equal(sentText.length, 1);
 
   var file = {
