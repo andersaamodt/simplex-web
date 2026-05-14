@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.1 - 2026-05-12
+## 1.0.1 - 2026-05-14
 
 - Removed the previous SimpleX Chat command API adapter, loopback file bridge,
   mock chat example, and live adapter tests so the package no longer ships a
@@ -16,8 +16,17 @@
 - Added `src/browser-simplex-agent.mjs`, the first browser-native SimpleX agent helper layer for encrypted client-message envelopes, queue creation, queue-scoped recipient commands, and initial sender confirmation messages.
 - Added focused unit and fuzz coverage for the browser agent helper layer.
 - Added `src/browser-simplex-client.mjs`, a queue-level browser SimpleX client orchestrator over abstract SMP transports.
+- Added per-queue SMP transport routing so native reply queues on different
+  relays receive their own SKEY/SEND/ACK/DEL commands instead of being sent to
+  the original contact-address relay.
 - Added focused client tests for signed `NEW`, `SUB`, `ACK`, `KEY`, `DEL`, unsigned initial confirmation, broker errors, and hostile correlation IDs.
 - Added `src/browser-smp-websocket-transport.mjs`, a binary SMP-over-WebSocket browser transport profile for compatible SMP servers.
+- Added `src/browser-smp-native-tls-relay.mjs`, a Node-side native TLS SMP byte
+  relay for local/server-side interop with existing native SMP relays without
+  exposing SimpleX Chat plaintext.
+- Advanced live Owl interop through contact request, native accept decrypt,
+  per-relay SKEY, native HELLO, and broker-accepted SEND. Readable post-accept
+  Owl chat still returns `AGENT A_MESSAGE` and remains open.
 - Added focused transport tests for URL policy, binary handshakes, block sending/receiving, malformed frames, and session mismatch handling.
 - Added live loopback WebSocket SMP transport coverage using a real local WebSocket upgrade server and Node's browser-compatible WebSocket client.
 - Added `src/browser-simplex-store.mjs` for durable browser queue, contact, ratchet, and pending-task state.

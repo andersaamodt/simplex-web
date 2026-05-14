@@ -25,6 +25,8 @@ In practical website terms, `simplex-web` gives you three layers:
   blocks and upstream-style XFTP web blocks over HTTPS/`fetch`.
 - A first-party adapter that registers those browser-native pieces with
   `window.SimplexWebTransport` for website integration.
+- A queue-server transport router, because native SimpleX peers can place the
+  reply queue on a different SMP relay than the original contact address.
 
 It is independent of SimpleX while implementing the same protocol concepts.
 SimpleX, SimpleX Chat, and related marks belong to their respective owners.
@@ -64,6 +66,11 @@ What works locally today:
 - A public website adapter that can register with `window.SimplexWebTransport`
   and send/receive through the browser contact client, including encrypted
   text, encrypted file descriptors, and encrypted read receipts.
+- Per-queue SMP transport routing, so SKEY/SEND/ACK/DEL commands go to the SMP
+  relay that owns that specific queue instead of assuming one relay per contact.
+- A native SMP TLS byte relay for local/server-side interop with existing SMP
+  relays. It forwards encrypted SMP blocks only; it is not a SimpleX Chat API
+  bridge and does not receive chat plaintext.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
   tests, skipped-by-default live interop tests, fuzz/property tests, browser
   rendering tests, and Haskell/WASM smoke checks.
@@ -71,6 +78,10 @@ What works locally today:
 What is still required before claiming full production SimpleX browser-client
 interoperability:
 
+- Native SimpleX Chat/Owl post-accept `A_MSG` compatibility. Contact request,
+  accept decrypt, reply-queue routing, SKEY, native HELLO, and broker SEND now
+  reach the right relays, but Owl still reports `AGENT A_MESSAGE` for the
+  post-accept native message payload in the current live local run.
 - Reviewed non-loopback browser-profile SMP and XFTP servers.
 - Passing live compatibility runs against those servers.
 - Upstream-certified SimpleX protocol vectors for every encoded layer.
@@ -109,6 +120,8 @@ front-end library:
 3. Register the first-party browser-native transport adapter with
    `window.SimplexWebTransport`.
 4. Use browser-compatible SMP/XFTP server profiles for relay and file storage.
+5. Provide a per-server SMP transport factory when contacts can reply from a
+   different SMP relay than the original contact link.
 
 The important boundary is that the website server should serve static assets and
 application pages. It should not receive chat plaintext, file plaintext, or file
@@ -129,6 +142,7 @@ ratcheted chat layer.
 - Ships a contact lifecycle client that creates invitation URIs, sends and accepts encrypted contact requests, exchanges encrypted accept confirmations over requester reply queues, persists contacts, sends and receives ratcheted messages, XFTP file descriptors, and read receipts, acknowledges received queue messages with durable ACK retry and duplicate-redelivery suppression, downloads received encrypted files, queues failed sends as already-ratcheted packet retry tasks, sends remote SMP `DEL` for browser-owned inbox queues before optional local deletion, and scrubs contact queue/ratchet/received-fingerprint/retry records on delete.
 - Ships bounded retry scheduling for offline/transient transport failure.
 - Ships a first-party `window.SimplexWebTransport` adapter for browser-native SMP WebSocket contact messaging and optional XFTP web file transfer.
+- Ships per-queue SMP transport routing so native reply queues on different relays are handled without a plaintext bridge.
 - Ships XFTP-style encrypted chunk manifests, an encrypted-chunk upload/download client, tamper detection, and download assembly.
 - Ships a browser XFTP-over-HTTPS/fetch transport for encrypted chunk upload, download, and deletion.
 - Ships an upstream-style browser XFTP web client for binary HTTPS/fetch hello, identity proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, serializable encrypted-file descriptions, full encrypted file upload/download/delete helpers, and transport-encrypted FGET body decryption.
@@ -146,6 +160,7 @@ Not shipped:
 - A mock chat transport.
 - A plaintext website/server bridge.
 - Direct JavaScript transport to existing raw TCP/TLS SMP/XFTP servers. Browsers do not expose raw TCP sockets, server certificate bytes for SimpleX server-identity pinning, or RFC5929 `tls-unique` channel binding to JavaScript, so a production browser transport needs a browser-compatible SMP server transport profile rather than a pretend downgrade.
+- A plaintext relay. The native TLS relay that is included for interop forwards encrypted SMP protocol blocks only and does not implement the SimpleX Chat command API.
 - Checked-in Haskell/WASM build output.
 
 ## Layout
@@ -164,6 +179,7 @@ Not shipped:
 - `src/browser-simplex-web-transport-adapter.mjs`: first-party adapter that registers the browser contact client with `window.SimplexWebTransport`.
 - `src/browser-smp-server-profile.mjs`: production browser SMP server profile validation.
 - `src/browser-smp-websocket-transport.mjs`: browser binary WebSocket transport profile for padded SMP blocks.
+- `src/browser-smp-native-tls-relay.mjs`: Node-side encrypted SMP byte relay for local/server-side interop with existing native TLS SMP relays.
 - `src/browser-xftp-core.mjs`: encrypted XFTP-style file chunking, manifests, and reassembly checks.
 - `src/browser-xftp-client.mjs`: browser XFTP encrypted chunk upload/download sequencing over a reviewed server boundary.
 - `src/browser-xftp-http-transport.mjs`: browser XFTP-over-HTTPS/fetch encrypted chunk transport.

@@ -283,7 +283,7 @@ test('contact client can prepare and send a native SimpleX invitation join when 
 
 test('contact client requests native SimpleX contact addresses and activates after Owl accept', async () => {
   const transport = new FakeTransport();
-  const client = createBrowserSimplexClient({ transport });
+  const client = createBrowserSimplexClient({ transport, transportForServer: async () => transport });
   const store = createBrowserSimplexStore({ namespace: 'contacts-native-address' });
   const contacts = createBrowserSimplexContactClient({ client, store });
   const contactQueueDh = smp.generateX25519KeyPair(filled(32, 237));
@@ -357,11 +357,15 @@ test('contact client requests native SimpleX contact addresses and activates aft
   });
   transport.pushResponse('native-accept-msg', { type: 'MSG', msgId, body }, inbox.rcvId);
   transport.pushResponse('native-accept-key', { type: 'OK' }, inbox.rcvId);
+  transport.pushResponse('native-accept-skey', { type: 'OK' }, owlReplyQueue.sndId);
+  transport.pushResponse('native-accept-hello', { type: 'OK' }, owlReplyQueue.sndId);
   transport.pushResponse('native-accept-ack', { type: 'OK' }, inbox.rcvId);
 
   const accepted = await contacts.receiveContactAccept('bob', {
     corrId: 'native-accept-msg',
     keyCorrId: 'native-accept-key',
+    skeyCorrId: 'native-accept-skey',
+    helloCorrId: 'native-accept-hello',
     ackCorrId: 'native-accept-ack'
   });
   assert.equal(accepted.contact.state, 'active');

@@ -110,7 +110,13 @@ async function withNativeServer(options, fn) {
         queueId: tx.queueId,
         commandBytes: encodeBrokerMessage(6, { type: 'PONG' })
       });
-      socket.write(Buffer.from(encodeTransportBlock(6, [response])));
+      var responseBlock = Buffer.from(encodeTransportBlock(6, [response]));
+      if (options.fragmentResponse === true) {
+        socket.write(responseBlock.subarray(0, 17));
+        setTimeout(() => socket.write(responseBlock.subarray(17)), 5);
+      } else {
+        socket.write(responseBlock);
+      }
     } catch (error) {
       socket.destroy(error);
     }
@@ -187,6 +193,10 @@ test('native TLS relay normalizes native handshake and forwards SMP blocks', asy
 
 test('native TLS relay accepts public-server native length-prefixed handshake', async () => {
   await assertRelayForwardsNativeBlocks({ nativeLengthPrefix: true });
+});
+
+test('native TLS relay reassembles fragmented native SMP blocks', async () => {
+  await assertRelayForwardsNativeBlocks({ fragmentResponse: true });
 });
 
 test('native TLS relay rejects non-binary WebSocket clients', async () => {

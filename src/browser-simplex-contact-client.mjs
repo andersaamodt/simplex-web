@@ -13,6 +13,7 @@ import {
   decodeBase64Url,
   decodePublicKeyDer,
   encodeBase64Url,
+  generateEd25519KeyPair,
   formatSmpQueueUri,
   generateX25519KeyPair,
   parseSimplexConnectionLink,
@@ -653,13 +654,15 @@ export class BrowserSimplexContactClient {
       sharedSecret: x25519SharedSecret(queue.rcvDhKey.secretKey, senderDh.rawPublicKey),
       envelope: decryptedBody.body
     });
-    if (decrypted.privateHeader.type !== 'confirmation') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept is missing confirmation key');
+    if (decrypted.privateHeader.type !== 'confirmation' && decrypted.privateHeader.type !== 'empty') {
+      fail('SIMPLEX_CONTACT_ACCEPT', 'native accept has an unsupported private header');
+    }
     var nativeEnvelope = parseNativeAgentEnvelope(decrypted.body);
     if (nativeEnvelope.type !== 'confirmation') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept envelope must be a confirmation');
     var storedRatchet = this.store.loadRatchet(contact.id);
     if (!storedRatchet || !storedRatchet.nativeAgentProfile) fail('SIMPLEX_CONTACT_RATCHET', 'native contact ratchet is missing');
-    var senderSignKey = storedRatchet.senderSignKey || null;
     var ratchet = storedRatchet;
+    var nativePlain = null;
     if (nativeEnvelope.e2eEncryption) {
       if (!ratchet.pendingNativeContactRequest || !ratchet.recipientX3dhKey1 || !ratchet.recipientX3dhKey2) {
         fail('SIMPLEX_CONTACT_RATCHET', 'native contact request keys are missing');
@@ -671,19 +674,23 @@ export class BrowserSimplexContactClient {
         senderKey1: e2e.key1,
         senderKey2: e2e.key2
       });
-      ratchet = createNativeReceivingRatchet({
+      var receivingRatchet = createNativeReceivingRatchet({
         version: e2e.version || SIMPLEX_NATIVE_E2E_VERSION,
         init,
-        ownDhKey: ratchet.recipientX3dhKey1
+        ownDhKey: ratchet.recipientX3dhKey2
       });
+      nativePlain = decryptNativeRatchetMessage(receivingRatchet, nativeEnvelope.encConnInfo);
+      ratchet = nativePlain.state;
     }
-    var nativePlain = decryptNativeRatchetMessage(ratchet, nativeEnvelope.encConnInfo);
+    if (!nativePlain) nativePlain = decryptNativeRatchetMessage(ratchet, nativeEnvelope.encConnInfo);
     var conn = parseNativeAgentConnInfo(nativePlain.plaintext);
     if (conn.type !== 'info' && conn.type !== 'reply') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept connection info is unsupported');
-    await this.client.secureQueue(queue, decrypted.privateHeader.senderPublicVerifyKey, {
-      ...options,
-      corrId: options.keyCorrId || options.corrId || ('native-accept-key-' + Date.now())
-    });
+    if (decrypted.privateHeader.type === 'confirmation') {
+      await this.client.secureQueue(queue, decrypted.privateHeader.senderPublicVerifyKey, {
+        ...options,
+        corrId: options.keyCorrId || options.corrId || ('native-accept-key-' + Date.now())
+      });
+    }
     var remoteProfile = {};
     try {
       remoteProfile = profileFromNativeConnInfo(conn.connInfo);
@@ -693,17 +700,53 @@ export class BrowserSimplexContactClient {
     contact.state = CONTACT_STATE_ACTIVE;
     contact.updatedAt = nowIso();
     contact.remoteProfile = remoteProfile;
-    contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
+    contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey || null;
     if (conn.type === 'reply') {
       var replyQueue = conn.replyQueues[0];
       if (!replyQueue) fail('SIMPLEX_CONTACT_ACCEPT', 'native accept reply queue is missing');
+      var replySenderSignKey = generateEd25519KeyPair(options.replySenderSignSeed || options.senderSignSeed);
       contact.outboundQueue = {
         server: replyQueue.server,
         sndId: replyQueue.senderId,
-        senderSignKey,
+        senderSignKey: replySenderSignKey,
         recipientDhPublicKey: replyQueue.dhPublicKey,
+        queueMode: replyQueue.queueMode,
         nativeReplyQueue: true
       };
+      if (String(replyQueue.queueMode || '').toUpperCase() === 'M') {
+        await this.client.secureSenderQueue(contact.outboundQueue, {
+          ...options,
+          corrId: options.skeyCorrId || options.corrId || ('native-reply-skey-' + Date.now())
+        });
+        var helloMsgId = ratchet.nativeNextSndMsgId || 1;
+        var helloPrevHash = ratchet.nativePrevMsgHash || new Uint8Array();
+        var helloMessage = encodeNativeAgentMessage({
+          type: 'hello',
+          sndMsgId: helloMsgId,
+          prevMsgHash: helloPrevHash
+        });
+        var helloHash = sha256Hash(helloMessage);
+        var helloEncrypted = encryptNativeRatchetMessage(ratchet, helloMessage, {
+          paddedLength: options.nativePaddedLength || 15840,
+          nextDhKey: options.nativeNextDhKey,
+          ownDhKey: options.nativeOwnDhKey,
+          ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
+        });
+        ratchet = {
+          nativeAgentProfile: true,
+          nativeNextSndMsgId: helloMsgId + 1,
+          nativePrevMsgHash: helloHash,
+          ...helloEncrypted.state
+        };
+        await this.client.sendQueueMessage(contact.outboundQueue, encodeNativeAgentEnvelope({
+          type: 'message',
+          version: options.nativeAgentVersion || 7,
+          encAgentMessage: helloEncrypted.packet
+        }), {
+          ...options,
+          corrId: options.helloCorrId || options.corrId || ('native-reply-hello-' + Date.now())
+        });
+      }
       this.store.saveQueue(outboxQueueId(contact), contact.outboundQueue);
     }
     this.store.saveContact(contact.id, contact);
@@ -834,10 +877,15 @@ export class BrowserSimplexContactClient {
     var ratchet = this.store.loadRatchet(contact.id);
     if (!ratchet) fail('SIMPLEX_CONTACT_RATCHET', 'contact ratchet is missing');
     if (contact.nativeAgentProfile || ratchet.nativeAgentProfile) {
+      var nativeSndMsgId = ratchet.nativeNextSndMsgId || 1;
+      var nativePrevMsgHash = ratchet.nativePrevMsgHash || new Uint8Array();
       var nativeMessage = encodeNativeAgentMessage({
         type: 'message',
+        sndMsgId: nativeSndMsgId,
+        prevMsgHash: nativePrevMsgHash,
         body: toBytes(plaintext, 'native contact plaintext')
       });
+      var nativeMsgHash = sha256Hash(nativeMessage);
       var nativeEncrypted = encryptNativeRatchetMessage(ratchet, nativeMessage, {
         paddedLength: options.nativePaddedLength || 15840,
         nextDhKey: options.nativeNextDhKey,
@@ -851,6 +899,8 @@ export class BrowserSimplexContactClient {
       });
       this.store.saveRatchet(contact.id, {
         nativeAgentProfile: true,
+        nativeNextSndMsgId: nativeSndMsgId + 1,
+        nativePrevMsgHash: nativeMsgHash,
         ...nativeEncrypted.state
       });
       var nativeTaskId = contact.id + ':send:' + (options.clientMessageId || Date.now());

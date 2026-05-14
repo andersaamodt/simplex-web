@@ -245,7 +245,9 @@ test('native agent envelopes and messages round-trip supported wire shapes', () 
   assert.equal(messageEnvelope.type, 'message');
   assert.equal(smp.utf8Text(messageEnvelope.encAgentMessage), 'encrypted agent message');
 
-  assert.deepEqual(agent.parseNativeAgentMessage(agent.encodeNativeAgentMessage({ type: 'hello' })), { type: 'hello' });
+  const hello = agent.parseNativeAgentMessage(agent.encodeNativeAgentMessage({ type: 'hello' }));
+  assert.equal(hello.type, 'hello');
+  assert.equal(hello.sndMsgId, 1n);
   const msg = agent.parseNativeAgentMessage(agent.encodeNativeAgentMessage({
     type: 'message',
     body: smp.utf8Bytes('chat body')
@@ -370,7 +372,7 @@ test('native invitation join prepares an Owl-compatible X3DH confirmation envelo
   const receiverRatchet = createNativeReceivingRatchet({
     version: agent.SIMPLEX_NATIVE_E2E_VERSION,
     init: receiverInit,
-    ownDhKey: recipientX3dh1
+    ownDhKey: recipientX3dh2
   });
   const decryptedInner = decryptNativeRatchetMessage(receiverRatchet, nativeEnvelope.encConnInfo);
   const conn = agent.parseNativeAgentConnInfo(decryptedInner.plaintext);

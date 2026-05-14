@@ -219,6 +219,11 @@ export function createSimplexWebTransportAdapter(options = {}) {
   return new SimplexWebTransportAdapter(options);
 }
 
+function attachTransportServer(transport, server) {
+  if (transport && server) transport.server = transport.server || server;
+  return transport;
+}
+
 export class SimplexWebTransportAdapter {
   constructor(options = {}) {
     this.options = options;
@@ -238,11 +243,11 @@ export class SimplexWebTransportAdapter {
       var smp = config.smp || {};
       var url = config.smpWebSocketUrl || config.smp_url || smp.url;
       if (!url) fail('SIMPLEX_WEB_ADAPTER_SMP', 'SMP WebSocket URL is required');
-      this.transport = await connectBrowserSmpWebSocketTransport({
+      this.transport = attachTransportServer(await connectBrowserSmpWebSocketTransport({
         ...smp,
         url,
         keyHash: decodeConfigBytes(config.smpKeyHash || config.smp_key_hash || smp.keyHash, 'SMP key hash')
-      });
+      }), config.smpServer || smp.server || null);
     }
 
     if (!this.xftpWebClient && (config.xftp || config.xftpWebUrl || config.xftp_web_url)) {
@@ -256,7 +261,14 @@ export class SimplexWebTransportAdapter {
 
     this.simplexClient = this.simplexClient || config.client || createBrowserSimplexClient({
       ...config,
-      transport: this.transport
+      transport: this.transport,
+      transportForServer: config.transportForServer || (typeof config.smpWebSocketUrlForServer === 'function'
+        ? async (server) => attachTransportServer(await connectBrowserSmpWebSocketTransport({
+            ...(config.smp || {}),
+            url: config.smpWebSocketUrlForServer(server),
+            keyHash: toBytes(server.keyHash || new Uint8Array(), 'SMP server key hash')
+          }), server)
+        : null)
     });
     this.store = this.store || config.store || createBrowserSimplexStore({
       ...(config.storeOptions || {}),

@@ -19,6 +19,8 @@ When enabled, it checks:
 - Server identity hash bytes sent in the browser client handshake.
 - Optional session-id binding when the endpoint publishes an expected session.
 - One signed SMP `PING` transmission and matching broker `PONG` response.
+- Optional queue-server routing when a contact accept points at a different SMP
+  relay than the original contact address.
 - XFTP web HTTPS/fetch hello with a 32-byte browser challenge.
 - XFTP web server identity proof verification against the configured key hash.
 - XFTP web padded client handshake and binary `PING`/`PONG`.
@@ -40,7 +42,7 @@ The SMP server must expose the browser SMP WebSocket profile implemented by
 - Binary WebSocket frames only.
 - Exactly one padded 16384-byte SMP transport block per frame after handshake.
 - Server handshake first, then client handshake with the configured key hash.
-- Compatible SMP version 3, 4, 5, or 6.
+- Compatible SMP version 3 through 15.
 - Broker `PONG` response to an unauthenticated queue-empty `PING`.
 
 The XFTP server must expose the upstream-style XFTP web profile implemented by
@@ -97,3 +99,13 @@ It is still not the same as proving compatibility with existing raw TCP/TLS
 SimpleX servers. Browsers cannot open raw TCP sockets or inspect the TLS
 channel-binding data that native SimpleX clients use, so browser deployment
 requires an explicitly reviewed browser transport profile.
+
+For local interoperability with existing native SMP relays, this repo also
+ships `src/browser-smp-native-tls-relay.mjs`. That relay is a byte transport
+adapter only: it opens native TLS SMP, exposes padded binary SMP blocks over
+WebSocket, and never handles SimpleX Chat plaintext.
+
+Current local Owl status: contact request, native accept decrypt, per-relay
+SKEY, native HELLO, and broker-accepted SEND work through the relay. Owl still
+reports `AGENT A_MESSAGE` for the post-accept native message payload, so this is
+not yet a completed browser-to-Owl readable chat interop pass.

@@ -190,6 +190,39 @@ test('client buffers unmatched OK responses while receiving queue messages', asy
   assert.equal(ok.message.type, 'OK');
 });
 
+test('client routes sender commands to the queue SMP server transport', async () => {
+  const primary = new FakeTransport();
+  const routed = new FakeTransport();
+  const remoteServer = {
+    scheme: 'smp',
+    keyHash: filled(32, 61),
+    host: 'other-smp.example.test',
+    port: '5223'
+  };
+  const client = createBrowserSimplexClient({
+    transport: primary,
+    server: { scheme: 'smp', keyHash: filled(32, 60), host: 'primary-smp.example.test', port: '5223' },
+    transportForServer: async (server) => {
+      routed.server = server;
+      return routed;
+    }
+  });
+  const queue = {
+    server: remoteServer,
+    sndId: filled(24, 62),
+    senderSignKey: smp.generateEd25519KeyPair(filled(32, 63))
+  };
+
+  routed.pushResponse('skey-route', { type: 'OK' }, queue.sndId);
+  await client.secureSenderQueue(queue, { corrId: 'skey-route' });
+
+  assert.equal(primary.sent.length, 0);
+  assert.equal(routed.sent.length, 1);
+  const sent = smp.parseSignedTransmission(4, routed.sent[0].bytes);
+  assert.equal(sent.command.type, 'SKEY');
+  assert.equal(smp.equalBytes(sent.queueId, queue.sndId), true);
+});
+
 test('client caps pending broker buffer under unsolicited traffic', async () => {
   const transport = new FakeTransport();
   const client = createBrowserSimplexClient({ transport, maxPendingTransmissions: 16 });

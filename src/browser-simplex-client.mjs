@@ -12,6 +12,7 @@ import {
   asciiBytes,
   asciiText,
   equalBytes,
+  formatProtocolServer,
   toBytes
 } from './browser-smp-core.mjs';
 import {
@@ -21,6 +22,7 @@ import {
   prepareNativeInvitationJoin,
   prepareNewQueueRequest,
   prepareRecipientCommand,
+  prepareSenderSecureCommand,
   prepareSenderMessage,
   queueSummary
 } from './browser-simplex-agent.mjs';
@@ -76,6 +78,23 @@ function queueMatches(transmission, queue) {
   return equalBytes(transmission.queueId, queue.rcvId);
 }
 
+function serverKey(server) {
+  if (!server) return '';
+  try {
+    return formatProtocolServer(server);
+  } catch (_error) {
+    var host = String(server.host || '').trim();
+    var port = String(server.port || '').trim();
+    var hash = server.keyHash ? Array.from(toBytes(server.keyHash, 'server key hash')).join('.') : '';
+    return [String(server.scheme || 'smp'), host, port, hash].join('|');
+  }
+}
+
+function sameServer(left, right) {
+  if (!left || !right) return false;
+  return serverKey(left) === serverKey(right);
+}
+
 export function createBrowserSimplexClient(options = {}) {
   return new BrowserSimplexClient(options);
 }
@@ -86,6 +105,9 @@ export class BrowserSimplexClient {
     this.server = options.server || null;
     this.version = options.version || this.transport.version || 4;
     this.sessionId = options.sessionId || this.transport.sessionId || new Uint8Array();
+    this.transport.server = this.transport.server || this.server || null;
+    this.transportForServer = typeof options.transportForServer === 'function' ? options.transportForServer : null;
+    this.serverTransports = new Map();
     this.nextId = 1;
     this.queues = new Map();
     this.pendingTransmissions = [];
@@ -127,11 +149,13 @@ export class BrowserSimplexClient {
   }
 
   async sendAndWait(transmission, corrId, options = {}) {
-    this.transport.sendSignedTransmissions([transmission]);
-    return this.receiveForCorr(corrId, options);
+    var transport = options.transport || this.transport;
+    transport.sendSignedTransmissions([transmission]);
+    return this.receiveForCorr(corrId, { ...options, transport });
   }
 
   async receiveForCorr(corrId, options = {}) {
+    var transport = options.transport || this.transport;
     var expected = toBytes(corrId, 'correlation id');
     var maxBatches = Math.max(1, Math.floor(Number(options.maxBatches || 25) || 25));
     var pending = this.takePending((tx) => tx && tx.corrId && equalBytes(tx.corrId, expected));
@@ -140,7 +164,7 @@ export class BrowserSimplexClient {
       return pending;
     }
     for (var i = 0; i < maxBatches; i += 1) {
-      var transmissions = await this.transport.receiveSignedTransmissions({
+      var transmissions = await transport.receiveSignedTransmissions({
         kind: 'broker',
         timeoutMs: options.timeoutMs
       });
@@ -161,11 +185,12 @@ export class BrowserSimplexClient {
 
   async receiveQueueMessage(queueOrLabel, options = {}) {
     var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
+    var transport = await this.transportForQueue(queue);
     var maxBatches = Math.max(1, Math.floor(Number(options.maxBatches || 25) || 25));
     var pending = this.takePending((tx) => brokerType(tx) === 'MSG' && queueMatches(tx, queue));
     if (pending) return { queue, transmission: pending, message: brokerMessage(pending) };
     for (var i = 0; i < maxBatches; i += 1) {
-      var transmissions = await this.transport.receiveSignedTransmissions({
+      var transmissions = await transport.receiveSignedTransmissions({
         kind: 'broker',
         timeoutMs: options.timeoutMs
       });
@@ -183,20 +208,23 @@ export class BrowserSimplexClient {
   }
 
   async createQueue(options = {}) {
+    var transport = options.transport || this.transport;
+    var version = transport.version || this.version;
+    var sessionId = transport.sessionId || this.sessionId;
     var corrId = normalizeCorrId(options.corrId, this.makeCorrId('new'));
     var pending = prepareNewQueueRequest({
-      version: this.version,
-      sessionId: this.sessionId,
+      version,
+      sessionId,
       corrId,
       server: options.server || this.server,
       rcvSignSeed: options.rcvSignSeed,
       rcvDhSeed: options.rcvDhSeed,
       transportBlock: false
     });
-    var response = await this.sendAndWait(pending.transmission, corrId, options);
+    var response = await this.sendAndWait(pending.transmission, corrId, { ...options, transport });
     if (brokerType(response) !== 'IDS') fail('SIMPLEX_CLIENT_PROTOCOL', 'NEW expected IDS response', response);
     var queue = completeNewQueueRequest(pending, brokerMessage(response), {
-      version: this.version,
+      version,
       server: options.server || this.server
     });
     this.rememberQueue(options.label || asciiText(corrId), queue);
@@ -205,14 +233,15 @@ export class BrowserSimplexClient {
 
   async recipientCommand(queueOrLabel, command, options = {}) {
     var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
+    var transport = await this.transportForQueue(queue);
     var corrId = normalizeCorrId(options.corrId, this.makeCorrId(String(command && command.type || 'cmd').toLowerCase()));
     var transmission = prepareRecipientCommand(queue, {
-      version: this.version,
-      sessionId: this.sessionId,
+      version: transport.version || this.version,
+      sessionId: transport.sessionId || this.sessionId,
       corrId,
       command
     });
-    return this.sendAndWait(transmission, corrId, options);
+    return this.sendAndWait(transmission, corrId, { ...options, transport });
   }
 
   subscribeQueue(queueOrLabel, options = {}) {
@@ -228,6 +257,20 @@ export class BrowserSimplexClient {
       type: 'KEY',
       sndPublicVerifyKey: senderPublicVerifyKey
     }, options);
+  }
+
+  async secureSenderQueue(queueOrLabel, options = {}) {
+    var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
+    var transport = await this.transportForQueue(queue);
+    var corrId = normalizeCorrId(options.corrId, this.makeCorrId('skey'));
+    var transmission = prepareSenderSecureCommand(queue, {
+      version: transport.version || this.version,
+      sessionId: transport.sessionId || this.sessionId,
+      corrId
+    });
+    var response = await this.sendAndWait(transmission, corrId, { ...options, transport });
+    if (brokerType(response) !== 'OK') fail('SIMPLEX_CLIENT_PROTOCOL', 'SKEY expected OK response', response);
+    return response;
   }
 
   deleteQueue(queueOrLabel, options = {}) {
@@ -299,17 +342,39 @@ export class BrowserSimplexClient {
 
   async sendQueueMessage(queueOrLabel, body, options = {}) {
     var queue = typeof queueOrLabel === 'string' ? this.getQueue(queueOrLabel) : queueOrLabel;
+    var transport = await this.transportForQueue(queue);
     var corrId = normalizeCorrId(options.corrId, this.makeCorrId('send'));
     var transmission = prepareSenderMessage(queue, {
-      version: this.version,
-      sessionId: this.sessionId,
+      version: transport.version || this.version,
+      sessionId: transport.sessionId || this.sessionId,
       corrId,
       body,
       flags: options.flags || { notification: false }
     });
-    var response = await this.sendAndWait(transmission, corrId, options);
+    var response = await this.sendAndWait(transmission, corrId, { ...options, transport });
     if (brokerType(response) !== 'OK') fail('SIMPLEX_CLIENT_PROTOCOL', 'SEND expected OK response', response);
     return response;
+  }
+
+  async transportForQueue(queue = {}) {
+    var targetServer = queue.server || null;
+    if (!targetServer) return this.transport;
+    if (!this.transport.server && !this.server) {
+      this.transport.server = targetServer;
+      this.server = targetServer;
+      return this.transport;
+    }
+    if (sameServer(targetServer, this.transport.server || this.server)) return this.transport;
+    if (!this.transportForServer) {
+      fail('SIMPLEX_CLIENT_TRANSPORT_ROUTE', 'queue is on a different SMP server and no transport router is configured');
+    }
+    var key = serverKey(targetServer);
+    if (!this.serverTransports.has(key)) {
+      this.serverTransports.set(key, Promise.resolve(this.transportForServer(targetServer)).then(requireTransport));
+    }
+    var transport = await this.serverTransports.get(key);
+    transport.server = transport.server || targetServer;
+    return transport;
   }
 
   status() {

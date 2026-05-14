@@ -289,10 +289,15 @@ export function handleSmpNativeTlsRelayUpgrade(request, socket, head, options = 
     return true;
   }
 
+  var nativeBuffer = Buffer.alloc(0);
   var started = startNativeConnection(socket, nativeStream, options).then(() => {
     nativeStream.on('data', (chunk) => {
-      if (chunk.length !== SMP_BLOCK_SIZE) return closePair(socket, nativeStream, 1011, 'bad native SMP block');
-      socket.write(encodeServerFrame(browserBlockFromNative(chunk)));
+      nativeBuffer = Buffer.concat([nativeBuffer, chunk]);
+      while (nativeBuffer.length >= SMP_BLOCK_SIZE) {
+        var block = nativeBuffer.subarray(0, SMP_BLOCK_SIZE);
+        nativeBuffer = nativeBuffer.subarray(SMP_BLOCK_SIZE);
+        socket.write(encodeServerFrame(browserBlockFromNative(block)));
+      }
     });
   }).catch(() => {
     closePair(socket, nativeStream, 1011, 'native SMP unavailable');

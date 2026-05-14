@@ -14,7 +14,8 @@
 // changing existing browser-profile contacts while native SimpleX interop is
 // brought up piece by piece.
 
-import { gcm } from '@noble/ciphers/aes.js';
+import { ctr, ecb, gcm } from '@noble/ciphers/aes.js';
+import { GHASH } from '@noble/ciphers/_polyval.js';
 import { randomBytes } from '@noble/ciphers/utils.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512 } from '@noble/hashes/sha2.js';
@@ -29,6 +30,7 @@ import {
   encodeSmallBytes,
   encodeWord16,
   encodeWord32,
+  equalBytes,
   generateX448KeyPair,
   padMessage,
   toBytes,
@@ -61,7 +63,7 @@ function safeWord32(value, label) {
 }
 
 function hkdf3(salt, ikm, info) {
-  var out = hkdf(sha512, toBytes(salt, 'HKDF salt'), toBytes(ikm, 'HKDF input'), utf8Bytes(info), 96);
+  var out = hkdf(sha512, toBytes(ikm, 'HKDF input'), toBytes(salt, 'HKDF salt'), utf8Bytes(info), 96);
   return [out.slice(0, 32), out.slice(32, 64), out.slice(64, 96)];
 }
 
@@ -120,20 +122,92 @@ function chainKdf(chainKey) {
 
 function encryptAead(key, iv, aad, plaintext, paddedLength) {
   var padded = padMessage(plaintext, paddedLength);
-  var packet = gcm(toBytes(key, 'AES-GCM key'), toBytes(iv, 'AES-GCM IV'), toBytes(aad, 'AES-GCM associated data')).encrypt(padded);
-  return { body: packet.slice(0, packet.length - 16), tag: packet.slice(packet.length - 16) };
+  var encrypted = cryptoniteGcm(toBytes(key, 'AES-GCM key'), toBytes(iv, 'AES-GCM IV'), toBytes(aad, 'AES-GCM associated data'), padded);
+  return { body: encrypted.body, tag: encrypted.tag };
 }
 
 function decryptAead(key, iv, aad, body, tag) {
-  try {
-    return unpadMessage(gcm(
+  var attempts = [
+    () => cryptoniteGcmOpen(
+      toBytes(key, 'AES-GCM key'),
+      toBytes(iv, 'AES-GCM IV'),
+      toBytes(aad, 'AES-GCM associated data'),
+      toBytes(body, 'AES-GCM ciphertext'),
+      toBytes(tag, 'AES-GCM tag')
+    ),
+    () => gcm(
       toBytes(key, 'AES-GCM key'),
       toBytes(iv, 'AES-GCM IV'),
       toBytes(aad, 'AES-GCM associated data')
-    ).decrypt(concatBytes(body, tag)));
-  } catch (_error) {
-    fail('SIMPLEX_NATIVE_RATCHET_DECRYPT', 'native ratchet decryption failed');
+    ).decrypt(concatBytes(toBytes(body, 'AES-GCM ciphertext'), toBytes(tag, 'AES-GCM tag')))
+  ];
+  for (var attempt of attempts) {
+    try {
+      return unpadMessage(attempt());
+    } catch (_error) {
+      // Try the next authenticated AES-GCM IV profile.
+    }
   }
+  fail('SIMPLEX_NATIVE_RATCHET_DECRYPT', 'native ratchet decryption failed');
+}
+
+function decryptAeadPart(part, key, iv, aad, body, tag) {
+  try {
+    return decryptAead(key, iv, aad, body, tag);
+  } catch (error) {
+    if (error && error.code === 'SIMPLEX_NATIVE_RATCHET_DECRYPT') {
+      fail('SIMPLEX_NATIVE_RATCHET_DECRYPT_' + String(part).toUpperCase(), 'native ratchet ' + part + ' decryption failed');
+    }
+    throw error;
+  }
+}
+
+function inc32(block) {
+  var out = block.slice();
+  for (var i = 15; i >= 12; i -= 1) {
+    out[i] = (out[i] + 1) & 0xff;
+    if (out[i]) break;
+  }
+  return out;
+}
+
+function ghashTag(key, aad, ciphertext, tagMask) {
+  var lengths = new Uint8Array(16);
+  var view = new DataView(lengths.buffer);
+  view.setBigUint64(0, BigInt(aad.length) * 8n, false);
+  view.setBigUint64(8, BigInt(ciphertext.length) * 8n, false);
+  var tag = new Uint8Array(16);
+  new GHASH(key).update(aad).update(ciphertext).update(lengths).digestInto(tag);
+  for (var i = 0; i < tag.length; i += 1) tag[i] ^= tagMask[i];
+  return tag;
+}
+
+function cryptoniteGcm(key, iv, aad, plaintext) {
+  if (iv.length !== 16) fail('SIMPLEX_NATIVE_RATCHET_NONCE', 'native AES-GCM IV must be 16 bytes');
+  var authKey = ecb(key, { disablePadding: true }).encrypt(new Uint8Array(16));
+  var initialCounter = gcmInitialCounter(authKey, iv);
+  var tagMask = ecb(key, { disablePadding: true }).encrypt(initialCounter);
+  var body = ctr(key, inc32(initialCounter)).encrypt(plaintext);
+  return { body, tag: ghashTag(authKey, aad, body, tagMask) };
+}
+
+function cryptoniteGcmOpen(key, iv, aad, body, tag) {
+  if (iv.length !== 16 || tag.length !== 16) fail('SIMPLEX_NATIVE_RATCHET_NONCE', 'native AES-GCM IV and tag must be 16 bytes');
+  var authKey = ecb(key, { disablePadding: true }).encrypt(new Uint8Array(16));
+  var initialCounter = gcmInitialCounter(authKey, iv);
+  var tagMask = ecb(key, { disablePadding: true }).encrypt(initialCounter);
+  var expected = ghashTag(authKey, aad, body, tagMask);
+  if (!equalBytes(expected, tag)) fail('SIMPLEX_NATIVE_RATCHET_DECRYPT', 'native AES-GCM tag mismatch');
+  return ctr(key, inc32(initialCounter)).decrypt(body);
+}
+
+function gcmInitialCounter(authKey, iv) {
+  if (iv.length === 12) return concatBytes(iv, new Uint8Array([0, 0, 0, 1]));
+  var lengths = new Uint8Array(16);
+  new DataView(lengths.buffer).setBigUint64(8, BigInt(iv.length) * 8n, false);
+  var out = new Uint8Array(16);
+  new GHASH(authKey).update(iv).update(lengths).digestInto(out);
+  return out;
 }
 
 export function createNativeSendingRatchet(options = {}) {
@@ -290,7 +364,7 @@ export function decryptNativeRatchetMessage(stateInput, packet) {
   var tag = input.slice(headerPart.next, headerPart.next + 16);
   var body = input.slice(headerPart.next + 16);
   var headerKey = state.receivingHeaderKey || state.nextReceivingHeaderKey;
-  var headerPlain = decryptAead(headerKey, encHeader.iv, state.associatedData, encHeader.body, encHeader.tag);
+  var headerPlain = decryptAeadPart('header', headerKey, encHeader.iv, state.associatedData, encHeader.body, encHeader.tag);
   var header = parseNativeMessageHeader(headerPlain);
   if (!state.receivingChainKey) {
     var derived = rootKdf(state.rootKey, header.dh, state.ownDhKey.secretKey);
@@ -300,7 +374,7 @@ export function decryptNativeRatchetMessage(stateInput, packet) {
     state.nextReceivingHeaderKey = derived.nextHeaderKey;
   }
   var chain = chainKdf(state.receivingChainKey);
-  var plaintext = decryptAead(chain.messageKey, chain.messageIv, concatBytes(state.associatedData, headerPart.value), body, tag);
+  var plaintext = decryptAeadPart('body', chain.messageKey, chain.messageIv, concatBytes(state.associatedData, headerPart.value), body, tag);
   state.receivingChainKey = chain.nextChainKey;
   state.remoteDhPublicKey = header.dh;
   state.receiveCount = (state.receiveCount || 0) + 1;

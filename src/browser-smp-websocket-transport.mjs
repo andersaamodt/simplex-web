@@ -241,7 +241,10 @@ export async function connectBrowserSmpWebSocketTransport(options = {}) {
     },
     async receiveSignedTransmissions(parseOptions = {}) {
       var block = await queue.receive(parseOptions.timeoutMs || options.timeoutMs);
-      return decodeTransportBlock(version, block, parseOptions);
+      return decodeTransportBlock(version, block, {
+        sessionId: serverHandshake.sessionId,
+        ...parseOptions
+      });
     },
     close(code, reason) {
       queue.dispose();

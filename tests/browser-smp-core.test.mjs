@@ -222,10 +222,9 @@ test('broker message codecs handle IDS, MSG, OK, ERR, and NMSG shapes', () => {
   });
   const noEntityErr = smp.parseSignedTransmission(15, smp.concatBytes(
     smp.encodeSmallBytes(new Uint8Array()),
-    smp.encodeSmallBytes(filled(32, 207)),
     smp.encodeSmallBytes(smp.asciiBytes('err-corr')),
     smp.asciiBytes('ERR CMD UNKNOWN')
-  ), { kind: 'broker' });
+  ), { kind: 'broker', sessionId: filled(32, 207) });
   assert.equal(noEntityErr.message.error.commandError, 'UNKNOWN');
   assert.equal(noEntityErr.queueId.length, 0);
 

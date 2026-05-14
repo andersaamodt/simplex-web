@@ -102,6 +102,8 @@ Safari automation, and wasm GHC without a bundler.
 - browser XFTP server profile validation for encrypted chunk storage endpoints
 - upstream-style browser XFTP web hello, identity-proof verification, padded handshake, PING, authenticated FNEW/FPUT/FGET/FDEL command wrappers, file-level envelope encryption, deterministic chunk planning, strict text file-description serialization, upload/download/delete helpers, and transport-encrypted FGET chunk decryption
 - SMP-over-WebSocket URL validation, binary handshake handling, 16 KiB frame enforcement, block send, and block receive
+- per-queue SMP transport routing, so reply queues on different relays use their owning relay for SKEY/SEND/ACK/DEL instead of leaking through one fixed connection
+- a Node-side native SMP TLS byte relay for encrypted-block interop with existing relays during local/server-side deployments
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
@@ -113,7 +115,7 @@ It intentionally does **not** ship old or unsafe compatibility paths:
 - no loopback file bridge
 - no mock chat transport
 - no plaintext website/server bridge
-- no production direct browser transport to existing raw TCP/TLS SMP servers yet; the current browser transport is a WebSocket SMP profile for compatible servers
+- no production direct browser-JavaScript transport to existing raw TCP/TLS SMP servers yet; the current browser transport is a WebSocket SMP profile for compatible servers, and the native TLS relay is a server-side encrypted byte adapter rather than a plaintext bridge
 
 ## Wizardry Ethos Fit
 
@@ -172,6 +174,7 @@ server bridge:
 - an encrypted-chunk browser XFTP client and production XFTP server profile validation
 - an upstream-style browser XFTP web transport, command profile, and encrypted file envelope assembly
 - production browser SMP server profile validation
+- per-queue SMP transport routing for native interop where the peer chooses a different reply relay
 
 ## Integration contract
 

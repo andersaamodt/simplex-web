@@ -23,6 +23,7 @@ Reviewed release surface:
 - `src/browser-simplex-store.mjs`
 - `src/browser-simplex-web-transport-adapter.mjs`
 - `src/browser-smp-server-profile.mjs`
+- `src/browser-smp-native-tls-relay.mjs`
 - `src/browser-smp-websocket-transport.mjs`
 - `src/browser-xftp-client.mjs`
 - `src/browser-xftp-core.mjs`
@@ -80,6 +81,11 @@ Primary attacker capabilities tested:
   receive polling, and in-process browser-contact E2E delivery.
 - Provide a skipped-by-default live interop harness for reviewed non-loopback
   SMP/XFTP browser-profile endpoints.
+- Route queue commands to the SMP relay that owns the queue, including native
+  SimpleX accept replies where the reply queue is on a different relay.
+- Exercise a local live SimpleX Chat/Owl interop run through contact request,
+  accept decrypt, per-relay SKEY, native HELLO, and broker-accepted SEND without
+  exposing chat plaintext to the relay.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
 - Downgrade production browser XFTP server profiles to plaintext, missing
@@ -90,6 +96,15 @@ Primary attacker capabilities tested:
 - Force browser rendering/layout stress across desktop and mobile viewports.
 
 ## Findings
+
+### Open: native Owl post-accept payload is not accepted yet
+
+The browser can now send the contact request to Owl, decrypt Owl's native accept,
+route the reply queue to the correct SMP relay, secure that queue with SKEY, and
+get broker OK responses for native HELLO and message SEND. Owl still emits
+`AGENT A_MESSAGE` for the post-accept native payload, so browser-to-Owl readable
+chat is not complete yet. This blocks claiming complete native SimpleX Chat/Owl
+interoperability.
 
 ### Fixed: legacy plaintext paths removed
 
@@ -139,6 +154,9 @@ Coverage added:
   transport failure, explicit retry draining, and contact deletion that scrubs
   durable queue records, ratchet secrets, received-message fingerprints, and
   contact-scoped pending retry payloads.
+- Queue routing tests prove sender-side commands for a queue on another SMP
+  relay use the configured per-server transport instead of the original contact
+  relay.
 - Remote-first contact deletion tests prove browser-owned inbox queues receive
   signed SMP `DEL` before local scrubbing, local secrets remain if the remote
   delete fails, and hostile stored inbox IDs fall back to the safe default.

@@ -182,11 +182,11 @@ function normalizeX448PublicKey(value, label) {
 }
 
 function hkdf3(salt, ikm, info) {
-  var out = hkdf(sha512, salt, ikm, utf8Bytes(info), 96);
+  var out = hkdf(sha512, ikm, salt, utf8Bytes(info), 96);
   return {
-    ratchetKey: out.slice(0, 32),
-    sendHeaderKey: out.slice(32, 64),
-    receiveNextHeaderKey: out.slice(64, 96)
+    sendHeaderKey: out.slice(0, 32),
+    receiveNextHeaderKey: out.slice(32, 64),
+    ratchetKey: out.slice(64, 96)
   };
 }
 
@@ -232,7 +232,6 @@ export function deriveNativeX3dhReceiver(options = {}) {
     options.kemSecret
   );
 }
-
 export function encodePublicHeader(header = {}) {
   // Upstream `PubHeader` is `(Version, Maybe PublicKey)`: two bytes for the
   // version, then ASCII `0` for no key or ASCII `1` plus a length-prefixed DER
@@ -278,15 +277,15 @@ export function parsePrivateHeader(bytes) {
   fail('SIMPLEX_AGENT_HEADER', 'private header tag is unsupported');
 }
 
-function encodeMaybeLargeBytes(value) {
+function encodeMaybeBytes(value) {
   if (value == null) return asciiBytes('0');
-  return concatBytes(asciiBytes('1'), encodeLargeBytes(value));
+  return concatBytes(asciiBytes('1'), toBytes(value, 'optional bytes'));
 }
 
-function parseMaybeLargeBytes(reader, label) {
+function parseMaybeNativeE2ERatchetParams(reader, label) {
   var tag = reader.takeByte(label + ' tag');
   if (tag === 0x30) return null;
-  if (tag === 0x31) return reader.takeLarge(label);
+  if (tag === 0x31) return parseNativeE2ERatchetParamsReader(reader);
   fail('SIMPLEX_AGENT_ENVELOPE', label + ' tag must be 0 or 1');
 }
 
@@ -297,7 +296,7 @@ export function encodeNativeAgentEnvelope(envelope = {}) {
     return concatBytes(
       encodeWord16(version),
       asciiBytes('C'),
-      encodeMaybeLargeBytes(envelope.e2eEncryption || envelope.e2eEncryptionBytes || null),
+      encodeMaybeBytes(envelope.e2eEncryption || envelope.e2eEncryptionBytes || null),
       toBytes(envelope.encConnInfo || envelope.body || new Uint8Array(), 'encrypted connection info')
     );
   }
@@ -320,7 +319,7 @@ export function encodeNativeAgentEnvelope(envelope = {}) {
     return concatBytes(
       encodeWord16(version),
       asciiBytes('R'),
-      encodeLargeBytes(envelope.e2eEncryption || envelope.e2eEncryptionBytes || new Uint8Array()),
+      toBytes(envelope.e2eEncryption || envelope.e2eEncryptionBytes || new Uint8Array(), 'E2E encryption'),
       toBytes(envelope.info || new Uint8Array(), 'ratchet key info')
     );
   }
@@ -335,7 +334,7 @@ export function parseNativeAgentEnvelope(bytes) {
     return {
       type: 'confirmation',
       agentVersion,
-      e2eEncryption: parseMaybeLargeBytes(reader, 'E2E encryption'),
+      e2eEncryption: parseMaybeNativeE2ERatchetParams(reader, 'E2E encryption'),
       encConnInfo: reader.tail()
     };
   }
@@ -344,7 +343,7 @@ export function parseNativeAgentEnvelope(bytes) {
     return { type: 'invitation', agentVersion, connReq: reader.takeLarge('connection request'), connInfo: reader.tail() };
   }
   if (tag === 0x52) {
-    return { type: 'ratchet-key', agentVersion, e2eEncryption: reader.takeLarge('E2E encryption'), info: reader.tail() };
+    return { type: 'ratchet-key', agentVersion, e2eEncryption: parseNativeE2ERatchetParamsReader(reader), info: reader.tail() };
   }
   fail('SIMPLEX_AGENT_ENVELOPE', 'native agent envelope tag is unsupported');
 }
@@ -473,21 +472,38 @@ export function encodeNativeE2ERatchetParams(params = {}) {
 }
 
 export function parseNativeE2ERatchetParams(bytes) {
+  if (bytes && typeof bytes === 'object' && bytes.key1 && bytes.key2) return bytes;
   var reader = new Reader(bytes, 'native E2E ratchet params');
+  var parsed = parseNativeE2ERatchetParamsReader(reader);
+  reader.done('native E2E ratchet params');
+  return parsed;
+}
+
+function parseNativeE2ERatchetParamsReader(reader) {
   var version = decodeWord16(reader.take(2, 'native E2E version'));
   var key1 = decodePublicKeyDer(reader.takeSmall('native E2E key 1'));
   var key2 = decodePublicKeyDer(reader.takeSmall('native E2E key 2'));
   if (key1.algorithm !== 'X448' || key2.algorithm !== 'X448') {
     fail('SIMPLEX_AGENT_X3DH', 'native E2E ratchet keys must be X448');
   }
-  reader.done('native E2E ratchet params');
+  if (version >= 3) {
+    var pqTag = reader.takeByte('native E2E PQ ratchet tag');
+    if (pqTag !== 0x30) fail('SIMPLEX_AGENT_X3DH', 'native PQ ratchet params are not implemented yet');
+  }
   return { version, key1, key2 };
 }
 
 export function encodeNativeAgentMessage(message = {}) {
   var type = String(message.type || '').toLowerCase();
-  if (type === 'hello') return asciiBytes('H');
-  if (type === 'message') return concatBytes(asciiBytes('M'), toBytes(message.body || new Uint8Array(), 'agent message body'));
+  if (type === 'hello' || type === 'message') {
+    return concatBytes(
+      asciiBytes('M'),
+      encodeWord64(message.sndMsgId || message.agentMsgId || 1),
+      encodeSmallBytes(message.prevMsgHash || new Uint8Array()),
+      asciiBytes(type === 'hello' ? 'H' : 'M'),
+      type === 'hello' ? new Uint8Array() : toBytes(message.body || new Uint8Array(), 'agent message body')
+    );
+  }
   if (type === 'receipt') {
     var receipts = Array.isArray(message.receipts) ? message.receipts : [];
     if (!receipts.length || receipts.length > 255) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must contain one to 255 receipts');
@@ -511,7 +527,17 @@ export function parseNativeAgentMessage(bytes) {
     reader.done('HELLO');
     return { type: 'hello' };
   }
-  if (tag === 0x4d) return { type: 'message', body: reader.tail() };
+  if (tag === 0x4d) {
+    var sndMsgId = decodeWord64(reader.take(8, 'sender message id'));
+    var prevMsgHash = reader.takeSmall('previous message hash');
+    var msgType = reader.takeByte('agent message body tag');
+    if (msgType === 0x48) {
+      reader.done('HELLO');
+      return { type: 'hello', sndMsgId, prevMsgHash };
+    }
+    if (msgType !== 0x4d) fail('SIMPLEX_AGENT_MESSAGE', 'native agent message body type is unsupported');
+    return { type: 'message', sndMsgId, prevMsgHash, body: reader.tail() };
+  }
   if (tag === 0x56) {
     var count = reader.takeByte('receipt count');
     if (!count) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must be non-empty');
@@ -709,6 +735,20 @@ export function prepareRecipientCommand(queue, options = {}) {
   });
 }
 
+export function prepareSenderSecureCommand(queue, options = {}) {
+  var q = queue && typeof queue === 'object' ? queue : {};
+  if (!q.senderSignKey || !q.senderSignKey.secretKey || !q.sndId) fail('SIMPLEX_AGENT_QUEUE', 'sender queue state is incomplete');
+  return encodeSignedTransmission(options.version || 4, options.sessionId || new Uint8Array(), {
+    privateKey: q.senderSignKey.secretKey,
+    corrId: options.corrId || new Uint8Array(),
+    queueId: q.sndId,
+    command: {
+      type: 'SKEY',
+      sndPublicVerifyKey: q.senderSignKey.publicKeyDer
+    }
+  });
+}
+
 export function prepareInitialSenderMessage(options = {}) {
   // The initial sender message is unsigned at SMP level until the recipient
   // secures the queue with `KEY`.  The encrypted client message still carries
@@ -747,10 +787,11 @@ function nativeInvitationUriFromQueue(queue, x3dhKey1, x3dhKey2, options = {}) {
   if (!q.server) fail('SIMPLEX_AGENT_QUEUE', 'native invitation queue requires a server');
   var senderId = q.sndId || q.senderId || q.queueId;
   var dhPublicKey = q.recipientDhPublicKey || (q.rcvDhKey && q.rcvDhKey.publicKeyDer);
+  var e2eVersionRange = String(options.nativeE2EVersionRange || options.e2eVersionRange || '2');
   var queueUri = formatProtocolServer(q.server) + '/' + encodeBase64Url(senderId || new Uint8Array()) +
     '#/?v=1-4&dh=' + encodeURIComponent(encodeBase64Url(dhPublicKey || new Uint8Array())) +
     '&q=' + encodeURIComponent(String(options.queueMode || q.queueMode || 'm').toLowerCase().slice(0, 1) || 'm');
-  var e2e = 'v=2-3&x3dh=' + [
+  var e2e = 'v=' + encodeURIComponent(e2eVersionRange) + '&x3dh=' + [
     encodeBase64Url(x3dhKey1.publicKeyDer || encodePublicKeyDer('X448', x3dhKey1.publicKey)),
     encodeBase64Url(x3dhKey2.publicKeyDer || encodePublicKeyDer('X448', x3dhKey2.publicKey))
   ].join(',');
@@ -860,7 +901,7 @@ export function prepareNativeInvitationJoin(options = {}) {
     version: options.nativeE2EVersion || SIMPLEX_NATIVE_E2E_VERSION,
     init,
     ownDhKey: senderRatchetDh,
-    remoteDhPublicKey: recipientE2eKey1.rawPublicKey
+    remoteDhPublicKey: recipientE2eKey2.rawPublicKey
   });
   var connInfo = options.connInfo == null
     ? nativeProfileConnInfo(options.profile || {})
@@ -1004,6 +1045,7 @@ export default {
   prepareNativeInvitationJoin,
   prepareNewQueueRequest,
   prepareRecipientCommand,
+  prepareSenderSecureCommand,
   prepareSenderMessage,
   queueSummary,
   equalBytes,

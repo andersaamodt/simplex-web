@@ -388,6 +388,8 @@ export function encodeCommand(version, command) {
       return asciiBytes('SUB');
     case 'KEY':
       return concatBytes('KEY ', encodeSmallBytes(cmd.sndPublicVerifyKey));
+    case 'SKEY':
+      return concatBytes('SKEY ', encodeSmallBytes(cmd.sndPublicVerifyKey));
     case 'NKEY':
       return concatBytes('NKEY ', encodeSmallBytes(cmd.ntfPublicVerifyKey), encodeSmallBytes(cmd.rcvNtfPublicDhKey));
     case 'NDEL':
@@ -438,6 +440,11 @@ export function parseCommand(version, bytes) {
       var sndPublicVerifyKey = reader.takeSmall('sender signature public key');
       reader.assertDone('KEY');
       return { type: 'KEY', sndPublicVerifyKey };
+    }
+    case 'SKEY': {
+      var sndPublicVerifyKey = reader.takeSmall('sender signature public key');
+      reader.assertDone('SKEY');
+      return { type: 'SKEY', sndPublicVerifyKey };
     }
     case 'NKEY': {
       var ntfPublicVerifyKey = reader.takeSmall('notifier signature public key');
@@ -603,11 +610,15 @@ export function encodeTransmission(version, sessionId, transmission) {
   var commandBytes = tx.commandBytes
     ? toBytes(tx.commandBytes, 'command bytes')
     : encodeCommand(version, tx.command || tx);
-  return concatBytes(
-    encodeSmallBytes(sessionId || new Uint8Array()),
+  var body = concatBytes(
     encodeSmallBytes(tx.corrId || new Uint8Array()),
     encodeSmallBytes(tx.queueId || new Uint8Array()),
     commandBytes
+  );
+  if (normalizeVersion(version) >= 7) return body;
+  return concatBytes(
+    encodeSmallBytes(sessionId || new Uint8Array()),
+    body
   );
 }
 
@@ -626,19 +637,25 @@ export function verifyTransmissionSignature(signedBytes, signature, publicKey) {
 
 export function encodeSignedTransmission(version, sessionId, transmission) {
   var tx = transmission && typeof transmission === 'object' ? transmission : {};
-  var signed = encodeTransmission(version, sessionId, tx);
+  var wireBody = encodeTransmission(version, sessionId, tx);
+  var signed = normalizeVersion(version) >= 7
+    ? concatBytes(encodeSmallBytes(sessionId || new Uint8Array()), wireBody)
+    : wireBody;
   var signature = tx.privateKey
     ? signTransmission(signed, tx.privateKey)
     : toBytes(tx.signature || new Uint8Array(), 'signature');
-  return { signed, bytes: concatBytes(encodeSmallBytes(signature), signed), signature };
+  return { signed, bytes: concatBytes(encodeSmallBytes(signature), wireBody), signature };
 }
 
 export function parseSignedTransmission(version, bytes, options = {}) {
+  var v = normalizeVersion(version);
   var reader = new ByteReader(bytes, 'signed transmission');
   var signature = reader.takeSmall('signature');
-  var signed = reader.takeTail();
-  var signedReader = new ByteReader(signed, 'signed transmission body');
-  var sessionId = signedReader.takeSmall('session id');
+  var wireBody = reader.takeTail();
+  var sessionId = v >= 7 ? toBytes(options.sessionId || new Uint8Array(), 'session id') : new Uint8Array();
+  var signed = v >= 7 ? concatBytes(encodeSmallBytes(sessionId), wireBody) : wireBody;
+  var signedReader = new ByteReader(wireBody, 'signed transmission body');
+  if (v < 7) sessionId = signedReader.takeSmall('session id');
   var corrId = signedReader.takeSmall('correlation id');
   var queueId;
   var commandBytes;
