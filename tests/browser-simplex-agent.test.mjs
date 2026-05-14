@@ -210,15 +210,27 @@ test('message id nonce follows SimpleX truncate and zero-pad behavior', () => {
 });
 
 test('native agent envelopes and messages round-trip supported wire shapes', () => {
+  const e2eKey1 = smp.generateX448KeyPair(filled(56, 46));
+  const e2eKey2 = smp.generateX448KeyPair(filled(56, 47));
+  const e2eParams = agent.encodeNativeE2ERatchetParams({
+    version: 2,
+    key1: e2eKey1,
+    key2: e2eKey2.publicKeyDer
+  });
+  const parsedE2E = agent.parseNativeE2ERatchetParams(e2eParams);
+  assert.equal(parsedE2E.version, 2);
+  assert.equal(smp.equalBytes(parsedE2E.key1.rawPublicKey, e2eKey1.publicKey), true);
+  assert.equal(smp.equalBytes(parsedE2E.key2.rawPublicKey, e2eKey2.publicKey), true);
+
   const confirmation = agent.parseNativeAgentEnvelope(agent.encodeNativeAgentEnvelope({
     type: 'confirmation',
     agentVersion: 2,
-    e2eEncryption: smp.utf8Bytes('x3dh-ratchet-params'),
+    e2eEncryption: e2eParams,
     encConnInfo: smp.utf8Bytes('encrypted profile')
   }));
   assert.equal(confirmation.type, 'confirmation');
   assert.equal(confirmation.agentVersion, 2);
-  assert.equal(smp.utf8Text(confirmation.e2eEncryption), 'x3dh-ratchet-params');
+  assert.equal(agent.parseNativeE2ERatchetParams(confirmation.e2eEncryption).version, 2);
   assert.equal(smp.utf8Text(confirmation.encConnInfo), 'encrypted profile');
 
   const messageEnvelope = agent.parseNativeAgentEnvelope(agent.encodeNativeAgentEnvelope({
@@ -248,6 +260,10 @@ test('native agent envelopes and messages round-trip supported wire shapes', () 
 
   assert.throws(() => agent.parseNativeAgentEnvelope(bytes([0, 2, 0xff])), /envelope tag/);
   assert.throws(() => agent.encodeNativeAgentMessage({ type: 'receipt', receipts: [] }), /receipt list/);
+  assert.throws(() => agent.encodeNativeE2ERatchetParams({
+    key1: smp.generateX25519KeyPair(filled(32, 48)).publicKeyDer,
+    key2: e2eKey2.publicKeyDer
+  }), /X448/);
 });
 
 test('native SimpleX X3DH sender and receiver derive the same initial ratchet keys', () => {

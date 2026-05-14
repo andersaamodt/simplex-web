@@ -26,6 +26,7 @@ import {
   encodeCommand,
   encodeLargeBytes,
   encodeMsgFlags,
+  encodePublicKeyDer,
   encodeSmallBytes,
   encodeSignedTransmission,
   encodeTransportBlock,
@@ -341,6 +342,43 @@ function normalizeAgentMsgId(value, label) {
   var n = typeof value === 'bigint' ? value : BigInt(Number(value || 0));
   if (n < 0n || n > 0x7fffffffffffffffn) fail('SIMPLEX_AGENT_MESSAGE_ID', label + ' is invalid');
   return n;
+}
+
+function normalizeX448PublicDer(value, label) {
+  if (value && typeof value === 'object') {
+    if (value.publicKeyDer) return normalizeX448PublicDer(value.publicKeyDer, label);
+    if (value.publicKey || value.rawPublicKey) {
+      var key = toBytes(value.publicKey || value.rawPublicKey, label + ' public key');
+      if (key.length !== 56) fail('SIMPLEX_AGENT_X3DH', label + ' public key must be X448');
+      return encodePublicKeyDer('X448', key);
+    }
+  }
+  var der = toBytes(value, label + ' public key DER');
+  var decoded = decodePublicKeyDer(der);
+  if (decoded.algorithm !== 'X448') fail('SIMPLEX_AGENT_X3DH', label + ' public key must be X448');
+  return der;
+}
+
+export function encodeNativeE2ERatchetParams(params = {}) {
+  var version = normalizeVersion(params.version || 2);
+  if (version >= 3 && params.kem) fail('SIMPLEX_AGENT_X3DH', 'native PQ ratchet params are not implemented yet');
+  return concatBytes(
+    encodeWord16(version),
+    encodeSmallBytes(normalizeX448PublicDer(params.key1 || params.x3dhKey1 || params.publicKey1, 'native E2E key 1')),
+    encodeSmallBytes(normalizeX448PublicDer(params.key2 || params.x3dhKey2 || params.publicKey2, 'native E2E key 2'))
+  );
+}
+
+export function parseNativeE2ERatchetParams(bytes) {
+  var reader = new Reader(bytes, 'native E2E ratchet params');
+  var version = decodeWord16(reader.take(2, 'native E2E version'));
+  var key1 = decodePublicKeyDer(reader.takeSmall('native E2E key 1'));
+  var key2 = decodePublicKeyDer(reader.takeSmall('native E2E key 2'));
+  if (key1.algorithm !== 'X448' || key2.algorithm !== 'X448') {
+    fail('SIMPLEX_AGENT_X3DH', 'native E2E ratchet keys must be X448');
+  }
+  reader.done('native E2E ratchet params');
+  return { version, key1, key2 };
 }
 
 export function encodeNativeAgentMessage(message = {}) {
@@ -666,10 +704,12 @@ export default {
   messageIdNonce,
   encodeNativeAgentEnvelope,
   encodeNativeAgentMessage,
+  encodeNativeE2ERatchetParams,
   parseClientMessage,
   parseClientMessageEnvelope,
   parseNativeAgentEnvelope,
   parseNativeAgentMessage,
+  parseNativeE2ERatchetParams,
   parsePrivateHeader,
   parsePublicHeader,
   parseRcvMessageBody,
