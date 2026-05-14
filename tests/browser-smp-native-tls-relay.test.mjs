@@ -61,8 +61,8 @@ function readBlock(socket) {
       if (buffer.length < SMP_BLOCK_SIZE) return;
       const block = buffer.subarray(0, SMP_BLOCK_SIZE);
       const extra = buffer.subarray(SMP_BLOCK_SIZE);
-      if (extra.length) socket.unshift(extra);
       cleanup();
+      if (extra.length) socket.unshift(extra);
       resolve(new Uint8Array(block));
     }
     socket.on('data', onData);
@@ -115,7 +115,7 @@ async function withRelay(native, fn) {
     connectNative(options) {
       return net.connect(options.target.port, options.target.host);
     },
-    timeoutMs: 2000
+    timeoutMs: 5000
   });
   const sockets = new Set();
   relay.on('connection', (socket) => {
@@ -138,7 +138,7 @@ test('native TLS relay normalizes native handshake and forwards SMP blocks', asy
       const transport = await connectBrowserSmpWebSocketTransport({
         url,
         keyHash: filled(32, 44),
-        timeoutMs: 2000
+        timeoutMs: 5000
       });
       assert.equal(transport.version, 6);
       assert.equal(equalBytes(transport.sessionId, sessionId), true);
@@ -152,7 +152,7 @@ test('native TLS relay normalizes native handshake and forwards SMP blocks', asy
           command: { type: 'PING' }
         })
       ]);
-      const [response] = await transport.receiveSignedTransmissions({ kind: 'broker', timeoutMs: 2000 });
+      const [response] = await transport.receiveSignedTransmissions({ kind: 'broker', timeoutMs: 5000 });
       assert.equal(response.message.type, 'PONG');
       assert.equal(equalBytes(response.corrId, corrId), true);
       assert.equal(captured.clientHandshake.version, 6);

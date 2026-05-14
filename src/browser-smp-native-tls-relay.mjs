@@ -125,6 +125,10 @@ function decodeClientFrame(buffer) {
 function parseNativeServerHandshake(block) {
   var body = unpadBlock(block, SMP_BLOCK_SIZE);
   var offset = 0;
+  if (body.length >= 4) {
+    var nativeLength = (body[0] << 8) | body[1];
+    if (nativeLength === body.length) offset = 2;
+  }
   if (body.length < 5) fail('SMP_RELAY_HANDSHAKE', 'native server handshake is truncated');
   var minVersion = (body[offset] << 8) | body[offset + 1];
   offset += 2;
@@ -208,8 +212,8 @@ function readExact(stream, length, timeoutMs) {
       if (total < length) return;
       var joined = Buffer.concat(chunks, total);
       var extra = joined.subarray(length);
-      if (extra.length) stream.unshift(extra);
       cleanup(resolve, joined.subarray(0, length));
+      if (extra.length) stream.unshift(extra);
     }
     stream.on('data', onData);
     stream.once('error', onError);
@@ -220,7 +224,7 @@ function readExact(stream, length, timeoutMs) {
 
 async function startNativeConnection(wsSocket, nativeStream, options) {
   var timeoutMs = Math.max(1000, Number(options.timeoutMs || 15000) || 15000);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await new Promise((resolve) => setTimeout(resolve, 50));
   var nativeHandshakeBlock = await readExact(nativeStream, SMP_BLOCK_SIZE, timeoutMs);
   var nativeHandshake = parseNativeServerHandshake(nativeHandshakeBlock);
   var maxVersion = Math.min(Number(options.maxVersion || 6), nativeHandshake.maxVersion);
