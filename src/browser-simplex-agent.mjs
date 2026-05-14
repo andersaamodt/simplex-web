@@ -719,7 +719,7 @@ export function prepareInitialSenderMessage(options = {}) {
     sharedSecret: options.e2eSharedSecret,
     nonce: options.nonce || randomBytes(24),
     publicHeader: {
-      version: options.agentVersion || SIMPLEX_AGENT_MESSAGE_VERSION,
+      version: options.clientVersion || options.smpClientVersion || options.version || SIMPLEX_AGENT_MESSAGE_VERSION,
       e2ePubDhKey: options.senderE2ePubDhKey || null
     },
     privateHeader,
