@@ -4,8 +4,12 @@ import assert from 'node:assert/strict';
 import * as smp from '../src/browser-smp-core.mjs';
 import {
   decryptClientMessageEnvelope,
+  encryptClientMessage,
+  encodeNativeAgentEnvelope,
+  encodeNativeAgentMessage,
   encryptRcvMessageBody,
   parseClientMessageEnvelope,
+  parseNativeAgentMessage,
   parseNativeAgentEnvelope,
   prepareInitialSenderMessage,
   prepareNativeInvitationJoin
@@ -14,6 +18,7 @@ import { createBrowserSimplexClient } from '../src/browser-simplex-client.mjs';
 import { CONTACT_PAYLOAD_PREFIX, createBrowserSimplexContactClient, decodeContactPayload, encodeContactPayload } from '../src/browser-simplex-contact-client.mjs';
 import { createBrowserSimplexStore, SIMPLEX_STORE_MAX_LIST_ITEMS } from '../src/browser-simplex-store.mjs';
 import { createRatchetState, encryptRatchetMessage } from '../src/browser-simplex-ratchet.mjs';
+import { decryptNativeRatchetMessage, encryptNativeRatchetMessage } from '../src/browser-simplex-native-ratchet.mjs';
 import { createBrowserXftpClient } from '../src/browser-xftp-client.mjs';
 
 function filled(length, value) {
@@ -390,7 +395,10 @@ test('contact client requests native SimpleX contact addresses and activates aft
     envelope: helloCommand.command.body
   });
   assert.equal(helloPlain.privateHeader.type, 'empty');
-  assert.equal(parseNativeAgentEnvelope(helloPlain.body).type, 'confirmation');
+  const browserInfoEnvelope = parseNativeAgentEnvelope(helloPlain.body);
+  assert.equal(browserInfoEnvelope.type, 'confirmation');
+  const browserInfoPlain = decryptNativeRatchetMessage(preparedAccept.nativeRatchet, browserInfoEnvelope.encConnInfo);
+  let owlRatchet = browserInfoPlain.state;
 
   transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendText('bob', 'hello after accept', {
@@ -407,8 +415,70 @@ test('contact client requests native SimpleX contact addresses and activates aft
     envelope: sentMessage.command.body
   });
   assert.equal(sentPlain.privateHeader.type, 'empty');
-  assert.equal(parseNativeAgentEnvelope(sentPlain.body).type, 'message');
+  const browserTextEnvelope = parseNativeAgentEnvelope(sentPlain.body);
+  assert.equal(browserTextEnvelope.type, 'message');
+  const browserTextPlain = decryptNativeRatchetMessage(owlRatchet, browserTextEnvelope.encAgentMessage);
+  assert.equal(parseNativeAgentMessage(browserTextPlain.plaintext).type, 'message');
+  owlRatchet = browserTextPlain.state;
   assert.equal(Buffer.from(sentMessage.command.body).includes(Buffer.from('hello after accept')), false);
+
+  const owlAgentMessage = encodeNativeAgentMessage({
+    type: 'message',
+    sndMsgId: 2n,
+    prevMsgHash: smp.sha256Hash(browserInfoPlain.plaintext),
+    body: smp.utf8Bytes(JSON.stringify({
+      v: '1',
+      event: 'x.msg.new',
+      params: { content: { type: 'text', text: 'hello from owl native' } }
+    }))
+  });
+  const owlEncrypted = encryptNativeRatchetMessage(owlRatchet, owlAgentMessage, { ownDhSeed: filled(56, 259) });
+  owlRatchet = owlEncrypted.state;
+  const owlEnvelope = encodeNativeAgentEnvelope({
+    type: 'message',
+    version: 7,
+    encAgentMessage: owlEncrypted.packet
+  });
+  const owlClientEnvelope = encryptClientMessage({
+    sharedSecret: preparedAccept.perQueueSharedSecret,
+    nonce: filled(24, 260),
+    publicHeader: { version: 4, e2ePubDhKey: null },
+    privateHeader: { type: 'empty' },
+    body: owlEnvelope
+  });
+  const inboundMsgId = filled(24, 261);
+  const inboundBody = encryptRcvMessageBody({
+    serverDhSecret: inbox.serverDhSecret,
+    msgId: inboundMsgId,
+    timestamp: 1888n,
+    body: owlClientEnvelope
+  });
+  transport.pushResponse('native-inbound-msg', { type: 'MSG', msgId: inboundMsgId, body: inboundBody }, inbox.rcvId);
+  transport.pushResponse('native-inbound-ack', { type: 'OK' }, inbox.rcvId);
+  transport.pushResponse('native-inbound-receipt', { type: 'OK' }, owlReplyQueue.sndId);
+
+  const inbound = await contacts.receiveNext('bob', {
+    corrId: 'native-inbound-msg',
+    ackCorrId: 'native-inbound-ack',
+    receiptCorrId: 'native-inbound-receipt'
+  });
+  assert.equal(inbound.text, 'hello from owl native');
+  assert.equal(inbound.nativeReceiptError, '');
+  assert.equal(inbound.nativeReceipt.message.type, 'OK');
+
+  const receiptCommand = parsedCommandByCorr(transport, 'native-inbound-receipt');
+  const receiptEnvelope = parseClientMessageEnvelope(receiptCommand.command.body);
+  assert.equal(receiptEnvelope.publicHeader.e2ePubDhKey, null);
+  const receiptClientPlain = decryptClientMessageEnvelope({
+    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
+    envelope: receiptCommand.command.body
+  });
+  const receiptNativeEnvelope = parseNativeAgentEnvelope(receiptClientPlain.body);
+  const receiptPlain = decryptNativeRatchetMessage(owlRatchet, receiptNativeEnvelope.encAgentMessage);
+  const receiptMessage = parseNativeAgentMessage(receiptPlain.plaintext);
+  assert.equal(receiptMessage.type, 'receipt');
+  assert.equal(receiptMessage.receipts[0].agentMsgId, 2n);
+  assert.equal(smp.equalBytes(receiptMessage.receipts[0].msgHash, smp.sha256Hash(owlAgentMessage)), true);
 });
 
 test('contact client retries failed contact requests without storing plaintext profile data', async () => {

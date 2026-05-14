@@ -495,29 +495,47 @@ function parseNativeE2ERatchetParamsReader(reader) {
 
 export function encodeNativeAgentMessage(message = {}) {
   var type = String(message.type || '').toLowerCase();
-  if (type === 'hello' || type === 'message') {
+  if (type === 'hello' || type === 'message' || type === 'receipt') {
+    var body;
+    if (type === 'hello') {
+      body = asciiBytes('H');
+    } else if (type === 'message') {
+      body = concatBytes(asciiBytes('M'), toBytes(message.body || new Uint8Array(), 'agent message body'));
+    } else {
+      var receipts = Array.isArray(message.receipts) ? message.receipts : [];
+      if (!receipts.length || receipts.length > 255) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must contain one to 255 receipts');
+      body = concatBytes(
+        asciiBytes('V'),
+        new Uint8Array([receipts.length]),
+        ...receipts.map((receipt) => concatBytes(
+          encodeWord64(normalizeAgentMsgId(receipt.agentMsgId || receipt.id, 'receipt message id')),
+          encodeSmallBytes(receipt.msgHash || receipt.hash || new Uint8Array()),
+          encodeLargeBytes(receipt.rcptInfo || receipt.info || new Uint8Array())
+        ))
+      );
+    }
     return concatBytes(
       asciiBytes('M'),
       encodeWord64(message.sndMsgId || message.agentMsgId || 1),
       encodeSmallBytes(message.prevMsgHash || new Uint8Array()),
-      asciiBytes(type === 'hello' ? 'H' : 'M'),
-      type === 'hello' ? new Uint8Array() : toBytes(message.body || new Uint8Array(), 'agent message body')
-    );
-  }
-  if (type === 'receipt') {
-    var receipts = Array.isArray(message.receipts) ? message.receipts : [];
-    if (!receipts.length || receipts.length > 255) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must contain one to 255 receipts');
-    return concatBytes(
-      asciiBytes('V'),
-      new Uint8Array([receipts.length]),
-      ...receipts.map((receipt) => concatBytes(
-        encodeWord64(normalizeAgentMsgId(receipt.agentMsgId || receipt.id, 'receipt message id')),
-        encodeSmallBytes(receipt.msgHash || receipt.hash || new Uint8Array()),
-        encodeLargeBytes(receipt.rcptInfo || receipt.info || new Uint8Array())
-      ))
+      body
     );
   }
   fail('SIMPLEX_AGENT_MESSAGE', 'native agent message type is unsupported');
+}
+
+function parseNativeReceiptBody(reader) {
+  var count = reader.takeByte('receipt count');
+  if (!count) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must be non-empty');
+  var receipts = [];
+  for (var i = 0; i < count; i += 1) {
+    receipts.push({
+      agentMsgId: decodeWord64(reader.take(8, 'receipt message id')),
+      msgHash: reader.takeSmall('receipt message hash'),
+      rcptInfo: reader.takeLarge('receipt info')
+    });
+  }
+  return receipts;
 }
 
 export function parseNativeAgentMessage(bytes) {
@@ -535,20 +553,16 @@ export function parseNativeAgentMessage(bytes) {
       reader.done('HELLO');
       return { type: 'hello', sndMsgId, prevMsgHash };
     }
+    if (msgType === 0x56) {
+      var framedReceipts = parseNativeReceiptBody(reader);
+      reader.done('receipt list');
+      return { type: 'receipt', sndMsgId, prevMsgHash, receipts: framedReceipts };
+    }
     if (msgType !== 0x4d) fail('SIMPLEX_AGENT_MESSAGE', 'native agent message body type is unsupported');
     return { type: 'message', sndMsgId, prevMsgHash, body: reader.tail() };
   }
   if (tag === 0x56) {
-    var count = reader.takeByte('receipt count');
-    if (!count) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must be non-empty');
-    var receipts = [];
-    for (var i = 0; i < count; i += 1) {
-      receipts.push({
-        agentMsgId: decodeWord64(reader.take(8, 'receipt message id')),
-        msgHash: reader.takeSmall('receipt message hash'),
-        rcptInfo: reader.takeLarge('receipt info')
-      });
-    }
+    var receipts = parseNativeReceiptBody(reader);
     reader.done('receipt list');
     return { type: 'receipt', receipts };
   }

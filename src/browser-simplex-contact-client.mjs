@@ -310,6 +310,20 @@ function retryBytes(value, label) {
   return typeof value === 'string' ? decodeBase64Url(value, label) : toBytes(value, label);
 }
 
+function normalizeNativeReceiptMessageId(value) {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  var text = String(value == null ? '' : value).trim();
+  if (!/^[0-9]+$/.test(text)) fail('SIMPLEX_CONTACT_RECEIPT', 'native receipt message id is invalid');
+  return BigInt(text);
+}
+
+function normalizeNativeReceiptHash(value) {
+  var hash = retryBytes(value, 'native receipt message hash');
+  if (hash.length !== 32) fail('SIMPLEX_CONTACT_RECEIPT', 'native receipt message hash must be 32 bytes');
+  return hash;
+}
+
 function prepareNativeOutboundQueue(queue, options = {}) {
   var q = { ...(queue || {}) };
   if (q.e2eSharedSecret && q.senderE2eKey) return q;
@@ -768,8 +782,9 @@ export class BrowserSimplexContactClient {
     if (!envelope.publicHeader.e2ePubDhKey) fail('SIMPLEX_CONTACT_ACCEPT', 'native accept is missing sender E2E DH key');
     var senderDh = decodePublicKeyDer(envelope.publicHeader.e2ePubDhKey);
     if (senderDh.algorithm !== 'X25519') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept sender DH key must be X25519');
+    var inboundShared = x25519SharedSecret(queue.rcvDhKey.secretKey, senderDh.rawPublicKey);
     var decrypted = decryptClientMessageEnvelope({
-      sharedSecret: x25519SharedSecret(queue.rcvDhKey.secretKey, senderDh.rawPublicKey),
+      sharedSecret: inboundShared,
       envelope: decryptedBody.body
     });
     if (decrypted.privateHeader.type !== 'confirmation' && decrypted.privateHeader.type !== 'empty') {
@@ -819,6 +834,12 @@ export class BrowserSimplexContactClient {
     contact.updatedAt = nowIso();
     contact.remoteProfile = remoteProfile;
     contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey || null;
+    queue = {
+      ...queue,
+      e2eSharedSecret: inboundShared,
+      nativeE2ePubDhKeySeen: true
+    };
+    this.store.saveQueue(contact.inboxQueueId || (contact.id + ':inbox'), queue);
     if (conn.type === 'reply') {
       var replyQueue = conn.replyQueues[0];
       if (!replyQueue) fail('SIMPLEX_CONTACT_ACCEPT', 'native accept reply queue is missing');
@@ -1106,6 +1127,15 @@ export class BrowserSimplexContactClient {
   }
 
   async sendReadReceipt(id, messageRef, options = {}) {
+    var contact = this.store.loadContact(safeId(id));
+    var ratchet = contact ? this.store.loadRatchet(contact.id) : null;
+    if (contact && (contact.nativeAgentProfile || (ratchet && ratchet.nativeAgentProfile)) && options.nativeAgentReceipt) {
+      return this.sendNativeAgentReceipt(contact, {
+        agentMsgId: normalizeNativeReceiptMessageId(options.nativeAgentMsgId || messageRef),
+        msgHash: normalizeNativeReceiptHash(options.nativeMsgHash),
+        rcptInfo: options.nativeReceiptInfo || utf8Bytes(String(options.readAt || options.read_at || nowIso()).slice(0, 64))
+      }, options);
+    }
     var payloadText = encodeContactPayload({
       type: 'read-receipt',
       messageRef: safeMessageRef(messageRef || options.messageRef || options.message_ref, 'read receipt message ref'),
@@ -1153,6 +1183,73 @@ export class BrowserSimplexContactClient {
     }
   }
 
+  async sendNativeAgentReceipt(contact, receipt, options = {}) {
+    requireState(contact, [CONTACT_STATE_ACTIVE]);
+    var queue = options.queue || contact.outboundQueue || this.store.loadQueue(outboxQueueId(contact));
+    if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'native receipt outbound queue is missing');
+    var ratchet = this.store.loadRatchet(contact.id);
+    if (!ratchet || !ratchet.nativeAgentProfile) fail('SIMPLEX_CONTACT_RATCHET', 'native receipt ratchet is missing');
+    var normalizedReceipt = {
+      agentMsgId: normalizeNativeReceiptMessageId(receipt.agentMsgId || receipt.id),
+      msgHash: normalizeNativeReceiptHash(receipt.msgHash || receipt.hash),
+      rcptInfo: receipt.rcptInfo || receipt.info || new Uint8Array()
+    };
+    var nativeSndMsgId = ratchet.nativeNextSndMsgId || 1;
+    var nativeReceipt = encodeNativeAgentMessage({
+      type: 'receipt',
+      sndMsgId: nativeSndMsgId,
+      prevMsgHash: ratchet.nativePrevMsgHash || new Uint8Array(),
+      receipts: [normalizedReceipt]
+    });
+    var nativeMsgHash = sha256Hash(nativeReceipt);
+    var nativeEncrypted = encryptNativeRatchetMessage(ratchet, nativeReceipt, {
+      paddedLength: options.nativePaddedLength || NATIVE_AGENT_MESSAGE_PADDED_LENGTH,
+      nextDhKey: options.nativeNextDhKey,
+      ownDhKey: options.nativeOwnDhKey,
+      ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
+    });
+    var nativeAgentEnvelope = encodeNativeAgentEnvelope({
+      type: 'message',
+      version: options.nativeAgentVersion || 7,
+      encAgentMessage: nativeEncrypted.packet
+    });
+    var nativeClientEnvelope = encodeNativeQueueClientMessage(queue, nativeAgentEnvelope, options);
+    queue = nativeClientEnvelope.queue;
+    this.store.saveRatchet(contact.id, {
+      nativeAgentProfile: true,
+      nativeNextSndMsgId: nativeSndMsgId + 1,
+      nativePrevMsgHash: nativeMsgHash,
+      ...nativeEncrypted.state
+    });
+    if (!options.queue) {
+      contact.outboundQueue = queue;
+      this.store.saveContact(contact.id, contact);
+      this.store.saveQueue(outboxQueueId(contact), queue);
+    }
+    var nativeBody = nativeClientEnvelope.body;
+    var receiptTaskId = contact.id + ':receipt:' + String(options.clientMessageId || normalizedReceipt.agentMsgId || Date.now());
+    try {
+      var response = await this.client.sendQueueMessage(queue, nativeBody, {
+        ...options,
+        corrId: options.receiptCorrId || options.corrId || ('native-receipt-' + Date.now())
+      });
+      this.scheduler.complete(receiptTaskId);
+      return response;
+    } catch (error) {
+      if (options.retryOnFailure !== false) {
+        this.scheduler.enqueue(receiptTaskId, {
+          type: 'sendPacket',
+          contactId: contact.id,
+          queueId: outboxQueueId(contact),
+          packet: encodeBase64Url(nativeBody),
+          options: { timeoutMs: options.timeoutMs || 0 }
+        });
+        this.scheduler.fail(receiptTaskId, error);
+      }
+      throw error;
+    }
+  }
+
   async receiveNext(id, options = {}) {
     var contact = this.store.loadContact(safeId(id));
     requireState(contact, [CONTACT_STATE_ACTIVE]);
@@ -1195,10 +1292,63 @@ export class BrowserSimplexContactClient {
     var ratchet = this.store.loadRatchet(contact.id);
     if (!ratchet) fail('SIMPLEX_CONTACT_RATCHET', 'contact ratchet is missing');
     if (contact.nativeAgentProfile || ratchet.nativeAgentProfile) {
-      var nativeEnvelope = parseNativeAgentEnvelope(decryptedBody.body);
+      var nativeEnvelopeBody = decryptedBody.body;
+      if (queue.e2eSharedSecret) {
+        var nativeClientMessage = decryptClientMessageEnvelope({
+          sharedSecret: queue.e2eSharedSecret,
+          envelope: decryptedBody.body
+        });
+        if (nativeClientMessage.privateHeader.type !== 'empty') {
+          fail('SIMPLEX_CONTACT_MESSAGE', 'native incoming message has an unsupported private header');
+        }
+        nativeEnvelopeBody = nativeClientMessage.body;
+      }
+      var nativeEnvelope = parseNativeAgentEnvelope(nativeEnvelopeBody);
       if (nativeEnvelope.type !== 'message') fail('SIMPLEX_CONTACT_MESSAGE', 'native incoming envelope must be a message');
       var nativeDecrypted = decryptNativeRatchetMessage(ratchet, nativeEnvelope.encAgentMessage);
       var nativeAgentMessage = parseNativeAgentMessage(nativeDecrypted.plaintext);
+      if (nativeAgentMessage.type === 'receipt') {
+        this.store.saveRatchet(contact.id, {
+          nativeAgentProfile: true,
+          ...nativeDecrypted.state
+        });
+        this.store.save('received', seenId, {
+          contactId: contact.id,
+          queueId: contact.inboxQueueId || (contact.id + ':inbox'),
+          msgId: encodeBase64Url(msgId),
+          bodyHash,
+          timestamp: decryptedBody.timestamp,
+          flags: decryptedBody.flags,
+          payloadType: 'read-receipt',
+          receivedAt: nowIso(),
+          nativeReceiptCount: nativeAgentMessage.receipts.length
+        });
+        var nativeReceiptAck = await this.acknowledgeOrQueue(contact, queue, msgId, options);
+        this.store.save('received', seenId, {
+          ...(this.store.load('received', seenId) || {}),
+          ackPending: nativeReceiptAck.ackPending,
+          ackError: nativeReceiptAck.ackError,
+          acknowledgedAt: nativeReceiptAck.acknowledged ? nowIso() : ''
+        });
+        return {
+          contactId: contact.id,
+          text: '',
+          payload: {
+            type: 'read-receipt',
+            receipts: nativeAgentMessage.receipts.map((item) => ({
+              agentMsgId: String(item.agentMsgId),
+              msgHash: encodeBase64Url(item.msgHash),
+              rcptInfo: encodeBase64Url(item.rcptInfo)
+            }))
+          },
+          file: null,
+          msgId,
+          timestamp: decryptedBody.timestamp,
+          flags: decryptedBody.flags,
+          duplicate: false,
+          ...nativeReceiptAck
+        };
+      }
       if (nativeAgentMessage.type !== 'message') fail('SIMPLEX_CONTACT_MESSAGE', 'native incoming agent message type is unsupported');
       var nativeChat = decodeNativeChatBody(nativeAgentMessage.body);
       var nativeText = nativeChat.text;
@@ -1218,10 +1368,29 @@ export class BrowserSimplexContactClient {
         receivedAt: nowIso()
       });
       var nativeAck = await this.acknowledgeOrQueue(contact, queue, msgId, options);
+      var nativeReceipt = null;
+      var nativeReceiptError = '';
+      if (options.sendNativeReceipts !== false && nativeAgentMessage.sndMsgId != null) {
+        try {
+          nativeReceipt = await this.sendNativeAgentReceipt(contact, {
+            agentMsgId: nativeAgentMessage.sndMsgId,
+            msgHash: sha256Hash(nativeDecrypted.plaintext),
+            rcptInfo: options.nativeReceiptInfo || new Uint8Array()
+          }, {
+            ...options,
+            queue: options.receiptQueue,
+            corrId: options.receiptCorrId || ('native-receipt-' + Date.now())
+          });
+        } catch (error) {
+          nativeReceiptError = String(error && error.message || error || '').slice(0, 500);
+        }
+      }
       this.store.save('received', seenId, {
         ...(this.store.load('received', seenId) || {}),
         ackPending: nativeAck.ackPending,
         ackError: nativeAck.ackError,
+        nativeReceiptPending: !!nativeReceiptError,
+        nativeReceiptError,
         acknowledgedAt: nativeAck.acknowledged ? nowIso() : ''
       });
       return {
@@ -1233,6 +1402,8 @@ export class BrowserSimplexContactClient {
         timestamp: decryptedBody.timestamp,
         flags: decryptedBody.flags,
         duplicate: false,
+        nativeReceipt,
+        nativeReceiptError,
         ...nativeAck
       };
     }
