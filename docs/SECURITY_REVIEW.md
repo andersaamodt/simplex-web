@@ -106,12 +106,14 @@ send the reply-queue confirmation that establishes Owl's E2E key, and deliver a
 post-accept text message that Owl stores as `newChatItems`. The relay still only
 sees encrypted SMP blocks.
 
-### Open: native Owl feature parity is not complete
+### Partially fixed: native Owl receive and receipts
 
-The successful local live pass covers browser-to-Owl text delivery. Native file
-attachments, native read receipts, longer bidirectional conversations, and
-browser receipt/receive handling against Owl still need live passes before
-claiming broader SimpleX Chat/Owl compatibility.
+The successful local live pass covers browser-to-Owl text delivery. The
+deterministic native interop harness now also covers Owl-to-browser text receive
+and encrypted native `A_RCVD` receipt generation, including receipt hash
+verification against the simulated Owl-side ratchet state. Native file
+attachments and live Owl app passes for receive/receipt handling still need to
+land before claiming broader SimpleX Chat/Owl compatibility.
 
 ### Fixed: legacy plaintext paths removed
 

@@ -74,6 +74,9 @@ What works locally today:
 - Local live Owl Native text interop through contact request, native accept,
   reply-queue confirmation, `contactConnected`, broker-accepted SEND, and an Owl
   `newChatItems` event for the delivered text.
+- Deterministic native Owl-style bidirectional text and receipt interop coverage:
+  the browser decrypts a post-accept Owl `A_MSG`, returns an encrypted native
+  `A_RCVD`, and verifies the receipt hash against the Owl-side ratchet state.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
   tests, skipped-by-default live interop tests, fuzz/property tests, browser
   rendering tests, and Haskell/WASM smoke checks.
@@ -81,9 +84,10 @@ What works locally today:
 What is still required before claiming full production SimpleX browser-client
 interoperability:
 
-- Native SimpleX Chat/Owl file attachments, native read receipts, and sustained
-  browser-to-Owl/Owl-to-browser conversation coverage beyond the current live
-  text-delivery pass.
+- Native SimpleX Chat/Owl file attachments.
+- A live Owl Native pass for Owl-to-browser receive and native receipts; those
+  paths are covered in deterministic protocol tests but not yet in the local Owl
+  app run.
 - Reviewed non-loopback browser-profile SMP and XFTP servers.
 - Passing live compatibility runs against those servers.
 - Upstream-certified SimpleX protocol vectors for every encoded layer.

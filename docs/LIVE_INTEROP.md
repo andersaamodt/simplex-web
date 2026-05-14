@@ -109,6 +109,7 @@ Current local Owl status: contact request, native accept decrypt, per-relay
 SKEY, reply-queue confirmation, client-message wrapped post-accept SEND, and
 SimpleX Chat JSON body encoding work through the relay. The current local run
 reaches Owl `contactConnected` and `newChatItems` for a delivered browser-to-Owl
-text message. Native file attachments, native receipts, and sustained
-Owl-to-browser message receive coverage still need live passes before claiming
-broader Owl feature parity.
+text message. Deterministic protocol tests now also cover Owl-to-browser native
+text receive plus encrypted `A_RCVD` receipt generation and hash verification.
+Native file attachments and live Owl app passes for the receive/receipt path
+still need to land before claiming broader Owl feature parity.
