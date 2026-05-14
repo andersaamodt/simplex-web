@@ -754,6 +754,15 @@ function nativeInvitationUriFromQueue(queue, x3dhKey1, x3dhKey2, options = {}) {
   return 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(queueUri) + '&e2e=' + encodeURIComponent(e2e);
 }
 
+function nativeProfileConnInfo(profile = {}) {
+  // The SimpleX Chat layer expects agent connection info to be a serialized
+  // ChatMessage. For a basic profile exchange that is the `x.info` event.
+  return utf8Bytes(JSON.stringify({
+    event: 'x.info',
+    params: { profile: profile && typeof profile === 'object' ? profile : {} }
+  }));
+}
+
 export function prepareNativeContactRequest(options = {}) {
   var link = options.link && typeof options.link === 'object'
     ? options.link
@@ -773,7 +782,7 @@ export function prepareNativeContactRequest(options = {}) {
   var recipientX3dhKey2 = options.recipientX3dhKey2 || generateX448KeyPair(options.recipientX3dhSeed2);
   var connReq = nativeInvitationUriFromQueue(replyQueue, recipientX3dhKey1, recipientX3dhKey2, options);
   var connInfo = options.connInfo == null
-    ? utf8Bytes(JSON.stringify(options.profile || {}))
+    ? nativeProfileConnInfo(options.profile || {})
     : toBytes(options.connInfo, 'native contact info');
   var body = encodeNativeAgentEnvelope({
     type: 'invitation',
@@ -842,7 +851,7 @@ export function prepareNativeInvitationJoin(options = {}) {
     remoteDhPublicKey: recipientE2eKey1.rawPublicKey
   });
   var connInfo = options.connInfo == null
-    ? utf8Bytes(JSON.stringify(options.profile || {}))
+    ? nativeProfileConnInfo(options.profile || {})
     : toBytes(options.connInfo, 'native connection info');
   var agentConnInfo = encodeNativeAgentConnInfo({
     type: 'reply',

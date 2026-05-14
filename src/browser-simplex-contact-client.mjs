@@ -196,6 +196,14 @@ function parseJsonBytes(bytes, label) {
   }
 }
 
+function profileFromNativeConnInfo(bytes) {
+  var decoded = parseJsonBytes(bytes, 'native contact info') || {};
+  if (decoded.event === 'x.info' && decoded.params && typeof decoded.params === 'object') {
+    return decoded.params.profile && typeof decoded.params.profile === 'object' ? decoded.params.profile : {};
+  }
+  return decoded && typeof decoded === 'object' ? decoded : {};
+}
+
 function ackTaskId(contactId, msgId) {
   return 'ack:' + encodeBase64Url(msgId).slice(0, 96) + ':' + encodeBase64Url(utf8Bytes(safeId(contactId))).slice(0, 48);
 }
@@ -678,7 +686,7 @@ export class BrowserSimplexContactClient {
     });
     var remoteProfile = {};
     try {
-      remoteProfile = parseJsonBytes(conn.connInfo, 'native contact info') || {};
+      remoteProfile = profileFromNativeConnInfo(conn.connInfo);
     } catch (_error) {
       remoteProfile = {};
     }

@@ -1038,14 +1038,21 @@ export function encryptSecretBox(sharedSecret, nonce, plaintext, paddedLength) {
   var key = normalizeRawKey(sharedSecret, 32, 'XSalsa20-Poly1305 key');
   var nonceBytes = normalizeRawKey(nonce, 24, 'XSalsa20-Poly1305 nonce');
   var padded = padMessage(plaintext, paddedLength);
-  return xsalsa20poly1305(key, nonceBytes).encrypt(padded);
+  var noblePacket = xsalsa20poly1305(key, nonceBytes).encrypt(padded);
+  // SimpleX's Haskell crypto_box helper serializes packets as
+  // `poly1305_tag || ciphertext`. Noble's AEAD helper returns
+  // `ciphertext || poly1305_tag`, so normalize the order at the boundary.
+  return concatBytes(noblePacket.slice(noblePacket.length - 16), noblePacket.slice(0, noblePacket.length - 16));
 }
 
 export function decryptSecretBox(sharedSecret, nonce, packet) {
   var key = normalizeRawKey(sharedSecret, 32, 'XSalsa20-Poly1305 key');
   var nonceBytes = normalizeRawKey(nonce, 24, 'XSalsa20-Poly1305 nonce');
   try {
-    return unpadMessage(xsalsa20poly1305(key, nonceBytes).decrypt(toBytes(packet, 'secretbox packet')));
+    var simplexPacket = toBytes(packet, 'secretbox packet');
+    if (simplexPacket.length < 16) fail('SMP_DECRYPT', 'XSalsa20-Poly1305 packet is too short');
+    var noblePacket = concatBytes(simplexPacket.slice(16), simplexPacket.slice(0, 16));
+    return unpadMessage(xsalsa20poly1305(key, nonceBytes).decrypt(noblePacket));
   } catch (error) {
     if (error instanceof SimplexSmpProtocolError) throw error;
     fail('SMP_DECRYPT', 'XSalsa20-Poly1305 decryption failed');

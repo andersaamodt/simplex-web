@@ -378,7 +378,10 @@ test('native invitation join prepares an Owl-compatible X3DH confirmation envelo
   assert.equal(conn.replyQueues.length, 1);
   assert.equal(conn.replyQueues[0].server.host, 'reply.example.test');
   assert.equal(conn.replyQueues[0].queueMode, 'M');
-  assert.equal(smp.utf8Text(conn.connInfo), '{"displayName":"Browser"}');
+  assert.deepEqual(JSON.parse(smp.utf8Text(conn.connInfo)), {
+    event: 'x.info',
+    params: { profile: { displayName: 'Browser' } }
+  });
 });
 
 test('native contact address request sends an AgentInvitation with an empty private header', () => {
@@ -426,7 +429,10 @@ test('native contact address request sends an AgentInvitation with an empty priv
   assert.equal(decryptedOuter.privateHeader.type, 'empty');
   const nativeEnvelope = agent.parseNativeAgentEnvelope(decryptedOuter.body);
   assert.equal(nativeEnvelope.type, 'invitation');
-  assert.equal(smp.utf8Text(nativeEnvelope.connInfo), '{"displayName":"Browser"}');
+  assert.deepEqual(JSON.parse(smp.utf8Text(nativeEnvelope.connInfo)), {
+    event: 'x.info',
+    params: { profile: { displayName: 'Browser' } }
+  });
   const connReq = smp.utf8Text(nativeEnvelope.connReq);
   assert.equal(connReq.startsWith('simplex:/invitation#/?'), true);
   const parsedConnReq = smp.parseSimplexConnectionLink(connReq);
