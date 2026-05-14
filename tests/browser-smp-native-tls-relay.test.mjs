@@ -23,6 +23,11 @@ function filled(length, value) {
   return new Uint8Array(length).fill(value);
 }
 
+function nativePayloadFromBlock(block) {
+  const input = Buffer.from(block);
+  return input.subarray(2, 2 + input.readUInt16BE(0));
+}
+
 function closeServer(server) {
   return new Promise((resolve) => {
     try {
@@ -95,9 +100,9 @@ async function withNativeServer(options, fn) {
       } else {
         socket.write(Buffer.from(padBlock(handshake, SMP_BLOCK_SIZE)));
       }
-      captured.clientHandshake = parseClientHandshake(unpadBlock(await readBlock(socket)));
+      captured.clientHandshake = parseClientHandshake(nativePayloadFromBlock(await readBlock(socket)));
       const txBlock = await readBlock(socket);
-      const [tx] = decodeTransportBlock(6, txBlock);
+      const [tx] = decodeTransportBlock(6, padBlock(nativePayloadFromBlock(txBlock), SMP_BLOCK_SIZE));
       captured.command = tx;
       const response = encodeSignedTransmission(6, sessionId, {
         signature: new Uint8Array(),

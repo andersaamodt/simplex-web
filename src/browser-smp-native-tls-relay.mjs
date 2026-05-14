@@ -20,7 +20,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   SMP_BLOCK_SIZE,
   encodeServerHandshake,
-  padBlock
+  padBlock,
+  unpadBlock
 } from './browser-smp-core.mjs';
 
 export class BrowserSmpNativeTlsRelayError extends Error {
@@ -121,12 +122,28 @@ function decodeClientFrame(buffer) {
   return { final, opcode, payload, rest: buffer.subarray(offset + length) };
 }
 
-function parseNativeServerHandshake(block) {
+function nativePayloadFromBlock(block) {
   var input = Buffer.from(block);
   if (input.length !== SMP_BLOCK_SIZE) fail('SMP_RELAY_HANDSHAKE', 'native server handshake has the wrong size');
   var nativeLength = input.readUInt16BE(0);
   if (nativeLength < 5 || nativeLength > input.length - 2) fail('SMP_RELAY_HANDSHAKE', 'native server handshake length is invalid');
-  var body = input.subarray(2, 2 + nativeLength);
+  return input.subarray(2, 2 + nativeLength);
+}
+
+function browserBlockFromNative(block) {
+  return padBlock(nativePayloadFromBlock(block), SMP_BLOCK_SIZE);
+}
+
+function nativeBlockFromBrowser(block) {
+  var body = unpadBlock(block, SMP_BLOCK_SIZE);
+  var out = Buffer.alloc(SMP_BLOCK_SIZE);
+  out.writeUInt16BE(body.length, 0);
+  out.set(body, 2);
+  return out;
+}
+
+function parseNativeServerHandshake(block) {
+  var body = nativePayloadFromBlock(block);
   var offset = 0;
   var minVersion = (body[offset] << 8) | body[offset + 1];
   offset += 2;
@@ -275,7 +292,7 @@ export function handleSmpNativeTlsRelayUpgrade(request, socket, head, options = 
   var started = startNativeConnection(socket, nativeStream, options).then(() => {
     nativeStream.on('data', (chunk) => {
       if (chunk.length !== SMP_BLOCK_SIZE) return closePair(socket, nativeStream, 1011, 'bad native SMP block');
-      socket.write(encodeServerFrame(chunk));
+      socket.write(encodeServerFrame(browserBlockFromNative(chunk)));
     });
   }).catch(() => {
     closePair(socket, nativeStream, 1011, 'native SMP unavailable');
@@ -298,7 +315,7 @@ export function handleSmpNativeTlsRelayUpgrade(request, socket, head, options = 
         }
         const payload = frame.payload;
         started.then(() => {
-          if (!nativeStream.destroyed) nativeStream.write(payload);
+          if (!nativeStream.destroyed) nativeStream.write(nativeBlockFromBrowser(payload));
         });
       }
     } catch (_error) {
