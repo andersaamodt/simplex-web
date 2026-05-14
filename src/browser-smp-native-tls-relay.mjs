@@ -127,7 +127,7 @@ function parseNativeServerHandshake(block) {
   var offset = 0;
   if (body.length >= 4) {
     var nativeLength = (body[0] << 8) | body[1];
-    if (nativeLength === body.length) offset = 2;
+    if (nativeLength === body.length || nativeLength === body.length - 2) offset = 2;
   }
   if (body.length < 5) fail('SMP_RELAY_HANDSHAKE', 'native server handshake is truncated');
   var minVersion = (body[offset] << 8) | body[offset + 1];

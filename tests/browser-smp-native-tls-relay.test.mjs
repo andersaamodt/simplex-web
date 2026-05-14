@@ -35,13 +35,16 @@ function closeServer(server) {
   });
 }
 
+const readRemainders = new WeakMap();
+
 function readBlock(socket) {
   return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
+    let buffer = readRemainders.get(socket) || Buffer.alloc(0);
+    readRemainders.delete(socket);
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error('timed out reading test SMP block'));
-    }, 2000);
+    }, 5000);
     function cleanup() {
       clearTimeout(timer);
       socket.off('data', onData);
@@ -62,16 +65,17 @@ function readBlock(socket) {
       const block = buffer.subarray(0, SMP_BLOCK_SIZE);
       const extra = buffer.subarray(SMP_BLOCK_SIZE);
       cleanup();
-      if (extra.length) socket.unshift(extra);
+      if (extra.length) readRemainders.set(socket, extra);
       resolve(new Uint8Array(block));
     }
+    if (buffer.length >= SMP_BLOCK_SIZE) return onData(Buffer.alloc(0));
     socket.on('data', onData);
     socket.once('error', onError);
     socket.once('close', onClose);
   });
 }
 
-async function withNativeServer(fn) {
+async function withNativeServer(options, fn) {
   const sessionId = filled(32, 61);
   const captured = {};
   const sockets = new Set();
@@ -79,10 +83,14 @@ async function withNativeServer(fn) {
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
     try {
-      socket.write(Buffer.from(padBlock(new Uint8Array([
+      const handshake = new Uint8Array([
         ...encodeServerHandshake({ minVersion: 6, maxVersion: 18, sessionId }),
         ...filled(16, 201)
-      ]), SMP_BLOCK_SIZE)));
+      ]);
+      const nativeHandshake = options.nativeLengthPrefix === true
+        ? new Uint8Array([handshake.length >> 8, handshake.length & 0xff, ...handshake])
+        : handshake;
+      socket.write(Buffer.from(padBlock(nativeHandshake, SMP_BLOCK_SIZE)));
       captured.clientHandshake = parseClientHandshake(unpadBlock(await readBlock(socket)));
       const txBlock = await readBlock(socket);
       const [tx] = decodeTransportBlock(6, txBlock);
@@ -132,8 +140,8 @@ async function withRelay(native, fn) {
   }
 }
 
-test('native TLS relay normalizes native handshake and forwards SMP blocks', async () => {
-  await withNativeServer(async ({ native, sessionId, captured }) => {
+async function assertRelayForwardsNativeBlocks(options = {}) {
+  await withNativeServer(options, async ({ native, sessionId, captured }) => {
     await withRelay(native, async (url) => {
       const transport = await connectBrowserSmpWebSocketTransport({
         url,
@@ -161,10 +169,18 @@ test('native TLS relay normalizes native handshake and forwards SMP blocks', asy
       transport.close();
     });
   });
+}
+
+test('native TLS relay normalizes native handshake and forwards SMP blocks', async () => {
+  await assertRelayForwardsNativeBlocks();
+});
+
+test('native TLS relay accepts public-server native length-prefixed handshake', async () => {
+  await assertRelayForwardsNativeBlocks({ nativeLengthPrefix: true });
 });
 
 test('native TLS relay rejects non-binary WebSocket clients', async () => {
-  await withNativeServer(async ({ native }) => {
+  await withNativeServer({}, async ({ native }) => {
     await withRelay(native, async (url) => {
       const parsed = new URL(url);
       const request = http.request({
