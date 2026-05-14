@@ -72,7 +72,7 @@ function rejectUnsupportedNativeContactLink(message = {}) {
   if (parsed.nativeAgentProfile) {
     fail(
       'SIMPLEX_WEB_ADAPTER_NATIVE_AGENT_UNSUPPORTED',
-      'native SimpleX Chat invitation links require the upstream agent/X3DH handshake, which simplex-web does not implement yet'
+      'native SimpleX Chat invitation links are only accepted by contact request sends'
     );
   }
   return parsed;
