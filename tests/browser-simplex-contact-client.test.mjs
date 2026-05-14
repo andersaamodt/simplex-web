@@ -399,6 +399,16 @@ test('contact client requests native SimpleX contact addresses and activates aft
   assert.equal(browserInfoEnvelope.type, 'confirmation');
   const browserInfoPlain = decryptNativeRatchetMessage(preparedAccept.nativeRatchet, browserInfoEnvelope.encConnInfo);
   let owlRatchet = browserInfoPlain.state;
+  const sentBeforeNativeFile = transport.sent.length;
+  await assert.rejects(
+    () => contacts.sendPlaintext('bob', smp.utf8Bytes(encodeContactPayload({
+      type: 'file',
+      file: { manifest: { name: 'not-fake.txt', size: 5 } },
+      messageRef: 'native-file'
+    })), { corrId: 'native-file-fake' }),
+    /native XFTP file invitations/
+  );
+  assert.equal(transport.sent.length, sentBeforeNativeFile);
 
   transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendText('bob', 'hello after accept', {

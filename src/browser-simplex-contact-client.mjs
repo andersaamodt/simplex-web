@@ -190,19 +190,10 @@ function encodeNativeChatBody(plaintext) {
     }));
   }
   if (payload.type === 'file') {
-    var fileName = payload.file && payload.file.manifest && payload.file.manifest.name
-      ? String(payload.file.manifest.name)
-      : 'file attachment';
-    return utf8Bytes(JSON.stringify({
-      v: '1',
-      event: 'x.msg.new',
-      params: {
-        content: {
-          type: 'file',
-          text: fileName
-        }
-      }
-    }));
+    fail(
+      'SIMPLEX_CONTACT_NATIVE_FILE',
+      'native SimpleX file attachments require native XFTP file invitations and are not implemented yet'
+    );
   }
   return utf8Bytes(JSON.stringify({
     v: '1',
