@@ -24,7 +24,9 @@ import {
   decodeWord64,
   encodeBrokerMessage,
   encodeCommand,
+  encodeLargeBytes,
   encodeMsgFlags,
+  encodeSmallBytes,
   encodeSignedTransmission,
   encodeTransportBlock,
   encodeWord16,
@@ -86,6 +88,15 @@ class Reader {
     var out = this.bytes.slice(this.offset, this.offset + length);
     this.offset += length;
     return out;
+  }
+
+  takeSmall(label) {
+    return this.take(this.takeByte(label + ' length'), label);
+  }
+
+  takeLarge(label) {
+    var length = decodeWord16(this.take(2, label + ' length'));
+    return this.take(length, label);
   }
 
   tail() {
@@ -253,6 +264,128 @@ export function parsePrivateHeader(bytes) {
     };
   }
   fail('SIMPLEX_AGENT_HEADER', 'private header tag is unsupported');
+}
+
+function encodeMaybeLargeBytes(value) {
+  if (value == null) return asciiBytes('0');
+  return concatBytes(asciiBytes('1'), encodeLargeBytes(value));
+}
+
+function parseMaybeLargeBytes(reader, label) {
+  var tag = reader.takeByte(label + ' tag');
+  if (tag === 0x30) return null;
+  if (tag === 0x31) return reader.takeLarge(label);
+  fail('SIMPLEX_AGENT_ENVELOPE', label + ' tag must be 0 or 1');
+}
+
+export function encodeNativeAgentEnvelope(envelope = {}) {
+  var version = normalizeVersion(envelope.agentVersion || envelope.version || SIMPLEX_AGENT_MESSAGE_VERSION);
+  var type = String(envelope.type || '').toLowerCase();
+  if (type === 'confirmation') {
+    return concatBytes(
+      encodeWord16(version),
+      asciiBytes('C'),
+      encodeMaybeLargeBytes(envelope.e2eEncryption || envelope.e2eEncryptionBytes || null),
+      toBytes(envelope.encConnInfo || envelope.body || new Uint8Array(), 'encrypted connection info')
+    );
+  }
+  if (type === 'message') {
+    return concatBytes(
+      encodeWord16(version),
+      asciiBytes('M'),
+      toBytes(envelope.encAgentMessage || envelope.body || new Uint8Array(), 'encrypted agent message')
+    );
+  }
+  if (type === 'invitation') {
+    return concatBytes(
+      encodeWord16(version),
+      asciiBytes('I'),
+      encodeLargeBytes(envelope.connReq || envelope.connectionRequest || new Uint8Array()),
+      toBytes(envelope.connInfo || new Uint8Array(), 'invitation connection info')
+    );
+  }
+  if (type === 'ratchet-key') {
+    return concatBytes(
+      encodeWord16(version),
+      asciiBytes('R'),
+      encodeLargeBytes(envelope.e2eEncryption || envelope.e2eEncryptionBytes || new Uint8Array()),
+      toBytes(envelope.info || new Uint8Array(), 'ratchet key info')
+    );
+  }
+  fail('SIMPLEX_AGENT_ENVELOPE', 'native agent envelope type is unsupported');
+}
+
+export function parseNativeAgentEnvelope(bytes) {
+  var reader = new Reader(bytes, 'native agent envelope');
+  var agentVersion = decodeWord16(reader.take(2, 'agent version'));
+  var tag = reader.takeByte('native agent envelope tag');
+  if (tag === 0x43) {
+    return {
+      type: 'confirmation',
+      agentVersion,
+      e2eEncryption: parseMaybeLargeBytes(reader, 'E2E encryption'),
+      encConnInfo: reader.tail()
+    };
+  }
+  if (tag === 0x4d) return { type: 'message', agentVersion, encAgentMessage: reader.tail() };
+  if (tag === 0x49) {
+    return { type: 'invitation', agentVersion, connReq: reader.takeLarge('connection request'), connInfo: reader.tail() };
+  }
+  if (tag === 0x52) {
+    return { type: 'ratchet-key', agentVersion, e2eEncryption: reader.takeLarge('E2E encryption'), info: reader.tail() };
+  }
+  fail('SIMPLEX_AGENT_ENVELOPE', 'native agent envelope tag is unsupported');
+}
+
+function normalizeAgentMsgId(value, label) {
+  var n = typeof value === 'bigint' ? value : BigInt(Number(value || 0));
+  if (n < 0n || n > 0x7fffffffffffffffn) fail('SIMPLEX_AGENT_MESSAGE_ID', label + ' is invalid');
+  return n;
+}
+
+export function encodeNativeAgentMessage(message = {}) {
+  var type = String(message.type || '').toLowerCase();
+  if (type === 'hello') return asciiBytes('H');
+  if (type === 'message') return concatBytes(asciiBytes('M'), toBytes(message.body || new Uint8Array(), 'agent message body'));
+  if (type === 'receipt') {
+    var receipts = Array.isArray(message.receipts) ? message.receipts : [];
+    if (!receipts.length || receipts.length > 255) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must contain one to 255 receipts');
+    return concatBytes(
+      asciiBytes('V'),
+      new Uint8Array([receipts.length]),
+      ...receipts.map((receipt) => concatBytes(
+        encodeWord64(normalizeAgentMsgId(receipt.agentMsgId || receipt.id, 'receipt message id')),
+        encodeSmallBytes(receipt.msgHash || receipt.hash || new Uint8Array()),
+        encodeLargeBytes(receipt.rcptInfo || receipt.info || new Uint8Array())
+      ))
+    );
+  }
+  fail('SIMPLEX_AGENT_MESSAGE', 'native agent message type is unsupported');
+}
+
+export function parseNativeAgentMessage(bytes) {
+  var reader = new Reader(bytes, 'native agent message');
+  var tag = reader.takeByte('native agent message tag');
+  if (tag === 0x48) {
+    reader.done('HELLO');
+    return { type: 'hello' };
+  }
+  if (tag === 0x4d) return { type: 'message', body: reader.tail() };
+  if (tag === 0x56) {
+    var count = reader.takeByte('receipt count');
+    if (!count) fail('SIMPLEX_AGENT_RECEIPT', 'native receipt list must be non-empty');
+    var receipts = [];
+    for (var i = 0; i < count; i += 1) {
+      receipts.push({
+        agentMsgId: decodeWord64(reader.take(8, 'receipt message id')),
+        msgHash: reader.takeSmall('receipt message hash'),
+        rcptInfo: reader.takeLarge('receipt info')
+      });
+    }
+    reader.done('receipt list');
+    return { type: 'receipt', receipts };
+  }
+  fail('SIMPLEX_AGENT_MESSAGE', 'native agent message tag is unsupported');
 }
 
 export function encodeClientMessage(message = {}) {
@@ -531,8 +664,12 @@ export default {
   inspectBrokerBytes,
   inspectSignedCommand,
   messageIdNonce,
+  encodeNativeAgentEnvelope,
+  encodeNativeAgentMessage,
   parseClientMessage,
   parseClientMessageEnvelope,
+  parseNativeAgentEnvelope,
+  parseNativeAgentMessage,
   parsePrivateHeader,
   parsePublicHeader,
   parseRcvMessageBody,

@@ -209,6 +209,47 @@ test('message id nonce follows SimpleX truncate and zero-pad behavior', () => {
   assert.equal(smp.equalBytes(agent.messageIdNonce(filled(40, 9)), filled(24, 9)), true);
 });
 
+test('native agent envelopes and messages round-trip supported wire shapes', () => {
+  const confirmation = agent.parseNativeAgentEnvelope(agent.encodeNativeAgentEnvelope({
+    type: 'confirmation',
+    agentVersion: 2,
+    e2eEncryption: smp.utf8Bytes('x3dh-ratchet-params'),
+    encConnInfo: smp.utf8Bytes('encrypted profile')
+  }));
+  assert.equal(confirmation.type, 'confirmation');
+  assert.equal(confirmation.agentVersion, 2);
+  assert.equal(smp.utf8Text(confirmation.e2eEncryption), 'x3dh-ratchet-params');
+  assert.equal(smp.utf8Text(confirmation.encConnInfo), 'encrypted profile');
+
+  const messageEnvelope = agent.parseNativeAgentEnvelope(agent.encodeNativeAgentEnvelope({
+    type: 'message',
+    version: 2,
+    body: smp.utf8Bytes('encrypted agent message')
+  }));
+  assert.equal(messageEnvelope.type, 'message');
+  assert.equal(smp.utf8Text(messageEnvelope.encAgentMessage), 'encrypted agent message');
+
+  assert.deepEqual(agent.parseNativeAgentMessage(agent.encodeNativeAgentMessage({ type: 'hello' })), { type: 'hello' });
+  const msg = agent.parseNativeAgentMessage(agent.encodeNativeAgentMessage({
+    type: 'message',
+    body: smp.utf8Bytes('chat body')
+  }));
+  assert.equal(msg.type, 'message');
+  assert.equal(smp.utf8Text(msg.body), 'chat body');
+
+  const receipt = agent.parseNativeAgentMessage(agent.encodeNativeAgentMessage({
+    type: 'receipt',
+    receipts: [{ agentMsgId: 7n, msgHash: filled(32, 45), rcptInfo: smp.utf8Bytes('ok') }]
+  }));
+  assert.equal(receipt.type, 'receipt');
+  assert.equal(receipt.receipts[0].agentMsgId, 7n);
+  assert.equal(receipt.receipts[0].msgHash.length, 32);
+  assert.equal(smp.utf8Text(receipt.receipts[0].rcptInfo), 'ok');
+
+  assert.throws(() => agent.parseNativeAgentEnvelope(bytes([0, 2, 0xff])), /envelope tag/);
+  assert.throws(() => agent.encodeNativeAgentMessage({ type: 'receipt', receipts: [] }), /receipt list/);
+});
+
 test('native SimpleX X3DH sender and receiver derive the same initial ratchet keys', () => {
   const recipientKey1 = smp.generateX448KeyPair(filled(56, 40));
   const recipientKey2 = smp.generateX448KeyPair(filled(56, 41));
