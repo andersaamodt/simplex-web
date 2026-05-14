@@ -42,6 +42,9 @@
     var remoteDelete = payload.remote_delete !== undefined ? payload.remote_delete
       : (payload.remoteDelete !== undefined ? payload.remoteDelete
         : (opts.remote_delete !== undefined ? opts.remote_delete : opts.remoteDelete));
+    var timeoutMs = Number(payload.timeout_ms || payload.timeoutMs || opts.timeout_ms || opts.timeoutMs || 0);
+    var statusTimeoutMs = Number(payload.status_timeout_ms || payload.statusTimeoutMs || opts.status_timeout_ms || opts.statusTimeoutMs || 0);
+    var acceptTimeoutMs = Number(payload.accept_timeout_ms || payload.acceptTimeoutMs || opts.accept_timeout_ms || opts.acceptTimeoutMs || 0);
 
     return {
       contact_id: limitString(payload.contact_id || payload.contactId || opts.contact_id || opts.contactId || '', MAX_LABEL_LENGTH),
@@ -51,7 +54,14 @@
       message_ref: limitString(payload.message_ref || payload.messageRef || opts.message_ref || opts.messageRef || '', MAX_LABEL_LENGTH),
       read_message_ref: limitString(payload.read_message_ref || payload.readMessageRef || opts.read_message_ref || opts.readMessageRef || '', MAX_LABEL_LENGTH),
       corr_id: limitString(payload.corr_id || payload.corrId || opts.corr_id || opts.corrId || '', MAX_LABEL_LENGTH),
+      send_corr_id: limitString(payload.send_corr_id || payload.sendCorrId || opts.send_corr_id || opts.sendCorrId || '', MAX_LABEL_LENGTH),
+      contact_corr_id: limitString(payload.contact_corr_id || payload.contactCorrId || opts.contact_corr_id || opts.contactCorrId || '', MAX_LABEL_LENGTH),
+      accept_corr_id: limitString(payload.accept_corr_id || payload.acceptCorrId || opts.accept_corr_id || opts.acceptCorrId || '', MAX_LABEL_LENGTH),
       user_id: limitString(payload.user_id || payload.userId || payload.bridge_user_id || payload.bridgeUserId || opts.user_id || opts.userId || opts.bridge_user_id || opts.bridgeUserId || '', MAX_LABEL_LENGTH),
+      timeout_ms: Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.min(120000, Math.floor(timeoutMs)) : 0,
+      status_timeout_ms: Number.isFinite(statusTimeoutMs) && statusTimeoutMs > 0 ? Math.min(120000, Math.floor(statusTimeoutMs)) : 0,
+      accept_timeout_ms: Number.isFinite(acceptTimeoutMs) && acceptTimeoutMs > 0 ? Math.min(120000, Math.floor(acceptTimeoutMs)) : 0,
+      profile: payload.profile && typeof payload.profile === 'object' ? payload.profile : (opts.profile && typeof opts.profile === 'object' ? opts.profile : null),
       hard_delete: payload.hard_delete === true || payload.hardDelete === true || opts.hard_delete === true || opts.hardDelete === true,
       local_only: payload.local_only === true || payload.localOnly === true || opts.local_only === true || opts.localOnly === true,
       remote_delete: remoteDelete === false ? false : (remoteDelete === true ? true : undefined),

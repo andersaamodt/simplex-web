@@ -169,6 +169,9 @@ test('transport normalization fuzzing keeps adapter payloads bounded', () => {
     message_ref: hostileString,
     user_id: hostileString,
     bridge_user_id: hostileString,
+    timeout_ms: fc.oneof(fc.integer({ min: -1000, max: 200000 }), hostileString),
+    status_timeout_ms: fc.oneof(fc.integer({ min: -1000, max: 200000 }), hostileString),
+    accept_timeout_ms: fc.oneof(fc.integer({ min: -1000, max: 200000 }), hostileString),
     on_status: fc.constant(() => {})
   }, { requiredKeys: [] });
 
@@ -180,6 +183,12 @@ test('transport normalization fuzzing keeps adapter payloads bounded', () => {
     assert.equal(normalized.client_message_id.length <= transport.MAX_LABEL_LENGTH, true);
     assert.equal(normalized.message_ref.length <= transport.MAX_LABEL_LENGTH, true);
     assert.equal(normalized.user_id.length <= transport.MAX_LABEL_LENGTH, true);
+    assert.equal(Number.isInteger(normalized.timeout_ms), true);
+    assert.equal(normalized.timeout_ms >= 0 && normalized.timeout_ms <= 120000, true);
+    assert.equal(Number.isInteger(normalized.status_timeout_ms), true);
+    assert.equal(normalized.status_timeout_ms >= 0 && normalized.status_timeout_ms <= 120000, true);
+    assert.equal(Number.isInteger(normalized.accept_timeout_ms), true);
+    assert.equal(normalized.accept_timeout_ms >= 0 && normalized.accept_timeout_ms <= 120000, true);
 
     const query = transport.normalizeMessageQuery(payload, options);
     assert.equal(Number.isInteger(query.limit), true);
