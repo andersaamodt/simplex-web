@@ -17,6 +17,7 @@ import {
 import {
   completeNewQueueRequest,
   prepareInitialSenderMessage,
+  prepareNativeContactRequest,
   prepareNativeInvitationJoin,
   prepareNewQueueRequest,
   prepareRecipientCommand,
@@ -260,6 +261,17 @@ export class BrowserSimplexClient {
   prepareNativeInvitationJoin(options = {}) {
     var corrId = normalizeCorrId(options.corrId, this.makeCorrId('native-join'));
     var prepared = prepareNativeInvitationJoin({
+      ...options,
+      version: this.version,
+      sessionId: this.sessionId,
+      corrId
+    });
+    return { ...prepared, corrId };
+  }
+
+  prepareNativeContactRequest(options = {}) {
+    var corrId = normalizeCorrId(options.corrId, this.makeCorrId('native-contact'));
+    var prepared = prepareNativeContactRequest({
       ...options,
       version: this.version,
       sessionId: this.sessionId,

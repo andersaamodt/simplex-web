@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as smp from '../src/browser-smp-core.mjs';
-import { encryptRcvMessageBody, prepareInitialSenderMessage } from '../src/browser-simplex-agent.mjs';
+import {
+  decryptClientMessageEnvelope,
+  encryptRcvMessageBody,
+  parseClientMessageEnvelope,
+  parseNativeAgentEnvelope,
+  prepareInitialSenderMessage,
+  prepareNativeInvitationJoin
+} from '../src/browser-simplex-agent.mjs';
 import { createBrowserSimplexClient } from '../src/browser-simplex-client.mjs';
 import { CONTACT_PAYLOAD_PREFIX, createBrowserSimplexContactClient, decodeContactPayload, encodeContactPayload } from '../src/browser-simplex-contact-client.mjs';
 import { createBrowserSimplexStore, SIMPLEX_STORE_MAX_LIST_ITEMS } from '../src/browser-simplex-store.mjs';
@@ -272,6 +279,104 @@ test('contact client can prepare and send a native SimpleX invitation join when 
   const nativeMessage = lastParsedCommand(transport, 'SEND');
   assert.equal(smp.equalBytes(nativeMessage.queueId, filled(24, 225)), true);
   assert.equal(Buffer.from(nativeMessage.command.body).includes(Buffer.from('hello Owl')), false);
+});
+
+test('contact client requests native SimpleX contact addresses and activates after Owl accept', async () => {
+  const transport = new FakeTransport();
+  const client = createBrowserSimplexClient({ transport });
+  const store = createBrowserSimplexStore({ namespace: 'contacts-native-address' });
+  const contacts = createBrowserSimplexContactClient({ client, store });
+  const contactQueueDh = smp.generateX25519KeyPair(filled(32, 237));
+  const nativeQueue = smp.formatProtocolServer({
+    scheme: 'smp',
+    keyHash: filled(32, 238),
+    host: 'smp.example.test',
+    port: '5223'
+  }) + '/' + smp.encodeBase64Url(filled(24, 239)) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(contactQueueDh.publicKeyDer)) + '&q=c';
+  const nativeLink = 'simplex:/contact#/?v=2-7&smp=' + encodeURIComponent(nativeQueue);
+  const replyServerDh = smp.generateX25519KeyPair(filled(32, 240));
+  transport.pushResponse('native-contact-reply', {
+    type: 'IDS',
+    rcvId: filled(24, 241),
+    sndId: filled(24, 242),
+    rcvPublicDhKey: replyServerDh.publicKeyDer
+  });
+  transport.pushResponse('native-contact-req', { type: 'OK' }, filled(24, 239));
+
+  const contact = await contacts.requestContact('bob', nativeLink, {
+    allowNativeAgentProfile: true,
+    replyCorrId: 'native-contact-reply',
+    corrId: 'native-contact-req',
+    ownDhSeed: filled(32, 243),
+    recipientX3dhSeed1: filled(56, 244),
+    recipientX3dhSeed2: filled(56, 245),
+    senderSignSeed: filled(32, 246),
+    nonce: filled(24, 247),
+    profile: { displayName: 'Browser' }
+  });
+
+  assert.equal(contact.state, 'requested');
+  assert.equal(contact.nativeContactAddress, true);
+  assert.equal(store.loadRatchet('bob').pendingNativeContactRequest, true);
+  const requestCommand = lastParsedCommand(transport, 'SEND');
+  const requestEnvelope = parseClientMessageEnvelope(requestCommand.command.body);
+  const requestOuter = decryptClientMessageEnvelope({
+    sharedSecret: smp.x25519SharedSecret(contactQueueDh.secretKey, smp.decodePublicKeyDer(requestEnvelope.publicHeader.e2ePubDhKey).rawPublicKey),
+    envelope: requestCommand.command.body
+  });
+  assert.equal(requestOuter.privateHeader.type, 'empty');
+  const requestNative = parseNativeAgentEnvelope(requestOuter.body);
+  assert.equal(requestNative.type, 'invitation');
+  assert.equal(Buffer.from(requestCommand.command.body).includes(Buffer.from('Browser')), false);
+
+  const owlReplyQueue = {
+    server: { scheme: 'smp', keyHash: filled(32, 248), host: 'smp.example.test', port: '5223' },
+    sndId: filled(24, 249),
+    rcvDhKey: smp.generateX25519KeyPair(filled(32, 250)),
+    queueMode: 'm'
+  };
+  const preparedAccept = prepareNativeInvitationJoin({
+    invitationUri: smp.utf8Text(requestNative.connReq),
+    replyQueue: owlReplyQueue,
+    ownDhSeed: filled(32, 251),
+    senderX3dhSeed1: filled(56, 252),
+    senderX3dhSeed2: filled(56, 253),
+    senderRatchetSeed: filled(56, 254),
+    senderSignSeed: filled(32, 255),
+    nonce: filled(24, 256),
+    profile: { displayName: 'Owl' }
+  });
+  const inbox = store.loadQueue('bob:inbox');
+  const msgId = filled(24, 257);
+  const body = encryptRcvMessageBody({
+    serverDhSecret: inbox.serverDhSecret,
+    msgId,
+    timestamp: 1777n,
+    body: preparedAccept.envelope
+  });
+  transport.pushResponse('native-accept-msg', { type: 'MSG', msgId, body }, inbox.rcvId);
+  transport.pushResponse('native-accept-key', { type: 'OK' }, inbox.rcvId);
+  transport.pushResponse('native-accept-ack', { type: 'OK' }, inbox.rcvId);
+
+  const accepted = await contacts.receiveContactAccept('bob', {
+    corrId: 'native-accept-msg',
+    keyCorrId: 'native-accept-key',
+    ackCorrId: 'native-accept-ack'
+  });
+  assert.equal(accepted.contact.state, 'active');
+  assert.equal(accepted.accept.profile.displayName, 'Owl');
+  assert.equal(smp.equalBytes(store.loadContact('bob').outboundQueue.sndId, owlReplyQueue.sndId), true);
+
+  transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
+  await contacts.sendText('bob', 'hello after accept', {
+    corrId: 'native-contact-send',
+    clientMessageId: 'native-contact-msg',
+    ownDhSeed: filled(56, 258)
+  });
+  const sentMessage = lastParsedCommand(transport, 'SEND');
+  assert.equal(smp.equalBytes(sentMessage.queueId, owlReplyQueue.sndId), true);
+  assert.equal(Buffer.from(sentMessage.command.body).includes(Buffer.from('hello after accept')), false);
 });
 
 test('contact client retries failed contact requests without storing plaintext profile data', async () => {

@@ -234,7 +234,24 @@ function parseEncryptedHeader(bytes) {
 
 export function encryptNativeRatchetMessage(stateInput, plaintext, options = {}) {
   var state = { ...stateInput };
-  if (!state.sendingChainKey || !state.sendingHeaderKey) fail('SIMPLEX_NATIVE_RATCHET_STATE', 'native sending ratchet is not initialized');
+  if (!state.sendingChainKey) {
+    if (!state.remoteDhPublicKey || !state.nextSendingHeaderKey) {
+      fail('SIMPLEX_NATIVE_RATCHET_STATE', 'native sending ratchet is not initialized');
+    }
+    var nextOwnDhKey = normalizeX448KeyPair(
+      options.nextDhKey || options.ownDhKey || generateX448KeyPair(options.ownDhSeed),
+      'sending DH key'
+    );
+    var derived = rootKdf(state.rootKey, state.remoteDhPublicKey, nextOwnDhKey.secretKey);
+    state.previousSendCount = state.sendCount || 0;
+    state.ownDhKey = nextOwnDhKey;
+    state.rootKey = derived.rootKey;
+    state.sendingChainKey = derived.chainKey;
+    state.sendingHeaderKey = state.nextSendingHeaderKey;
+    state.nextSendingHeaderKey = derived.nextHeaderKey;
+    state.sendCount = 0;
+  }
+  if (!state.sendingHeaderKey) fail('SIMPLEX_NATIVE_RATCHET_STATE', 'native sending ratchet is not initialized');
   var chain = chainKdf(state.sendingChainKey);
   var headerPlain = encodeNativeMessageHeader({
     maxSupportedVersion: state.maxSupportedVersion || state.version,
@@ -285,6 +302,7 @@ export function decryptNativeRatchetMessage(stateInput, packet) {
   var chain = chainKdf(state.receivingChainKey);
   var plaintext = decryptAead(chain.messageKey, chain.messageIv, concatBytes(state.associatedData, headerPart.value), body, tag);
   state.receivingChainKey = chain.nextChainKey;
+  state.remoteDhPublicKey = header.dh;
   state.receiveCount = (state.receiveCount || 0) + 1;
   return { state, header, plaintext };
 }

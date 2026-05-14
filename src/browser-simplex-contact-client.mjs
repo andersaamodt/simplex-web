@@ -29,15 +29,18 @@ import { createBrowserSimplexRetryScheduler } from './browser-simplex-scheduler.
 import {
   decryptClientMessageEnvelope,
   decryptRcvMessageBody,
+  deriveNativeX3dhReceiver,
   encodeNativeAgentEnvelope,
   encodeNativeAgentMessage,
   parseClientMessageEnvelope,
   parseNativeAgentConnInfo,
   parseNativeAgentEnvelope,
-  parseNativeAgentMessage
+  parseNativeAgentMessage,
+  parseNativeE2ERatchetParams,
+  SIMPLEX_NATIVE_E2E_VERSION
 } from './browser-simplex-agent.mjs';
 import { createRatchetState, decryptRatchetMessage, encryptRatchetMessage } from './browser-simplex-ratchet.mjs';
-import { decryptNativeRatchetMessage, encryptNativeRatchetMessage } from './browser-simplex-native-ratchet.mjs';
+import { createNativeReceivingRatchet, decryptNativeRatchetMessage, encryptNativeRatchetMessage } from './browser-simplex-native-ratchet.mjs';
 import { createBrowserXftpClient } from './browser-xftp-client.mjs';
 
 export const CONTACT_STATE_INVITED = 'invited';
@@ -398,13 +401,22 @@ export class BrowserSimplexContactClient {
       fail('SIMPLEX_CONTACT_NATIVE_AGENT_UNSUPPORTED', 'native SimpleX invitation joins require a reply queue');
     }
     this.store.saveQueue(cleanId + ':inbox', replyQueue);
-    var prepared = this.client.prepareNativeInvitationJoin({
-      ...options,
-      link,
-      invitationUri,
-      replyQueue,
-      profile: options.profile || {}
-    });
+    var isContactAddress = link.type === 'contact';
+    var prepared = isContactAddress
+      ? this.client.prepareNativeContactRequest({
+        ...options,
+        link,
+        invitationUri,
+        replyQueue,
+        profile: options.profile || {}
+      })
+      : this.client.prepareNativeInvitationJoin({
+        ...options,
+        link,
+        invitationUri,
+        replyQueue,
+        profile: options.profile || {}
+      });
     var contact = {
       id: cleanId,
       state: CONTACT_STATE_REQUESTED,
@@ -414,18 +426,25 @@ export class BrowserSimplexContactClient {
       inboxQueueId: cleanId + ':inbox',
       profile: options.profile || {},
       nativeAgentProfile: true,
+      nativeContactAddress: isContactAddress,
       outboundQueue: {
         server: parsed.server,
         sndId: parsed.queueId,
         senderSignKey: prepared.senderSignKey,
-        nativeRatchet: prepared.nativeRatchet,
-        senderX3dhPublicKey1: prepared.senderX3dhKey1.publicKey,
-        senderX3dhPublicKey2: prepared.senderX3dhKey2.publicKey
+        nativeRatchet: prepared.nativeRatchet || null,
+        senderX3dhPublicKey1: prepared.senderX3dhKey1 ? prepared.senderX3dhKey1.publicKey : null,
+        senderX3dhPublicKey2: prepared.senderX3dhKey2 ? prepared.senderX3dhKey2.publicKey : null
       }
     };
     this.store.saveContact(cleanId, contact);
     this.store.saveQueue(cleanId + ':outbox', contact.outboundQueue);
-    this.store.saveRatchet(cleanId, {
+    this.store.saveRatchet(cleanId, isContactAddress ? {
+      nativeAgentProfile: true,
+      pendingNativeContactRequest: true,
+      recipientX3dhKey1: prepared.recipientX3dhKey1,
+      recipientX3dhKey2: prepared.recipientX3dhKey2,
+      senderSignKey: prepared.senderSignKey
+    } : {
       nativeAgentProfile: true,
       ...prepared.nativeRatchet
     });
@@ -629,12 +648,30 @@ export class BrowserSimplexContactClient {
     if (decrypted.privateHeader.type !== 'confirmation') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept is missing confirmation key');
     var nativeEnvelope = parseNativeAgentEnvelope(decrypted.body);
     if (nativeEnvelope.type !== 'confirmation') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept envelope must be a confirmation');
-    if (nativeEnvelope.e2eEncryption) fail('SIMPLEX_CONTACT_ACCEPT', 'native accept must continue the existing ratchet');
-    var ratchet = this.store.loadRatchet(contact.id);
-    if (!ratchet || !ratchet.nativeAgentProfile) fail('SIMPLEX_CONTACT_RATCHET', 'native contact ratchet is missing');
+    var storedRatchet = this.store.loadRatchet(contact.id);
+    if (!storedRatchet || !storedRatchet.nativeAgentProfile) fail('SIMPLEX_CONTACT_RATCHET', 'native contact ratchet is missing');
+    var senderSignKey = storedRatchet.senderSignKey || null;
+    var ratchet = storedRatchet;
+    if (nativeEnvelope.e2eEncryption) {
+      if (!ratchet.pendingNativeContactRequest || !ratchet.recipientX3dhKey1 || !ratchet.recipientX3dhKey2) {
+        fail('SIMPLEX_CONTACT_RATCHET', 'native contact request keys are missing');
+      }
+      var e2e = parseNativeE2ERatchetParams(nativeEnvelope.e2eEncryption);
+      var init = deriveNativeX3dhReceiver({
+        recipientKey1: ratchet.recipientX3dhKey1,
+        recipientKey2: ratchet.recipientX3dhKey2,
+        senderKey1: e2e.key1,
+        senderKey2: e2e.key2
+      });
+      ratchet = createNativeReceivingRatchet({
+        version: e2e.version || SIMPLEX_NATIVE_E2E_VERSION,
+        init,
+        ownDhKey: ratchet.recipientX3dhKey1
+      });
+    }
     var nativePlain = decryptNativeRatchetMessage(ratchet, nativeEnvelope.encConnInfo);
     var conn = parseNativeAgentConnInfo(nativePlain.plaintext);
-    if (conn.type !== 'info') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept connection info is unsupported');
+    if (conn.type !== 'info' && conn.type !== 'reply') fail('SIMPLEX_CONTACT_ACCEPT', 'native accept connection info is unsupported');
     await this.client.secureQueue(queue, decrypted.privateHeader.senderPublicVerifyKey, {
       ...options,
       corrId: options.keyCorrId || options.corrId || ('native-accept-key-' + Date.now())
@@ -649,6 +686,18 @@ export class BrowserSimplexContactClient {
     contact.updatedAt = nowIso();
     contact.remoteProfile = remoteProfile;
     contact.inboundSenderPublicVerifyKey = decrypted.privateHeader.senderPublicVerifyKey;
+    if (conn.type === 'reply') {
+      var replyQueue = conn.replyQueues[0];
+      if (!replyQueue) fail('SIMPLEX_CONTACT_ACCEPT', 'native accept reply queue is missing');
+      contact.outboundQueue = {
+        server: replyQueue.server,
+        sndId: replyQueue.senderId,
+        senderSignKey,
+        recipientDhPublicKey: replyQueue.dhPublicKey,
+        nativeReplyQueue: true
+      };
+      this.store.saveQueue(outboxQueueId(contact), contact.outboundQueue);
+    }
     this.store.saveContact(contact.id, contact);
     this.store.saveRatchet(contact.id, {
       nativeAgentProfile: true,
@@ -782,7 +831,10 @@ export class BrowserSimplexContactClient {
         body: toBytes(plaintext, 'native contact plaintext')
       });
       var nativeEncrypted = encryptNativeRatchetMessage(ratchet, nativeMessage, {
-        paddedLength: options.nativePaddedLength || 15840
+        paddedLength: options.nativePaddedLength || 15840,
+        nextDhKey: options.nativeNextDhKey,
+        ownDhKey: options.nativeOwnDhKey,
+        ownDhSeed: options.nativeOwnDhSeed || options.ownDhSeed
       });
       var nativeBody = encodeNativeAgentEnvelope({
         type: 'message',

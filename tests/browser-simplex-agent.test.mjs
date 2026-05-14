@@ -381,6 +381,60 @@ test('native invitation join prepares an Owl-compatible X3DH confirmation envelo
   assert.equal(smp.utf8Text(conn.connInfo), '{"displayName":"Browser"}');
 });
 
+test('native contact address request sends an AgentInvitation with an empty private header', () => {
+  const recipientQueueDh = smp.generateX25519KeyPair(filled(32, 244));
+  const nativeQueue = smp.formatProtocolServer({
+    scheme: 'smp',
+    keyHash: filled(32, 245),
+    host: 'smp.example.test',
+    port: '5223'
+  }) + '/' + smp.encodeBase64Url(filled(24, 246)) +
+    '#/?v=1-4&dh=' + encodeURIComponent(smp.encodeBase64Url(recipientQueueDh.publicKeyDer)) + '&q=c';
+  const nativeLink = 'simplex:/contact#/?v=2-7&smp=' + encodeURIComponent(nativeQueue);
+  const replyQueue = {
+    server: {
+      scheme: 'smp',
+      keyHash: filled(32, 247),
+      host: 'reply.example.test',
+      port: '5223'
+    },
+    sndId: filled(24, 248),
+    rcvDhKey: smp.generateX25519KeyPair(filled(32, 249)),
+    queueMode: 'm'
+  };
+
+  const prepared = agent.prepareNativeContactRequest({
+    invitationUri: nativeLink,
+    replyQueue,
+    ownDhSeed: filled(32, 250),
+    recipientX3dhSeed1: filled(56, 251),
+    recipientX3dhSeed2: filled(56, 252),
+    senderSignSeed: filled(32, 253),
+    nonce: filled(24, 254),
+    corrId: smp.asciiBytes('native-contact'),
+    profile: { displayName: 'Browser' }
+  });
+  const tx = smp.parseSignedTransmission(4, prepared.transmission.bytes);
+  assert.equal(tx.command.type, 'SEND');
+  assert.equal(tx.signature.length, 0);
+  assert.equal(smp.equalBytes(tx.queueId, filled(24, 246)), true);
+  const perQueueShared = smp.x25519SharedSecret(recipientQueueDh.secretKey, prepared.senderQueueDh.publicKey);
+  const decryptedOuter = agent.decryptClientMessageEnvelope({
+    sharedSecret: perQueueShared,
+    envelope: tx.command.body
+  });
+  assert.equal(decryptedOuter.privateHeader.type, 'empty');
+  const nativeEnvelope = agent.parseNativeAgentEnvelope(decryptedOuter.body);
+  assert.equal(nativeEnvelope.type, 'invitation');
+  assert.equal(smp.utf8Text(nativeEnvelope.connInfo), '{"displayName":"Browser"}');
+  const connReq = smp.utf8Text(nativeEnvelope.connReq);
+  assert.equal(connReq.startsWith('simplex:/invitation#/?'), true);
+  const parsedConnReq = smp.parseSimplexConnectionLink(connReq);
+  assert.equal(parsedConnReq.type, 'invitation');
+  assert.equal(parsedConnReq.nativeAgentProfile, true);
+  assert.equal(parsedConnReq.nativeE2E.x3dhKeys.length, 2);
+});
+
 test('agent envelope fuzzing preserves hostile binary bodies without changing header state', () => {
   fc.assert(fc.property(
     fc.uint8Array({ minLength: 0, maxLength: 512 }),

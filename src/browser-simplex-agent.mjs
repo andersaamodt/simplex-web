@@ -23,6 +23,7 @@ import {
   decodeWord16,
   decodeWord64,
   encodeBrokerMessage,
+  encodeBase64Url,
   encodeCommand,
   encodeLargeBytes,
   encodeMsgFlags,
@@ -34,6 +35,7 @@ import {
   encodeWord64,
   encryptSecretBox,
   equalBytes,
+  formatProtocolServer,
   generateEd25519KeyPair,
   generateX448KeyPair,
   generateX25519KeyPair,
@@ -709,6 +711,10 @@ export function prepareInitialSenderMessage(options = {}) {
   // secures the queue with `KEY`.  The encrypted client message still carries
   // the sender's public signing key in the confirmation private header.
   var senderSignKey = options.senderSignKey || generateEd25519KeyPair(options.senderSignSeed);
+  var privateHeader = options.privateHeader || {
+    type: 'confirmation',
+    senderPublicVerifyKey: senderSignKey.publicKeyDer
+  };
   var envelope = encryptClientMessage({
     sharedSecret: options.e2eSharedSecret,
     nonce: options.nonce || randomBytes(24),
@@ -716,10 +722,7 @@ export function prepareInitialSenderMessage(options = {}) {
       version: options.agentVersion || SIMPLEX_AGENT_MESSAGE_VERSION,
       e2ePubDhKey: options.senderE2ePubDhKey || null
     },
-    privateHeader: {
-      type: 'confirmation',
-      senderPublicVerifyKey: senderSignKey.publicKeyDer
-    },
+    privateHeader,
     body: options.body || new Uint8Array()
   });
   var command = {
@@ -734,6 +737,77 @@ export function prepareInitialSenderMessage(options = {}) {
     command
   });
   return { senderSignKey, envelope, command, transmission };
+}
+
+function nativeInvitationUriFromQueue(queue, x3dhKey1, x3dhKey2, options = {}) {
+  var q = queue && typeof queue === 'object' ? queue : {};
+  if (!q.server) fail('SIMPLEX_AGENT_QUEUE', 'native invitation queue requires a server');
+  var senderId = q.sndId || q.senderId || q.queueId;
+  var dhPublicKey = q.recipientDhPublicKey || (q.rcvDhKey && q.rcvDhKey.publicKeyDer);
+  var queueUri = formatProtocolServer(q.server) + '/' + encodeBase64Url(senderId || new Uint8Array()) +
+    '#/?v=1-4&dh=' + encodeURIComponent(encodeBase64Url(dhPublicKey || new Uint8Array())) +
+    '&q=' + encodeURIComponent(String(options.queueMode || q.queueMode || 'm').toLowerCase().slice(0, 1) || 'm');
+  var e2e = 'v=2-3&x3dh=' + [
+    encodeBase64Url(x3dhKey1.publicKeyDer || encodePublicKeyDer('X448', x3dhKey1.publicKey)),
+    encodeBase64Url(x3dhKey2.publicKeyDer || encodePublicKeyDer('X448', x3dhKey2.publicKey))
+  ].join(',');
+  return 'simplex:/invitation#/?v=2-7&smp=' + encodeURIComponent(queueUri) + '&e2e=' + encodeURIComponent(e2e);
+}
+
+export function prepareNativeContactRequest(options = {}) {
+  var link = options.link && typeof options.link === 'object'
+    ? options.link
+    : parseSimplexConnectionLink(options.invitationUri || options.invitation_uri || options.contactLink || options.contact_link);
+  if (!link.nativeAgentProfile || link.type !== 'contact') {
+    fail('SIMPLEX_AGENT_NATIVE_CONTACT', 'native contact request requires a native SimpleX contact link');
+  }
+  var contactQueue = link.smpQueues[0];
+  if (!contactQueue) fail('SIMPLEX_AGENT_NATIVE_CONTACT', 'native contact link does not contain an SMP queue');
+  var recipientQueueDh = decodePublicKeyDer(contactQueue.recipientDhPublicKey);
+  if (recipientQueueDh.algorithm !== 'X25519') fail('SIMPLEX_AGENT_NATIVE_CONTACT', 'native contact queue DH key must be X25519');
+  var replyQueue = options.replyQueue;
+  if (!replyQueue) fail('SIMPLEX_AGENT_NATIVE_CONTACT', 'native contact request requires a reply queue');
+
+  var senderQueueDh = options.senderQueueDhKey || options.ownDhKey || generateX25519KeyPair(options.ownDhSeed);
+  var recipientX3dhKey1 = options.recipientX3dhKey1 || generateX448KeyPair(options.recipientX3dhSeed1);
+  var recipientX3dhKey2 = options.recipientX3dhKey2 || generateX448KeyPair(options.recipientX3dhSeed2);
+  var connReq = nativeInvitationUriFromQueue(replyQueue, recipientX3dhKey1, recipientX3dhKey2, options);
+  var connInfo = options.connInfo == null
+    ? utf8Bytes(JSON.stringify(options.profile || {}))
+    : toBytes(options.connInfo, 'native contact info');
+  var body = encodeNativeAgentEnvelope({
+    type: 'invitation',
+    version: options.nativeAgentVersion || SIMPLEX_NATIVE_AGENT_MESSAGE_VERSION,
+    connReq: utf8Bytes(connReq),
+    connInfo
+  });
+  var shared = x25519SharedSecret(senderQueueDh.secretKey, recipientQueueDh.rawPublicKey);
+  var prepared = prepareInitialSenderMessage({
+    version: options.version || 4,
+    sessionId: options.sessionId || new Uint8Array(),
+    corrId: options.corrId || new Uint8Array(),
+    senderQueueId: contactQueue.queueId,
+    senderSignKey: options.senderSignKey,
+    senderSignSeed: options.senderSignSeed,
+    e2eSharedSecret: shared,
+    senderE2ePubDhKey: senderQueueDh.publicKeyDer,
+    privateHeader: { type: 'empty' },
+    nonce: options.nonce,
+    body,
+    flags: options.flags
+  });
+  return {
+    ...prepared,
+    link,
+    contactQueue,
+    replyQueue,
+    connReq,
+    perQueueSharedSecret: shared,
+    senderQueueDh,
+    recipientX3dhKey1,
+    recipientX3dhKey2,
+    agentEnvelope: body
+  };
 }
 
 export function prepareNativeInvitationJoin(options = {}) {
@@ -905,6 +979,7 @@ export default {
   parsePublicHeader,
   parseRcvMessageBody,
   prepareInitialSenderMessage,
+  prepareNativeContactRequest,
   prepareNativeInvitationJoin,
   prepareNewQueueRequest,
   prepareRecipientCommand,
