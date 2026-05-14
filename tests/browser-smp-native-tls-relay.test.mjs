@@ -87,10 +87,14 @@ async function withNativeServer(options, fn) {
         ...encodeServerHandshake({ minVersion: 6, maxVersion: 18, sessionId }),
         ...filled(16, 201)
       ]);
-      const nativeHandshake = options.nativeLengthPrefix === true
-        ? new Uint8Array([handshake.length >> 8, handshake.length & 0xff, ...handshake])
-        : handshake;
-      socket.write(Buffer.from(padBlock(nativeHandshake, SMP_BLOCK_SIZE)));
+      if (options.nativeLengthPrefix === true) {
+        const nativeBlock = Buffer.alloc(SMP_BLOCK_SIZE);
+        nativeBlock.writeUInt16BE(handshake.length, 0);
+        nativeBlock.set(handshake, 2);
+        socket.write(nativeBlock);
+      } else {
+        socket.write(Buffer.from(padBlock(handshake, SMP_BLOCK_SIZE)));
+      }
       captured.clientHandshake = parseClientHandshake(unpadBlock(await readBlock(socket)));
       const txBlock = await readBlock(socket);
       const [tx] = decodeTransportBlock(6, txBlock);

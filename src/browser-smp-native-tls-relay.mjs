@@ -20,8 +20,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   SMP_BLOCK_SIZE,
   encodeServerHandshake,
-  padBlock,
-  unpadBlock
+  padBlock
 } from './browser-smp-core.mjs';
 
 export class BrowserSmpNativeTlsRelayError extends Error {
@@ -123,13 +122,12 @@ function decodeClientFrame(buffer) {
 }
 
 function parseNativeServerHandshake(block) {
-  var body = unpadBlock(block, SMP_BLOCK_SIZE);
+  var input = Buffer.from(block);
+  if (input.length !== SMP_BLOCK_SIZE) fail('SMP_RELAY_HANDSHAKE', 'native server handshake has the wrong size');
+  var nativeLength = input.readUInt16BE(0);
+  if (nativeLength < 5 || nativeLength > input.length - 2) fail('SMP_RELAY_HANDSHAKE', 'native server handshake length is invalid');
+  var body = input.subarray(2, 2 + nativeLength);
   var offset = 0;
-  if (body.length >= 4) {
-    var nativeLength = (body[0] << 8) | body[1];
-    if (nativeLength === body.length || nativeLength === body.length - 2) offset = 2;
-  }
-  if (body.length < 5) fail('SMP_RELAY_HANDSHAKE', 'native server handshake is truncated');
   var minVersion = (body[offset] << 8) | body[offset + 1];
   offset += 2;
   var maxVersion = (body[offset] << 8) | body[offset + 1];
