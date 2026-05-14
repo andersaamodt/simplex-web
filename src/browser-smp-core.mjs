@@ -28,8 +28,12 @@ import { sha256 } from '@noble/hashes/sha2.js';
 export const SMP_BLOCK_SIZE = 16384;
 export const SMP_MAX_MESSAGE_LENGTH = 16088;
 export const SMP_MAX_RCV_MESSAGE_LENGTH = SMP_MAX_MESSAGE_LENGTH + 16;
-export const SMP_E2E_ENC_CONFIRMATION_LENGTH = 15936;
-export const SMP_E2E_ENC_MESSAGE_LENGTH = 16032;
+// These limits match simplexmq's e2eEncConfirmationLength/e2eEncMessageLength
+// constants. They are the largest plaintext payloads that still fit inside the
+// fixed 16384-byte SMP transport block after SimpleX's headers, nonce, and
+// authentication tag are added.
+export const SMP_E2E_ENC_CONFIRMATION_LENGTH = 15904;
+export const SMP_E2E_ENC_MESSAGE_LENGTH = 16000;
 export const SMP_BROWSER_MIN_VERSION = 3;
 export const SMP_BROWSER_MAX_VERSION = 6;
 export const SMP_DEFAULT_PORT = '5223';
