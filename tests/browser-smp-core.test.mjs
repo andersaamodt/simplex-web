@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
+import { xsalsa20, xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
 
 import * as smp from '../src/browser-smp-core.mjs';
 
@@ -147,13 +147,19 @@ test('XSalsa20-Poly1305 boxes use SimpleX tag-then-ciphertext wire order', () =>
   const nonce = filled(24, 92);
   const plaintext = smp.utf8Bytes('wire order matters');
   const packet = smp.encryptSecretBox(key, nonce, plaintext, 64);
+  const padded = smp.padMessage(plaintext, 64);
   const noblePacket = xsalsa20poly1305(key, nonce).encrypt(smp.padMessage(plaintext, 64));
+  const stream = xsalsa20(key, nonce, new Uint8Array(32 + padded.length));
+  const expectedCiphertext = padded.map((byte, index) => byte ^ stream[index + 32]);
 
   assert.equal(packet.length, noblePacket.length);
-  assert.deepEqual(packet.slice(0, 16), noblePacket.slice(noblePacket.length - 16));
-  assert.deepEqual(packet.slice(16), noblePacket.slice(0, noblePacket.length - 16));
+  assert.deepEqual(packet, noblePacket);
+  assert.deepEqual(packet.slice(16), expectedCiphertext);
   assert.equal(smp.utf8Text(smp.decryptSecretBox(key, nonce, packet)), 'wire order matters');
-  assert.throws(() => smp.decryptSecretBox(key, nonce, noblePacket), /decryption failed/);
+  assert.throws(
+    () => smp.decryptSecretBox(key, nonce, smp.concatBytes(packet.slice(16), packet.slice(0, 16))),
+    /decryption failed/
+  );
 });
 
 test('broker message codecs handle IDS, MSG, OK, ERR, and NMSG shapes', () => {

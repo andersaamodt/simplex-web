@@ -202,6 +202,8 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   }];
   var timeout = new Error('empty');
   timeout.code = 'SIMPLEX_CLIENT_TIMEOUT';
+  var websocketTimeout = new Error('empty websocket');
+  websocketTimeout.code = 'SIMPLEX_SMP_WS_TIMEOUT';
   var contactClient = {
     listContacts() {
       return [{ id: 'alice', state: 'active' }];
@@ -228,6 +230,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     },
     receiveContactAccept(id, options) {
       acceptCalls.push({ id, options });
+      if (id === 'dana') return Promise.reject(websocketTimeout);
       return Promise.resolve({ contact: { id, state: 'active' } });
     },
     deleteContactEverywhere(id, options) {
@@ -284,6 +287,18 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(sentText[1].text, 'sent after accept');
   assert.equal(sentText[1].options.corrId, 'native-send-after-accept');
 
+  var pendingAfterWebsocketTimeout = await adapter.sendText({
+    contact_id: 'dana',
+    contact_link: nativeLink,
+    text: 'pending after websocket timeout',
+    client_message_id: 'native-3',
+    status_timeout_ms: 1
+  });
+  assert.equal(pendingAfterWebsocketTimeout.delivery_status, 'contact-requested');
+  assert.equal(requestCalls[2].id, 'dana');
+  assert.equal(acceptCalls[1].id, 'dana');
+  assert.equal(sentText.length, 2);
+
   var file = {
     name: 'notes.txt',
     type: 'text/plain',
@@ -306,8 +321,8 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(readReceipt.read_message_ref, 'sender-msg-1');
   assert.equal(sentReceipts[0].messageRef, 'sender-msg-1');
   await adapter.receiveContactAccept({ contact_id: 'alice', ackCorrId: 'accept-ack' });
-  assert.equal(acceptCalls[1].id, 'alice');
-  assert.equal(acceptCalls[1].options.ackCorrId, 'accept-ack');
+  assert.equal(acceptCalls[2].id, 'alice');
+  assert.equal(acceptCalls[2].options.ackCorrId, 'accept-ack');
   var deleted = await adapter.deleteContact({ contact_id: 'alice', corr_id: 'delete-1' });
   assert.deepEqual(deleted.remoteDeletedQueues, ['alice:inbox']);
   assert.equal(deleteCalls[0].id, 'alice');

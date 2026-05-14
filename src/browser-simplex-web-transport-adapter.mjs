@@ -129,7 +129,10 @@ function fileMime(file) {
 }
 
 function timeoutError(error) {
-  return error && error.code === 'SIMPLEX_CLIENT_TIMEOUT';
+  return error && (
+    error.code === 'SIMPLEX_CLIENT_TIMEOUT' ||
+    error.code === 'SIMPLEX_SMP_WS_TIMEOUT'
+  );
 }
 
 function statusTimeoutMs(message = {}) {
