@@ -1,6 +1,6 @@
 # Security Review
 
-Date: 2026-05-12
+Date: 2026-05-15
 
 Reviewer posture: Codex Desktop external-review simulation. This is not an
 independent third-party human audit, but it was performed adversarially against
@@ -39,7 +39,8 @@ Explicitly not shipped or reviewed as a release feature:
 - A mock chat transport.
 - A plaintext website/server bridge.
 - Upstream SimpleX cryptographic protocol correctness.
-- Live production browser SMP/XFTP server deployment.
+- Broad live production browser SMP/XFTP server deployment beyond the
+  `new.andersaamodt.com` Secure Chat Firefox-to-Owl Native path described below.
 
 ## Threat Model
 
@@ -87,6 +88,10 @@ Primary attacker capabilities tested:
   accept decrypt, per-relay SKEY, reply-queue confirmation, client-message
   wrapped SEND, broker-accepted SEND, and Owl `newChatItems` text delivery
   without exposing chat plaintext to the relay.
+- Exercise a live Firefox-to-Owl Native Secure Chat file-send run on
+  `new.andersaamodt.com` through browser XFTP upload, ratcheted native file
+  invitation, batched native `x.msg.file.descr` delivery, and Owl-side XFTP
+  `rcv_invitation` storage.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
 - Downgrade production browser XFTP server profiles to plaintext, missing
@@ -106,16 +111,23 @@ send the reply-queue confirmation that establishes Owl's E2E key, and deliver a
 post-accept text message that Owl stores as `newChatItems`. The relay still only
 sees encrypted SMP blocks.
 
+### Fixed in live Firefox run: native Owl file invitations
+
+The successful live Firefox pass covers browser-to-Owl XFTP file invitations on
+`new.andersaamodt.com`. The browser uploads encrypted chunks to the configured
+XFTP web endpoint, sends a native `x.msg.new` file invitation batched with the
+`x.msg.file.descr` YAML descriptor, and Owl stores the result as an XFTP
+`rcv_invitation` without a new duplicate-message integrity item.
+
 ### Partially fixed: native Owl receive and receipts
 
-The successful local live pass covers browser-to-Owl text delivery. The
-deterministic native interop harness now also covers Owl-to-browser text receive
-and encrypted native `A_RCVD` receipt generation, including receipt hash
-verification against the simulated Owl-side ratchet state. It also covers native
-file invitation sends using `x.msg.new` and `x.msg.file.descr` messages with
-XFTP YAML descriptions. Live Owl app passes for receive, receipts, and file
-attachments against a compatible XFTP server still need to land before claiming
-broader SimpleX Chat/Owl compatibility.
+The successful live passes cover browser-to-Owl text delivery and
+browser-to-Owl file invitation delivery. The deterministic native interop
+harness also covers Owl-to-browser text receive and encrypted native `A_RCVD`
+receipt generation, including receipt hash verification against the simulated
+Owl-side ratchet state. Live Owl app passes for Owl-to-browser receive,
+receipts, and file attachment receive still need to land before claiming broader
+SimpleX Chat/Owl feature parity.
 
 ### Fixed: legacy plaintext paths removed
 
@@ -217,6 +229,10 @@ Coverage added:
 - Contact file-transfer tests cover encrypted XFTP upload, ratcheted descriptor
   send, root-key hiding from the SMP body, received descriptor parsing, verified
   XFTP download, and received-file byte equality.
+- Native file-send regression tests cover batching the `x.msg.new` file
+  invitation and `x.msg.file.descr` descriptor parts into one encrypted native
+  agent message, one-based descriptor part numbering, and distinct shared
+  message IDs for descriptor events.
 - Read-receipt tests cover sender message refs inside ratcheted text/file
   payloads, encrypted receipt sends that do not expose the target message ref in
   the SMP body, receipt receive parsing, facade normalization, and adapter E2E
@@ -252,6 +268,9 @@ Coverage added:
   HTTPS handshake, identity proof, and PING/PONG. A second opt-in destructive
   live XFTP test uploads, downloads, decrypts, verifies, and deletes a
   disposable encrypted file when `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`.
+- Live production Secure Chat checks covered Firefox browser file sending to
+  Owl Native on `new.andersaamodt.com`, including Owl-side SQLite verification
+  of the resulting XFTP `rcv_invitation`.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server
@@ -267,7 +286,7 @@ can. The current network-facing module is therefore an explicit browser
 SMP-over-WebSocket profile for compatible servers, not a claim that browsers can
 directly speak the existing raw TCP/TLS SMP transport.
 
-### Accepted residual risk: live interoperability still needs real servers
+### Accepted residual risk: broader live interoperability still needs more servers
 
 The repo now contains browser-native SMP primitives, agent envelope helpers,
 queue orchestration, contact state, durable ratchet storage, retry scheduling,
@@ -275,9 +294,10 @@ XFTP-style chunks, an encrypted-chunk XFTP client, an upstream-style XFTP web
 client with file envelope assembly, and reviewed browser SMP/XFTP server
 profile validators. It also
 contains a skipped-by-default live interop harness in
-`tests/live-interop.test.mjs`. It still needs that harness to pass against
-reviewed browser-profile SMP/XFTP servers and upstream-certified SimpleX
-fixture bytes before claiming production network interoperability.
+`tests/live-interop.test.mjs`. The Secure Chat deployment now has a live
+Firefox-to-Owl browser-send path for text and files, but broader production
+network interoperability still needs browser-matrix runs, reviewed
+browser-profile SMP/XFTP servers, and upstream-certified SimpleX fixture bytes.
 
 ## Executed Coverage
 

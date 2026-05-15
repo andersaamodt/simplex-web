@@ -93,6 +93,9 @@ Safari automation, and wasm GHC without a bundler.
   confirmation-key verification, queue `KEY` securing, and request/accept ACKs
 - active-contact sends and receives with ratchet persistence, SMP ACKs, durable ACK retry, duplicate-redelivery suppression, changed-body replay rejection, encrypted read receipts, and encrypted-packet failed-send retry enqueueing
 - contact file sends that upload encrypted XFTP chunks and send only the file descriptor/root key through the ratcheted contact channel
+- native SimpleX file sends that batch the `x.msg.new` file invitation and
+  `x.msg.file.descr` YAML descriptor parts in one encrypted agent message, which
+  matches the shape Owl Native expects for XFTP invitations
 - contact file receives that download and verify encrypted XFTP chunks after the descriptor arrives through the ratcheted contact channel
 - in-process browser-profile SMP broker E2E coverage for two browser clients, signed sends, encrypted received messages, ACKs, and forged-signature rejection
 - bounded retry scheduling with deterministic testable backoff
@@ -106,6 +109,8 @@ Safari automation, and wasm GHC without a bundler.
 - a Node-side native SMP TLS byte relay for encrypted-block interop with existing relays during local/server-side deployments
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
+- live Firefox-to-Owl Native Secure Chat coverage on `new.andersaamodt.com` for
+  browser-to-Owl text and XFTP file sending
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 - a first-party facade adapter that wires the browser contact client to SMP WebSocket and optional XFTP web transport
 
@@ -428,12 +433,16 @@ as part of the protocol, not as a website plaintext bridge.
 
 ## Next protocol steps
 
-1. Point the live SMP/XFTP harness at reviewed browser-profile servers and keep
+1. Extend the live browser matrix beyond Firefox and keep scrubbed run metadata
+   outside the repo unless it is release evidence.
+2. Add live Owl-to-browser receive coverage for native text, read receipts, and
+   native file attachments against a compatible XFTP server.
+3. Point the live SMP/XFTP harness at reviewed browser-profile servers and keep
    the passing run metadata outside the repo unless it is scrubbed release
    evidence.
-2. Run the destructive live XFTP web harness against a reviewed disposable
+4. Run the destructive live XFTP web harness against a reviewed disposable
    endpoint and preserve scrubbed passing evidence outside the source tree.
-3. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
-4. Review the browser-profile SMP/XFTP server specifications against upstream
+5. Replace or augment the local deterministic vectors with upstream-certified SimpleX implementation vectors for every encoded protocol layer.
+6. Review the browser-profile SMP/XFTP server specifications against upstream
    SimpleX security goals before describing any deployment as production
    interoperable.

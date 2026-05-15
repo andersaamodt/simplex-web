@@ -74,12 +74,16 @@ What works locally today:
 - Local live Owl Native text interop through contact request, native accept,
   reply-queue confirmation, `contactConnected`, broker-accepted SEND, and an Owl
   `newChatItems` event for the delivered text.
+- Live Firefox-to-Owl Native Secure Chat file sending on
+  `new.andersaamodt.com`: browser XFTP upload, ratcheted native file
+  invitation, native `x.msg.file.descr` batch delivery, and Owl-side XFTP
+  `rcv_invitation` storage.
 - Deterministic native Owl-style bidirectional text and receipt interop coverage:
   the browser decrypts a post-accept Owl `A_MSG`, returns an encrypted native
   `A_RCVD`, and verifies the receipt hash against the Owl-side ratchet state.
-- Deterministic native Owl-style file invitation coverage: browser XFTP uploads
-  are announced as native `x.msg.new` file invitations followed by
-  `x.msg.file.descr` YAML parts over the ratcheted Owl queue.
+- Native Owl-style file invitation coverage: browser XFTP uploads are announced
+  as native `x.msg.new` file invitations batched with `x.msg.file.descr` YAML
+  parts over the ratcheted Owl queue.
 - Local deterministic wire-format vectors, loopback WebSocket/fetch transport
   tests, skipped-by-default live interop tests, fuzz/property tests, browser
   rendering tests, and Haskell/WASM smoke checks.
@@ -87,9 +91,11 @@ What works locally today:
 What is still required before claiming full production SimpleX browser-client
 interoperability:
 
-- A live Owl Native pass for Owl-to-browser receive, native receipts, and native
-  file attachments against a compatible XFTP server; those paths are covered in
-  deterministic protocol tests but not yet in the local Owl app run.
+- More browser-matrix evidence beyond the current Firefox live path.
+- Live Owl-to-browser receive, native receipts, and native file attachment
+  receive against a compatible XFTP server; those paths are covered in
+  deterministic protocol tests, while the production live pass currently proves
+  browser-to-Owl text and file sending for the Secure Chat form.
 - Reviewed non-loopback browser-profile SMP and XFTP servers.
 - Passing live compatibility runs against those servers.
 - Upstream-certified SimpleX protocol vectors for every encoded layer.
@@ -113,8 +119,8 @@ validation in `src/browser-smp-server-profile.mjs` and
 transport profile in `src/browser-smp-websocket-transport.mjs`.
 
 `simplex-web` was made by AI and was adversarially tested as much as
-conceivably possible by Codex Desktop with ChatGPT 5.5 in the local environment
-described in `docs/SECURITY_REVIEW.md`.
+conceivably possible by Codex Desktop with ChatGPT 5.5 in the local and live
+environment described in `docs/SECURITY_REVIEW.md`.
 
 ## How It Fits Into A Website
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.2 - 2026-05-15
+
+- Matched native Owl file descriptor delivery more closely by batching the
+  `x.msg.new` file invitation and `x.msg.file.descr` descriptor parts into one
+  encrypted native agent message.
+- Changed native file descriptor parts to use the one-based numbering expected
+  by Owl Native's receive-side descriptor append logic.
+- Added a distinct top-level shared message ID to descriptor events while
+  preserving `params.msgId` as the pointer to the file invitation.
+- Verified live Firefox-to-Owl Native Secure Chat attachment sending on
+  `new.andersaamodt.com`; Owl stores the browser upload as an XFTP
+  `rcv_invitation` without a new duplicate-message integrity item.
+- Updated the README and architecture notes to reflect the current non-fake
+  browser-native text/file transport state and the remaining non-1.0 feature
+  parity work.
+
 ## 1.0.1 - 2026-05-14
 
 - Removed the previous SimpleX Chat command API adapter, loopback file bridge,
