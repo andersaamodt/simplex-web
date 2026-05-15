@@ -86,6 +86,14 @@ function safeMessageRef(value, fallback = '') {
   return ref;
 }
 
+function optionalSafeMessageRef(value) {
+  try {
+    return safeMessageRef(value);
+  } catch (_error) {
+    return '';
+  }
+}
+
 function safeText(value) {
   var text = String(value == null ? '' : value);
   if (!text.trim()) fail('SIMPLEX_WEB_ADAPTER_TEXT', 'message text is required');
@@ -477,11 +485,13 @@ export class SimplexWebTransportAdapter {
         });
         if (received && received.duplicate) continue;
         if (received && received.payload && received.payload.type === 'read-receipt') {
-          var readRef = safeMessageRef(received.payload.messageRef);
-          this.receipts.set(readRef, {
-            ...makeReceipt(readRef, 'read'),
-            read_at: received.payload.readAt || new Date().toISOString()
-          });
+          var readRef = optionalSafeMessageRef(received.payload.messageRef);
+          if (readRef) {
+            this.receipts.set(readRef, {
+              ...makeReceipt(readRef, 'read'),
+              read_at: received.payload.readAt || new Date().toISOString()
+            });
+          }
           continue;
         }
         var facadeMessage = receivedToFacadeMessage(received);

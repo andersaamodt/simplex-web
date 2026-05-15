@@ -196,6 +196,9 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     payload: { type: 'duplicate' },
     msgId: smp.asciiBytes('msg-dup')
   }, {
+    payload: { type: 'read-receipt', receipts: [{ agentMsgId: '2' }] },
+    msgId: smp.asciiBytes('msg-native-receipt')
+  }, {
     text: 'reply',
     msgId: smp.asciiBytes('msg-1'),
     timestamp: 123n
@@ -311,7 +314,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   assert.equal(fileReceipts[0].attachment.name, 'notes.txt');
   assert.equal(sentFiles[0].bytes.length, 5);
 
-  var messages = await adapter.getMessages({ contact_id: 'alice', limit: 2 });
+  var messages = await adapter.getMessages({ contact_id: 'alice', limit: 3 });
   assert.equal(messages.length, 1);
   assert.equal(messages[0].text, 'reply');
   assert.equal(messages[0].delivery_status, 'received');
