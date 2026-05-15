@@ -164,6 +164,9 @@ function hasConfiguredXftpClient(adapter, contacts) {
   return !!(
     adapter.xftpWebClient ||
     adapter.options.xftpClient ||
+    adapter.options.xftp ||
+    adapter.options.xftpWebUrl ||
+    adapter.options.xftp_web_url ||
     (contacts && contacts.xftpClient)
   );
 }

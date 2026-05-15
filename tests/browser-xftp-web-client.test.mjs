@@ -43,6 +43,8 @@ import {
   encodeXftpWebTransmission,
   encryptXftpWebTransportChunk,
   getXftpWebFile,
+  formatXftpWebServerAddress,
+  normalizeXftpWebKeyHash,
   normalizeXftpWebUrl,
   parseXftpWebServerAddress,
   pingXftpWeb,
@@ -292,8 +294,11 @@ test('XFTP web server identity proof verifies key hash challenge and signed key'
 
 test('XFTP web URL and address parsing reject plaintext remote and path smuggling', () => {
   var keyHash = makeHandshake(filled(32, 21)).keyHash;
-  var address = 'xftp://' + Buffer.from(keyHash).toString('base64url') + '@xftp.example.test:443';
+  var encodedKeyHash = Buffer.from(keyHash).toString('base64url');
+  var address = 'xftp://' + encodedKeyHash + '@xftp.example.test:443';
   assert.equal(parseXftpWebServerAddress(address).host, 'xftp.example.test');
+  assert.equal(equalBytes(normalizeXftpWebKeyHash(encodedKeyHash), keyHash), true);
+  assert.equal(formatXftpWebServerAddress({ keyHash: encodedKeyHash, host: 'xftp.example.test', port: '443' }), address);
   assert.throws(() => parseXftpWebServerAddress(address + '/extra'), /address/i);
   assert.throws(() => normalizeXftpWebUrl('http://xftp.example.test/'), /https/i);
   assert.equal(normalizeXftpWebUrl('http://127.0.0.1:8080/', { allowInsecureLocal: true }), 'http://127.0.0.1:8080/');
@@ -307,7 +312,7 @@ test('XFTP web transport chunk decrypts with digest checks and rejects tampering
   assert.equal(equalBytes(decryptXftpWebTransportChunk(dhSecret, nonce, encrypted, sha256Hash(plaintext)), plaintext), true);
   var tampered = encrypted.slice();
   tampered[4] ^= 1;
-  assert.throws(() => decryptXftpWebTransportChunk(dhSecret, nonce, tampered, sha256Hash(plaintext)), /decryption failed/i);
+  assert.throws(() => decryptXftpWebTransportChunk(dhSecret, nonce, tampered, sha256Hash(plaintext)), /authentication|decryption/i);
   assert.throws(() => decryptXftpWebTransportChunk(dhSecret, nonce, encrypted, filled(32, 34)), /digest mismatch/i);
 });
 
@@ -361,13 +366,15 @@ test('XFTP web client rejects missing server identity proof unless explicit loop
 
   await withLoopbackXftpWebServer(async ({ url, transcript }) => {
     var expected = makeHandshake(filled(32, 90)).keyHash;
+    var encodedExpected = Buffer.from(expected).toString('base64url');
     var client = await connectBrowserXftpWebClient({
       url,
-      keyHash: expected,
+      keyHash: encodedExpected,
       allowInsecureLocal: true,
       allowUnverifiedIdentityForTests: true,
       timeoutMs: 2000
     });
+    assert.equal(equalBytes(client.keyHash, expected), true);
     assert.equal(client.security.unverifiedLoopbackTestMode, true);
   }, { omitProof: true });
 });

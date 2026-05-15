@@ -11,7 +11,8 @@
 // profile when talking to compatible servers.
 
 import { ed448 } from '@noble/curves/ed448.js';
-import { xsalsa20poly1305 } from '@noble/ciphers/salsa.js';
+import { hsalsa, salsa20 } from '@noble/ciphers/salsa.js';
+import { poly1305 } from '@noble/ciphers/_poly1305.js';
 import { sha512 } from '@noble/hashes/sha2.js';
 
 import {
@@ -74,6 +75,77 @@ function safeInteger(value, label, min, max) {
   var n = Number(value);
   if (!Number.isSafeInteger(n) || n < min || n > max) fail('XFTP_WEB_RANGE', label + ' is outside the supported range');
   return n;
+}
+
+const XFTP_WEB_SALSA_SIGMA = asciiBytes('expand 32-byte k');
+
+function wordsLE(bytes) {
+  var raw = toBytes(bytes, 'Salsa words');
+  if (raw.length % 4 !== 0) fail('XFTP_WEB_CRYPTO', 'Salsa word input is not aligned');
+  var view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  var out = new Uint32Array(raw.length / 4);
+  for (var i = 0; i < out.length; i += 1) out[i] = view.getUint32(i * 4, true);
+  return out;
+}
+
+function bytesFromWordsLE(words) {
+  var out = new Uint8Array(words.length * 4);
+  var view = new DataView(out.buffer);
+  for (var i = 0; i < words.length; i += 1) view.setUint32(i * 4, words[i], true);
+  return out;
+}
+
+function doubleHsalsaSubkey(key, nonce) {
+  var zeroPrefix = new Uint8Array(16);
+  var first = new Uint32Array(8);
+  var second = new Uint32Array(8);
+  hsalsa(wordsLE(XFTP_WEB_SALSA_SIGMA), wordsLE(key), wordsLE(zeroPrefix), first);
+  hsalsa(wordsLE(XFTP_WEB_SALSA_SIGMA), wordsLE(bytesFromWordsLE(first)), wordsLE(nonce.slice(0, 16)), second);
+  return bytesFromWordsLE(second);
+}
+
+function xftpWebSecretboxTailEncrypt(key, nonce, plaintext) {
+  var subkey = doubleHsalsaSubkey(key, nonce);
+  var nonce8 = nonce.slice(16, 24);
+  var block0 = salsa20(subkey, nonce8, new Uint8Array(64), undefined, 0);
+  var authKey = block0.slice(0, 32);
+  var ciphertext = new Uint8Array(plaintext.length);
+  var offset = 0;
+  var first = Math.min(32, plaintext.length);
+  for (var i = 0; i < first; i += 1) ciphertext[i] = plaintext[i] ^ block0[32 + i];
+  offset = first;
+  var counter = 1;
+  while (offset < plaintext.length) {
+    var n = Math.min(64, plaintext.length - offset);
+    var block = salsa20(subkey, nonce8, new Uint8Array(64), undefined, counter++);
+    for (var j = 0; j < n; j += 1) ciphertext[offset + j] = plaintext[offset + j] ^ block[j];
+    offset += n;
+  }
+  return concatBytes(ciphertext, poly1305(ciphertext, authKey));
+}
+
+function xftpWebSecretboxTailDecrypt(key, nonce, encrypted) {
+  if (encrypted.length < 16) fail('XFTP_WEB_DECRYPT', 'XFTP secretbox body is shorter than its tag');
+  var subkey = doubleHsalsaSubkey(key, nonce);
+  var nonce8 = nonce.slice(16, 24);
+  var block0 = salsa20(subkey, nonce8, new Uint8Array(64), undefined, 0);
+  var authKey = block0.slice(0, 32);
+  var ciphertext = encrypted.slice(0, encrypted.length - 16);
+  var tag = encrypted.slice(encrypted.length - 16);
+  if (!equalBytes(poly1305(ciphertext, authKey), tag)) fail('XFTP_WEB_DECRYPT', 'XFTP secretbox authentication failed');
+  var plaintext = new Uint8Array(ciphertext.length);
+  var offset = 0;
+  var first = Math.min(32, ciphertext.length);
+  for (var i = 0; i < first; i += 1) plaintext[i] = ciphertext[i] ^ block0[32 + i];
+  offset = first;
+  var counter = 1;
+  while (offset < ciphertext.length) {
+    var n = Math.min(64, ciphertext.length - offset);
+    var block = salsa20(subkey, nonce8, new Uint8Array(64), undefined, counter++);
+    for (var j = 0; j < n; j += 1) plaintext[offset + j] = ciphertext[offset + j] ^ block[j];
+    offset += n;
+  }
+  return plaintext;
 }
 
 class ByteReader {
@@ -560,7 +632,7 @@ export function encryptXftpWebFileEnvelope(source, options = {}) {
     content,
     new Uint8Array(paddingLength).fill(0x23)
   );
-  var encrypted = xsalsa20poly1305(key, nonce).encrypt(plaintext);
+  var encrypted = xftpWebSecretboxTailEncrypt(key, nonce, plaintext);
   if (encrypted.length !== encryptedSize) fail('XFTP_WEB_CHUNK', 'XFTP file envelope size does not match chunk plan');
   return {
     header,
@@ -591,7 +663,7 @@ export function decryptXftpWebFileEnvelope(encryptedFile, options = {}) {
   var nonce = normalizeXftpWebFileNonce(options.nonce);
   var plaintext;
   try {
-    plaintext = xsalsa20poly1305(key, nonce).decrypt(encrypted);
+    plaintext = xftpWebSecretboxTailDecrypt(key, nonce, encrypted);
   } catch (_error) {
     fail('XFTP_WEB_DECRYPT', 'XFTP file envelope decryption failed');
   }
@@ -625,7 +697,7 @@ export function encryptXftpWebTransportChunk(dhSecret, nonce, plaintext) {
   if (key.length !== 32) fail('XFTP_WEB_KEY', 'XFTP web transport DH secret must be 32 bytes');
   var nonceBytes = toBytes(nonce, 'XFTP web transport nonce');
   if (nonceBytes.length !== 24) fail('XFTP_WEB_NONCE', 'XFTP web transport nonce must be 24 bytes');
-  return xsalsa20poly1305(key, nonceBytes).encrypt(toBytes(plaintext || new Uint8Array(), 'XFTP web transport plaintext'));
+  return xftpWebSecretboxTailEncrypt(key, nonceBytes, toBytes(plaintext || new Uint8Array(), 'XFTP web transport plaintext'));
 }
 
 export function decryptXftpWebTransportChunk(dhSecret, nonce, encryptedBody, expectedDigest = null) {
@@ -635,7 +707,7 @@ export function decryptXftpWebTransportChunk(dhSecret, nonce, encryptedBody, exp
   if (nonceBytes.length !== 24) fail('XFTP_WEB_NONCE', 'XFTP web transport nonce must be 24 bytes');
   var body = toBytes(encryptedBody || new Uint8Array(), 'XFTP web transport encrypted body');
   try {
-    var plaintext = xsalsa20poly1305(key, nonceBytes).decrypt(body);
+    var plaintext = xftpWebSecretboxTailDecrypt(key, nonceBytes, body);
     if (expectedDigest != null && !equalBytes(sha256Hash(plaintext), expectedDigest)) {
       fail('XFTP_WEB_DIGEST', 'XFTP web downloaded chunk digest mismatch');
     }
@@ -650,8 +722,7 @@ export function parseXftpWebServerAddress(value) {
   var text = String(value == null ? '' : value).trim();
   var match = /^xftp:\/\/([A-Za-z0-9_-]+={0,2})@([^:#,;\/\s]+)(?::([0-9]+))?$/.exec(text);
   if (!match) fail('XFTP_WEB_ADDRESS', 'XFTP server address is invalid');
-  var keyHash = decodeBase64Url(match[1], 'XFTP server identity hash');
-  if (keyHash.length !== 32) fail('XFTP_WEB_KEY_HASH', 'XFTP server identity hash must be 32 bytes');
+  var keyHash = normalizeXftpWebKeyHash(match[1]);
   var port = match[3] || '443';
   safeInteger(port, 'XFTP server port', 1, 65535);
   return {
@@ -661,9 +732,16 @@ export function parseXftpWebServerAddress(value) {
   };
 }
 
-export function formatXftpWebServerAddress(server = {}) {
-  var keyHash = toBytes(server.keyHash || new Uint8Array(), 'XFTP server identity hash');
+export function normalizeXftpWebKeyHash(value) {
+  var keyHash = typeof value === 'string'
+    ? decodeBase64Url(value.trim(), 'XFTP server identity hash')
+    : toBytes(value || new Uint8Array(), 'XFTP server identity hash');
   if (keyHash.length !== 32) fail('XFTP_WEB_KEY_HASH', 'XFTP server identity hash must be 32 bytes');
+  return keyHash;
+}
+
+export function formatXftpWebServerAddress(server = {}) {
+  var keyHash = normalizeXftpWebKeyHash(server.keyHash || new Uint8Array());
   var host = String(server.host || '').trim();
   if (!host || /[:#,;\/\s]/.test(host)) fail('XFTP_WEB_ADDRESS', 'XFTP server host is invalid');
   var port = String(server.port || '443').trim();
@@ -865,8 +943,7 @@ export async function connectBrowserXftpWebClient(options = {}) {
   var fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== 'function') fail('XFTP_WEB_FETCH', 'fetch is not available');
   var server = options.server || (options.address ? parseXftpWebServerAddress(options.address) : {});
-  var keyHash = toBytes(options.keyHash || server.keyHash || new Uint8Array(), 'XFTP server identity hash');
-  if (keyHash.length !== 32) fail('XFTP_WEB_KEY_HASH', 'XFTP server identity hash must be 32 bytes');
+  var keyHash = normalizeXftpWebKeyHash(options.keyHash || server.keyHash || new Uint8Array());
   var url = normalizeXftpWebUrl(options.url || serverUrl(server), options);
   var challenge = options.challenge ? toBytes(options.challenge, 'XFTP web challenge') : randomBytes32();
   var timeoutMs = Math.max(1, Math.floor(Number(options.timeoutMs || 30000) || 30000));
