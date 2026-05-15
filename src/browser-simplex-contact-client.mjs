@@ -1256,12 +1256,13 @@ export class BrowserSimplexContactClient {
     for (var i = 0; i < parts.length; i += 1) {
       descriptions.push(await this.sendNativeChatBody(contact, encodeNativeChatJson({
         v: '1',
+        msgId: base64UrlPadded(randomNonce24()),
         event: 'x.msg.file.descr',
         params: {
           msgId: sharedMsgId,
           fileDescr: {
             fileDescrText: parts[i],
-            fileDescrPartNo: i,
+            fileDescrPartNo: i + 1,
             fileDescrComplete: i === parts.length - 1
           }
         }

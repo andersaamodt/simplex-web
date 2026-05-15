@@ -462,7 +462,10 @@ test('contact client requests native SimpleX contact addresses and activates aft
   let fileDescrAgent = parseNativeAgentMessage(fileDescrDecrypted.plaintext);
   let fileDescrJson = JSON.parse(smp.utf8Text(fileDescrAgent.body));
   assert.equal(fileDescrJson.event, 'x.msg.file.descr');
+  assert.equal(typeof fileDescrJson.msgId, 'string');
+  assert.notEqual(fileDescrJson.msgId, fileInviteJson.msgId);
   assert.equal(fileDescrJson.params.msgId, fileInviteJson.msgId);
+  assert.equal(fileDescrJson.params.fileDescr.fileDescrPartNo, 1);
   assert.equal(fileDescrJson.params.fileDescr.fileDescrComplete, true);
   assert.match(fileDescrJson.params.fileDescr.fileDescrText, /party: recipient/);
   assert.match(fileDescrJson.params.fileDescr.fileDescrText, /server: xftp:\/\/abc=@xftp.example.test/);
