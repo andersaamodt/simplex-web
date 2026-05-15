@@ -36,7 +36,7 @@ export const SMP_MAX_RCV_MESSAGE_LENGTH = SMP_MAX_MESSAGE_LENGTH + 16;
 export const SMP_E2E_ENC_CONFIRMATION_LENGTH = 15904;
 export const SMP_E2E_ENC_MESSAGE_LENGTH = 16000;
 export const SMP_BROWSER_MIN_VERSION = 3;
-export const SMP_BROWSER_MAX_VERSION = 6;
+export const SMP_BROWSER_MAX_VERSION = 9;
 export const SMP_DEFAULT_PORT = '5223';
 
 export class SimplexSmpProtocolError extends Error {

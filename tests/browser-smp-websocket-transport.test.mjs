@@ -144,9 +144,9 @@ test('caps default negotiated version at the implemented browser SMP maximum', a
   })).buffer);
 
   const transport = await connecting;
-  assert.equal(transport.version, 6);
+  assert.equal(transport.version, 9);
   const clientHandshake = parseClientHandshake(unpadBlock(new Uint8Array(socket.sent[0])));
-  assert.equal(clientHandshake.version, 6);
+  assert.equal(clientHandshake.version, 9);
   transport.close();
 });
 

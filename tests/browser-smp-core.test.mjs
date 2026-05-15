@@ -321,13 +321,14 @@ test('handshake codecs choose the highest mutually supported SMP version', () =>
   assert.equal(version, 6);
   assert.equal(client.version, 6);
   assert.equal(client.keyHash.length, 32);
+  assert.equal(smp.chooseCompatibleVersion({ minVersion: 1, maxVersion: 15 }), 9);
   const v15Client = smp.parseClientHandshake(smp.encodeClientHandshake({
     version: 15,
     keyHash: filled(32, 21),
     proxyServer: false
   }));
   assert.equal(v15Client.proxyServer, false);
-  assert.throws(() => smp.chooseCompatibleVersion({ minVersion: 7, maxVersion: 8 }), /incompatible/);
+  assert.throws(() => smp.chooseCompatibleVersion({ minVersion: 10, maxVersion: 12 }), /incompatible/);
 });
 
 test('browser crypto primitives perform protocol-sized authenticated round trips', () => {
