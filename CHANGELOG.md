@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 - 2026-05-15
+
+- Removed production personal-domain references from reusable package
+  documentation and test fixtures, leaving only required GitHub repository
+  strings.
+
 ## 1.0.2 - 2026-05-15
 
 - Matched native Owl file descriptor delivery more closely by batching the
@@ -9,8 +15,8 @@
   by Owl Native's receive-side descriptor append logic.
 - Added a distinct top-level shared message ID to descriptor events while
   preserving `params.msgId` as the pointer to the file invitation.
-- Verified live Firefox-to-Owl Native Secure Chat attachment sending on
-  `new.andersaamodt.com`; Owl stores the browser upload as an XFTP
+- Verified live Firefox-to-Owl Native Secure Chat attachment sending on the
+  production Secure Chat deployment; Owl stores the browser upload as an XFTP
   `rcv_invitation` without a new duplicate-message integrity item.
 - Updated the README and architecture notes to reflect the current non-fake
   browser-native text/file transport state and the remaining non-1.0 feature

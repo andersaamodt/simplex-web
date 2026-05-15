@@ -39,8 +39,8 @@ Explicitly not shipped or reviewed as a release feature:
 - A mock chat transport.
 - A plaintext website/server bridge.
 - Upstream SimpleX cryptographic protocol correctness.
-- Broad live production browser SMP/XFTP server deployment beyond the
-  `new.andersaamodt.com` Secure Chat Firefox-to-Owl Native path described below.
+- Broad live production browser SMP/XFTP server deployment beyond the Secure
+  Chat Firefox-to-Owl Native path described below.
 
 ## Threat Model
 
@@ -88,10 +88,9 @@ Primary attacker capabilities tested:
   accept decrypt, per-relay SKEY, reply-queue confirmation, client-message
   wrapped SEND, broker-accepted SEND, and Owl `newChatItems` text delivery
   without exposing chat plaintext to the relay.
-- Exercise a live Firefox-to-Owl Native Secure Chat file-send run on
-  `new.andersaamodt.com` through browser XFTP upload, ratcheted native file
-  invitation, batched native `x.msg.file.descr` delivery, and Owl-side XFTP
-  `rcv_invitation` storage.
+- Exercise a live Firefox-to-Owl Native Secure Chat file-send run through
+  browser XFTP upload, ratcheted native file invitation, batched native
+  `x.msg.file.descr` delivery, and Owl-side XFTP `rcv_invitation` storage.
 - Downgrade production browser SMP server profiles to plaintext, wrong padding,
   missing origins, or missing session binding.
 - Downgrade production browser XFTP server profiles to plaintext, missing
@@ -114,10 +113,10 @@ sees encrypted SMP blocks.
 ### Fixed in live Firefox run: native Owl file invitations
 
 The successful live Firefox pass covers browser-to-Owl XFTP file invitations on
-`new.andersaamodt.com`. The browser uploads encrypted chunks to the configured
-XFTP web endpoint, sends a native `x.msg.new` file invitation batched with the
-`x.msg.file.descr` YAML descriptor, and Owl stores the result as an XFTP
-`rcv_invitation` without a new duplicate-message integrity item.
+the production Secure Chat deployment. The browser uploads encrypted chunks to
+the configured XFTP web endpoint, sends a native `x.msg.new` file invitation
+batched with the `x.msg.file.descr` YAML descriptor, and Owl stores the result
+as an XFTP `rcv_invitation` without a new duplicate-message integrity item.
 
 ### Partially fixed: native Owl receive and receipts
 
@@ -269,8 +268,8 @@ Coverage added:
   live XFTP test uploads, downloads, decrypts, verifies, and deletes a
   disposable encrypted file when `SIMPLEX_WEB_LIVE_XFTP_DESTRUCTIVE=1`.
 - Live production Secure Chat checks covered Firefox browser file sending to
-  Owl Native on `new.andersaamodt.com`, including Owl-side SQLite verification
-  of the resulting XFTP `rcv_invitation`.
+  Owl Native, including Owl-side SQLite verification of the resulting XFTP
+  `rcv_invitation`.
 - Server-profile tests reject plaintext URLs and missing session binding.
 - Fuzz tests now cover hostile durable-store record IDs, hostile XFTP byte
   payload round trips with tamper rejection, unsafe browser SMP/XFTP server

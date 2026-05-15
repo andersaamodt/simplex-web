@@ -35,13 +35,13 @@ test('session store writes and reads bounded chat state', () => {
     uploads.push({ upload_id: `upl-${i}`, name: `file-${i}.txt`, status: 'complete', progress: 100 });
   }
 
-  const written = store.writeSession(storage, 'new.andersaamodt.com/contact', 'npub1example', {
+  const written = store.writeSession(storage, 'secure-chat.example/contact', 'npub1example', {
     draftText: 'draft text',
     lastSeq: 60,
     messages,
     uploads
   });
-  const roundTrip = store.readSession(storage, 'new.andersaamodt.com/contact', 'npub1example');
+  const roundTrip = store.readSession(storage, 'secure-chat.example/contact', 'npub1example');
 
   assert.equal(written.messages.length, store.MAX_MESSAGES);
   assert.equal(written.messages[0].seq, 11);

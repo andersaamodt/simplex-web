@@ -74,10 +74,10 @@ What works locally today:
 - Local live Owl Native text interop through contact request, native accept,
   reply-queue confirmation, `contactConnected`, broker-accepted SEND, and an Owl
   `newChatItems` event for the delivered text.
-- Live Firefox-to-Owl Native Secure Chat file sending on
-  `new.andersaamodt.com`: browser XFTP upload, ratcheted native file
-  invitation, native `x.msg.file.descr` batch delivery, and Owl-side XFTP
-  `rcv_invitation` storage.
+- Live Firefox-to-Owl Native Secure Chat file sending on the production Secure
+  Chat deployment: browser XFTP upload, ratcheted native file invitation, native
+  `x.msg.file.descr` batch delivery, and Owl-side XFTP `rcv_invitation`
+  storage.
 - Deterministic native Owl-style bidirectional text and receipt interop coverage:
   the browser decrypts a post-accept Owl `A_MSG`, returns an encrypted native
   `A_RCVD`, and verifies the receipt hash against the Owl-side ratchet state.

@@ -109,8 +109,8 @@ Safari automation, and wasm GHC without a bundler.
 - a Node-side native SMP TLS byte relay for encrypted-block interop with existing relays during local/server-side deployments
 - live loopback WebSocket coverage for browser transport handshake, masked client frames, binary SMP blocks, and broker responses
 - skipped-by-default live SMP/XFTP interoperability coverage for reviewed non-loopback browser-profile endpoints
-- live Firefox-to-Owl Native Secure Chat coverage on `new.andersaamodt.com` for
-  browser-to-Owl text and XFTP file sending
+- live Firefox-to-Owl Native Secure Chat coverage on the production Secure Chat
+  deployment for browser-to-Owl text and XFTP file sending
 - a closed-by-default `window.SimplexWebTransport` facade for host-site integration
 - a first-party facade adapter that wires the browser contact client to SMP WebSocket and optional XFTP web transport
 
