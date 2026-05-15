@@ -81,3 +81,50 @@ test('native SimpleX X448 ratchet encrypts and decrypts first messages', () => {
   tampered[tampered.length - 1] ^= 1;
   assert.throws(() => decryptNativeRatchetMessage(receiver, tampered), /decryption failed/);
 });
+
+test('native SimpleX X448 ratchet falls forward to the next receiving header key', () => {
+  const recipientX3dh1 = smp.generateX448KeyPair(filled(56, 30));
+  const recipientX3dh2 = smp.generateX448KeyPair(filled(56, 31));
+  const senderX3dh1 = smp.generateX448KeyPair(filled(56, 32));
+  const senderX3dh2 = smp.generateX448KeyPair(filled(56, 33));
+  const senderInit = deriveNativeX3dhSender({
+    senderKey1: senderX3dh1,
+    senderKey2: senderX3dh2,
+    recipientKey1: recipientX3dh1.publicKey,
+    recipientKey2: recipientX3dh2.publicKey
+  });
+  const receiverInit = deriveNativeX3dhReceiver({
+    recipientKey1: recipientX3dh1,
+    recipientKey2: recipientX3dh2,
+    senderKey1: senderX3dh1.publicKey,
+    senderKey2: senderX3dh2.publicKey
+  });
+  const senderDh = smp.generateX448KeyPair(filled(56, 34));
+  const receiverDh = smp.generateX448KeyPair(filled(56, 35));
+  let sender = createNativeSendingRatchet({
+    init: senderInit,
+    ownDhKey: senderDh,
+    remoteDhPublicKey: receiverDh.publicKey
+  });
+  let receiver = createNativeReceivingRatchet({
+    init: receiverInit,
+    ownDhKey: receiverDh
+  });
+
+  const first = encryptNativeRatchetMessage(sender, smp.utf8Bytes('browser first'));
+  sender = first.state;
+  const gotFirst = decryptNativeRatchetMessage(receiver, first.packet);
+  receiver = gotFirst.state;
+
+  const reply = encryptNativeRatchetMessage(receiver, smp.utf8Bytes('native reply'), {
+    ownDhSeed: filled(56, 36)
+  });
+  const senderWithStaleCurrentHeader = {
+    ...sender,
+    receivingHeaderKey: filled(32, 37),
+    receivingChainKey: filled(32, 38)
+  };
+  const gotReply = decryptNativeRatchetMessage(senderWithStaleCurrentHeader, reply.packet);
+  assert.equal(smp.utf8Text(gotReply.plaintext), 'native reply');
+  assert.equal(gotReply.header.messageNumber, 0);
+});

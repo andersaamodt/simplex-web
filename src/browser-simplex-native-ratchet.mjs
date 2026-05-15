@@ -363,15 +363,32 @@ export function decryptNativeRatchetMessage(stateInput, packet) {
   var encHeader = parseEncryptedHeader(headerPart.value);
   var tag = input.slice(headerPart.next, headerPart.next + 16);
   var body = input.slice(headerPart.next + 16);
-  var headerKey = state.receivingHeaderKey || state.nextReceivingHeaderKey;
-  var headerPlain = decryptAeadPart('header', headerKey, encHeader.iv, state.associatedData, encHeader.body, encHeader.tag);
+  var headerAttempt;
+  var headerError;
+  var headerKeys = [];
+  if (state.receivingHeaderKey) headerKeys.push({ key: state.receivingHeaderKey, next: false });
+  if (state.nextReceivingHeaderKey) headerKeys.push({ key: state.nextReceivingHeaderKey, next: true });
+  for (var attempt of headerKeys) {
+    try {
+      headerAttempt = {
+        ...attempt,
+        plain: decryptAeadPart('header', attempt.key, encHeader.iv, state.associatedData, encHeader.body, encHeader.tag)
+      };
+      break;
+    } catch (error) {
+      headerError = error;
+    }
+  }
+  if (!headerAttempt) throw headerError || fail('SIMPLEX_NATIVE_RATCHET_STATE', 'native receiving header key is missing');
+  var headerPlain = headerAttempt.plain;
   var header = parseNativeMessageHeader(headerPlain);
-  if (!state.receivingChainKey) {
+  if (!state.receivingChainKey || headerAttempt.next) {
     var derived = rootKdf(state.rootKey, header.dh, state.ownDhKey.secretKey);
     state.rootKey = derived.rootKey;
     state.receivingChainKey = derived.chainKey;
-    state.receivingHeaderKey = state.nextReceivingHeaderKey;
+    state.receivingHeaderKey = headerAttempt.key;
     state.nextReceivingHeaderKey = derived.nextHeaderKey;
+    state.receiveCount = 0;
   }
   var chain = chainKdf(state.receivingChainKey);
   var plaintext = decryptAeadPart('body', chain.messageKey, chain.messageIv, concatBytes(state.associatedData, headerPart.value), body, tag);
