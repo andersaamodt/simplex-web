@@ -160,6 +160,14 @@ function makeReceipt(ref, status = 'sent') {
   };
 }
 
+function hasConfiguredXftpClient(adapter, contacts) {
+  return !!(
+    adapter.xftpWebClient ||
+    adapter.options.xftpClient ||
+    (contacts && contacts.xftpClient)
+  );
+}
+
 function receivedToFacadeMessage(received) {
   var ref = received && received.msgId ? 'rcv:' + encodeBase64Url(received.msgId) : generatedMessageRef('rcv');
   var file = received && received.file ? received.file : null;
@@ -306,12 +314,15 @@ export class SimplexWebTransportAdapter {
     var transportStatus = this.transport && typeof this.transport.getStatus === 'function'
       ? this.transport.getStatus()
       : null;
+    var hasXftp = hasConfiguredXftpClient(this, this.contactClient);
     return {
       transport_status: this.connected ? 'direct-browser-smp' : 'configured',
       transport_error: '',
       connected: this.connected,
       plaintextBridge: false,
       browserNativeProtocol: true,
+      xftp_status: hasXftp ? 'configured' : 'missing',
+      fileTransferReady: hasXftp,
       contactCount: this.contactClient && typeof this.contactClient.listContacts === 'function'
         ? this.contactClient.listContacts().length
         : 0,
@@ -410,6 +421,12 @@ export class SimplexWebTransportAdapter {
 
   async sendFiles(message = {}) {
     var contacts = await this.ensureReady();
+    if (!hasConfiguredXftpClient(this, contacts)) {
+      fail(
+        'SIMPLEX_WEB_ADAPTER_XFTP',
+        'browser-native SimpleX file sending requires a configured XFTP web endpoint'
+      );
+    }
     var contactId = safeContactId(message.contact_id || message.contactId || this.options.defaultContactId);
     var linkText = contactLinkText(message);
     var parsedLink = parseOptionalContactLink(message);

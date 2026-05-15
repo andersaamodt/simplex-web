@@ -208,6 +208,7 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   var websocketTimeout = new Error('empty websocket');
   websocketTimeout.code = 'SIMPLEX_SMP_WS_TIMEOUT';
   var contactClient = {
+    xftpClient: {},
     listContacts() {
       return [{ id: 'alice', state: 'active' }];
     },
@@ -247,6 +248,8 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
   };
   var adapter = createSimplexWebTransportAdapter({ contactClient });
   assert.equal(adapter.getStatus().transport_status, 'direct-browser-smp');
+  assert.equal(adapter.getStatus().xftp_status, 'configured');
+  assert.equal(adapter.getStatus().fileTransferReady, true);
   var receipt = await adapter.sendText({ contact_id: 'alice', text: 'hello', client_message_id: 'm1' });
   assert.equal(receipt.message_ref, 'm1');
   assert.equal(sentText[0].text, 'hello');
@@ -343,6 +346,42 @@ test('SimplexWebTransport adapter normalizes facade sends files receives and reg
     }
   });
   assert.deepEqual(registered, { registered: true });
+});
+
+test('SimplexWebTransport adapter refuses file sends before side effects when XFTP is missing', async () => {
+  var sendFileCalls = 0;
+  var requestCalls = 0;
+  var contactClient = {
+    listContacts() {
+      return [];
+    },
+    requestContact() {
+      requestCalls += 1;
+      return Promise.resolve({ id: 'alice', state: 'requested' });
+    },
+    sendFile() {
+      sendFileCalls += 1;
+      return Promise.resolve({ file: {} });
+    }
+  };
+  var adapter = createSimplexWebTransportAdapter({ contactClient, defaultContactId: 'alice' });
+  assert.equal(adapter.getStatus().xftp_status, 'missing');
+  assert.equal(adapter.getStatus().fileTransferReady, false);
+
+  var file = {
+    name: 'notes.txt',
+    type: 'text/plain',
+    size: 5,
+    arrayBuffer() {
+      return Promise.resolve(new Uint8Array([1, 2, 3, 4, 5]).buffer);
+    }
+  };
+  await assert.rejects(
+    () => adapter.sendFiles({ files: [file], contact_link: 'simplex:/contact#/?v=1-4&smp=smp%3A%2F%2Fabc%40smp.example.test%2Fabc' }),
+    /XFTP web endpoint/
+  );
+  assert.equal(requestCalls, 0);
+  assert.equal(sendFileCalls, 0);
 });
 
 test('SimplexWebTransport adapter sends and receives over the browser SimpleX contact client', async () => {
