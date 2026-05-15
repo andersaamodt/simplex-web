@@ -1403,6 +1403,12 @@ export class BrowserSimplexContactClient {
     requireState(contact, [CONTACT_STATE_ACTIVE]);
     var queue = options.queue || this.store.loadQueue(contact.id + ':inbox');
     if (!queue) fail('SIMPLEX_CONTACT_QUEUE', 'contact inbox queue is missing');
+    if (options.subscribeBeforeReceive === true && contact.nativeAgentProfile) {
+      await this.client.subscribeQueue(queue, {
+        ...options,
+        corrId: options.subscribeCorrId || options.subCorrId || ('sub-' + Date.now())
+      });
+    }
     var received = await this.client.receiveQueueMessage(queue, options);
     var msgId = received.message.msgId;
     var bodyHash = receivedBodyHash(received.message.body);

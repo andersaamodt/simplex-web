@@ -481,7 +481,9 @@ export class SimplexWebTransportAdapter {
       try {
         var received = await contacts.receiveNext(contactId, {
           timeoutMs: query.timeout_ms || query.timeoutMs || this.options.receiveTimeoutMs || 100,
-          acknowledge: query.acknowledge !== false
+          acknowledge: query.acknowledge !== false,
+          subscribeBeforeReceive: query.subscribe_before_receive !== false && query.subscribeBeforeReceive !== false,
+          subscribeCorrId: query.subscribe_corr_id || query.subscribeCorrId
         });
         if (received && received.duplicate) continue;
         if (received && received.payload && received.payload.type === 'read-receipt') {
