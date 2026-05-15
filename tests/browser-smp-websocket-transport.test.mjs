@@ -126,6 +126,30 @@ test('connects with binary SMP handshake and sends padded transport blocks', asy
   assert.equal(decoded[0].command.type, 'PING');
 });
 
+test('caps default negotiated version at the implemented browser SMP maximum', async () => {
+  resetSockets();
+  const connecting = connectBrowserSmpWebSocketTransport({
+    url: 'wss://smp.example/ws',
+    keyHash: filled(32, 9),
+    WebSocketImpl: FakeWebSocket,
+    timeoutMs: 1000
+  });
+  const socket = FakeWebSocket.instances[0];
+  socket.open();
+  await nextTurn();
+  socket.message(padBlock(encodeServerHandshake({
+    minVersion: 3,
+    maxVersion: 15,
+    sessionId: filled(32, 10)
+  })).buffer);
+
+  const transport = await connecting;
+  assert.equal(transport.version, 6);
+  const clientHandshake = parseClientHandshake(unpadBlock(new Uint8Array(socket.sent[0])));
+  assert.equal(clientHandshake.version, 6);
+  transport.close();
+});
+
 test('receives binary SMP blocks and decodes signed transmissions', async () => {
   resetSockets();
   const connecting = connectBrowserSmpWebSocketTransport({

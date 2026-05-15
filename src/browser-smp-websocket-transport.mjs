@@ -14,6 +14,8 @@
 
 import {
   SMP_BLOCK_SIZE,
+  SMP_BROWSER_MAX_VERSION,
+  SMP_BROWSER_MIN_VERSION,
   chooseCompatibleVersion,
   decodeTransportBlock,
   encodeClientHandshake,
@@ -209,8 +211,8 @@ export async function connectBrowserSmpWebSocketTransport(options = {}) {
     fail('SIMPLEX_SMP_WS_SESSION', 'SMP WebSocket server session id did not match expected value');
   }
   var version = chooseCompatibleVersion(serverHandshake, {
-    minVersion: options.minVersion || 3,
-    maxVersion: options.maxVersion || 15
+    minVersion: options.minVersion || SMP_BROWSER_MIN_VERSION,
+    maxVersion: options.maxVersion || SMP_BROWSER_MAX_VERSION
   });
   var keyHash = toBytes(options.keyHash || new Uint8Array(), 'SMP server identity hash');
   socketSend(socket, padBlock(encodeClientHandshake({ version, keyHash })));
