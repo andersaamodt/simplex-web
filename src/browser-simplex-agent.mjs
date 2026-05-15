@@ -802,9 +802,11 @@ function nativeInvitationUriFromQueue(queue, x3dhKey1, x3dhKey2, options = {}) {
   var senderId = q.sndId || q.senderId || q.queueId;
   var dhPublicKey = q.recipientDhPublicKey || (q.rcvDhKey && q.rcvDhKey.publicKeyDer);
   var e2eVersionRange = String(options.nativeE2EVersionRange || options.e2eVersionRange || '2');
+  var queueMode = String(options.queueMode || q.queueMode || 'm').toLowerCase().slice(0, 1) || 'm';
+  var senderCanSecure = queueMode === 'm' ? '&k=s' : '';
   var queueUri = formatProtocolServer(q.server) + '/' + encodeBase64Url(senderId || new Uint8Array()) +
     '#/?v=1-4&dh=' + encodeURIComponent(encodeBase64Url(dhPublicKey || new Uint8Array())) +
-    '&q=' + encodeURIComponent(String(options.queueMode || q.queueMode || 'm').toLowerCase().slice(0, 1) || 'm');
+    '&q=' + encodeURIComponent(queueMode) + senderCanSecure;
   var e2e = 'v=' + encodeURIComponent(e2eVersionRange) + '&x3dh=' + [
     encodeBase64Url(x3dhKey1.publicKeyDer || encodePublicKeyDer('X448', x3dhKey1.publicKey)),
     encodeBase64Url(x3dhKey2.publicKeyDer || encodePublicKeyDer('X448', x3dhKey2.publicKey))

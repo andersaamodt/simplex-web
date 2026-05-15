@@ -440,6 +440,8 @@ test('native contact address request sends an AgentInvitation with an empty priv
   const parsedConnReq = smp.parseSimplexConnectionLink(connReq);
   assert.equal(parsedConnReq.type, 'invitation');
   assert.equal(parsedConnReq.nativeAgentProfile, true);
+  assert.equal(parsedConnReq.smpQueues[0].native.queueMode, 'm');
+  assert.equal(parsedConnReq.smpQueues[0].native.senderCanSecure, 's');
   assert.equal(parsedConnReq.nativeE2E.x3dhKeys.length, 2);
 });
 
