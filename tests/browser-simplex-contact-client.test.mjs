@@ -431,11 +431,9 @@ test('contact client requests native SimpleX contact addresses and activates aft
     }
   };
   transport.pushResponse('native-file-invite', { type: 'OK' }, owlReplyQueue.sndId);
-  transport.pushResponse('native-file-descr', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendFile('bob', smp.utf8Bytes('file body'), {
     xftpClient: nativeXftpClient,
     corrId: 'native-file-invite',
-    descrCorrIds: ['native-file-descr'],
     clientMessageId: 'native-file-msg'
   });
   const fileInviteCommand = parsedCommandByCorr(transport, 'native-file-invite');
@@ -446,21 +444,16 @@ test('contact client requests native SimpleX contact addresses and activates aft
   let fileInviteNative = parseNativeAgentEnvelope(fileInvitePlain.body);
   let fileInviteDecrypted = decryptNativeRatchetMessage(owlRatchet, fileInviteNative.encAgentMessage);
   let fileInviteAgent = parseNativeAgentMessage(fileInviteDecrypted.plaintext);
-  let fileInviteJson = JSON.parse(smp.utf8Text(fileInviteAgent.body));
+  let fileBatchJson = JSON.parse(smp.utf8Text(fileInviteAgent.body));
+  assert.equal(Array.isArray(fileBatchJson), true);
+  assert.equal(fileBatchJson.length, 2);
+  let fileInviteJson = fileBatchJson[0];
+  let fileDescrJson = fileBatchJson[1];
   assert.equal(fileInviteJson.event, 'x.msg.new');
   assert.equal(fileInviteJson.params.content.type, 'file');
   assert.equal(fileInviteJson.params.file.fileName, 'owl-native.txt');
   assert.equal(fileInviteJson.params.file.fileDescr.fileDescrComplete, false);
   owlRatchet = fileInviteDecrypted.state;
-  const fileDescrCommand = parsedCommandByCorr(transport, 'native-file-descr');
-  const fileDescrPlain = decryptClientMessageEnvelope({
-    sharedSecret: store.loadQueue('bob:outbox').e2eSharedSecret,
-    envelope: fileDescrCommand.command.body
-  });
-  let fileDescrNative = parseNativeAgentEnvelope(fileDescrPlain.body);
-  let fileDescrDecrypted = decryptNativeRatchetMessage(owlRatchet, fileDescrNative.encAgentMessage);
-  let fileDescrAgent = parseNativeAgentMessage(fileDescrDecrypted.plaintext);
-  let fileDescrJson = JSON.parse(smp.utf8Text(fileDescrAgent.body));
   assert.equal(fileDescrJson.event, 'x.msg.file.descr');
   assert.equal(typeof fileDescrJson.msgId, 'string');
   assert.notEqual(fileDescrJson.msgId, fileInviteJson.msgId);
@@ -469,7 +462,6 @@ test('contact client requests native SimpleX contact addresses and activates aft
   assert.equal(fileDescrJson.params.fileDescr.fileDescrComplete, true);
   assert.match(fileDescrJson.params.fileDescr.fileDescrText, /party: recipient/);
   assert.match(fileDescrJson.params.fileDescr.fileDescrText, /server: xftp:\/\/abc=@xftp.example.test/);
-  owlRatchet = fileDescrDecrypted.state;
 
   transport.pushResponse('native-contact-send', { type: 'OK' }, owlReplyQueue.sndId);
   await contacts.sendText('bob', 'hello after accept', {

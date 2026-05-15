@@ -1235,7 +1235,7 @@ export class BrowserSimplexContactClient {
       fileDescrPartNo: 0,
       fileDescrComplete: false
     };
-    var invite = await this.sendNativeChatBody(contact, encodeNativeChatJson({
+    var inviteMessage = {
       v: '1',
       msgId: sharedMsgId,
       event: 'x.msg.new',
@@ -1247,14 +1247,11 @@ export class BrowserSimplexContactClient {
           fileDescr
         }
       }
-    }), {
-      ...options,
-      clientMessageId: options.clientMessageId || sharedMsgId
-    });
+    };
     var parts = splitNativeFileDescription(desc, options.nativeXftpDescrPartSize);
-    var descriptions = [];
+    var messages = [inviteMessage];
     for (var i = 0; i < parts.length; i += 1) {
-      descriptions.push(await this.sendNativeChatBody(contact, encodeNativeChatJson({
+      messages.push({
         v: '1',
         msgId: base64UrlPadded(randomNonce24()),
         event: 'x.msg.file.descr',
@@ -1266,13 +1263,13 @@ export class BrowserSimplexContactClient {
             fileDescrComplete: i === parts.length - 1
           }
         }
-      }), {
-        ...options,
-        corrId: (Array.isArray(options.descrCorrIds) && options.descrCorrIds[i]) || options.descrCorrId || options.corrId,
-        clientMessageId: (options.clientMessageId || sharedMsgId) + ':descr:' + i
-      }));
+      });
     }
-    return { ...invite, file, nativeFileDescription: desc, nativeFileDescriptionSends: descriptions };
+    var invite = await this.sendNativeChatBody(contact, encodeNativeChatJson(messages), {
+      ...options,
+      clientMessageId: options.clientMessageId || sharedMsgId
+    });
+    return { ...invite, file, nativeFileDescription: desc, nativeFileDescriptionSends: [invite] };
   }
 
   async sendReadReceipt(id, messageRef, options = {}) {
