@@ -172,13 +172,21 @@
         return {
           available: true,
           transport_status: normalizeStatus(reported.transport_status || reported.transportStatus, 'connected'),
-          transport_error: limitString(reported.transport_error || reported.transportError || '', MAX_TEXT_LENGTH)
+          transport_error: limitString(reported.transport_error || reported.transportError || '', MAX_TEXT_LENGTH),
+          plaintextBridge: reported.plaintextBridge === true,
+          browserNativeProtocol: reported.browserNativeProtocol !== false,
+          xftp_status: normalizeStatus(reported.xftp_status || reported.xftpStatus, 'unknown'),
+          fileTransferReady: reported.fileTransferReady === true
         };
       }
       return {
         available: true,
         transport_status: 'connected',
-        transport_error: ''
+        transport_error: '',
+        plaintextBridge: false,
+        browserNativeProtocol: true,
+        xftp_status: 'unknown',
+        fileTransferReady: false
       };
     }
 

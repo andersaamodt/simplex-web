@@ -35,7 +35,13 @@ test('registered browser adapter receives normalized outbound text and returns n
   function onStatus() {}
   const transport = transportApi.registerBrowserTransport({
     getStatus() {
-      return { transport_status: 'direct-browser-smp' };
+      return {
+        transport_status: 'direct-browser-smp',
+        plaintextBridge: false,
+        browserNativeProtocol: true,
+        xftp_status: 'missing',
+        fileTransferReady: false
+      };
     },
     sendText(message) {
       calls.push(message);
@@ -47,7 +53,11 @@ test('registered browser adapter receives normalized outbound text and returns n
   assert.deepEqual(transport.getStatus(), {
     available: true,
     transport_status: 'direct-browser-smp',
-    transport_error: ''
+    transport_error: '',
+    plaintextBridge: false,
+    browserNativeProtocol: true,
+    xftp_status: 'missing',
+    fileTransferReady: false
   });
 
   const receipt = await transport.sendText(
